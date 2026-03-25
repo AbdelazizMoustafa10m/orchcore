@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from orchcore.stream.events import StreamEvent, StreamEventType
+from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction
+from orchcore.stream.events import StreamEvent, StreamEventType, StreamFormat
 
 
 @pytest.fixture
@@ -40,6 +41,22 @@ def sample_stream_events():
             num_turns=5,
         ),
     ]
+
+
+@pytest.fixture
+def sample_agent_config() -> AgentConfig:
+    """A minimal agent config for testing."""
+    return AgentConfig(
+        name="test-agent",
+        binary="echo",
+        model="test-model",
+        subcommand="-p",
+        flags={AgentMode.PLAN: ["--verbose"], AgentMode.FIX: []},
+        stream_format=StreamFormat.CLAUDE,
+        output_extraction=OutputExtraction(
+            strategy=OutputExtraction.Strategy.STDOUT_CAPTURE,
+        ),
+    )
 
 
 # -- JSONL fixture data for each format --

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from decimal import Decimal  # noqa: TC003 — required by Pydantic runtime validation
 from enum import StrEnum
+from pathlib import Path  # noqa: TC003 — required by Pydantic runtime validation
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -125,12 +126,29 @@ class AgentMonitorSnapshot(BaseModel):
 
 
 class AgentResult(BaseModel):
-    """Final result from an agent execution."""
+    """Return type of AgentRunner.run(). Captures all outputs from a single agent execution."""
 
-    success: bool
-    session_id: str | None = None
+    agent_name: str = ""
+    output_path: Path | None = None
+    stream_path: Path | None = None
+    log_path: Path | None = None
+    exit_code: int = 0
+    duration: timedelta | None = None
     cost_usd: Decimal | None = None
-    duration_ms: int | None = None
-    num_turns: int | None = None
     token_usage: dict[str, int] | None = None
+    num_turns: int | None = None
+    session_id: str | None = None
+    output_empty: bool = False
     error: str | None = None
+
+
+__all__ = [
+    "AgentMonitorSnapshot",
+    "AgentResult",
+    "AgentState",
+    "StreamEvent",
+    "StreamEventType",
+    "StreamFormat",
+    "ToolCounters",
+    "ToolExecution",
+]
