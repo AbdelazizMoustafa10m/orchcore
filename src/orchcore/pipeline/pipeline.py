@@ -157,9 +157,7 @@ class PipelineRunner:
         if not isinstance(completed_phases, list):
             return set()
 
-        return {
-            phase_name for phase_name in completed_phases if isinstance(phase_name, str)
-        }
+        return {phase_name for phase_name in completed_phases if isinstance(phase_name, str)}
 
     def _save_state(self, completed_phases: set[str]) -> None:
         """Save completed phase names to the workspace state file."""

@@ -118,13 +118,9 @@ def codex_jsonl_lines() -> list[str]:
     """Realistic Codex format JSONL lines."""
     return [
         json.dumps({"type": "thread.started"}),
-        json.dumps(
-            {"type": "item.started", "item": {"id": "item-1", "type": "function_call"}}
-        ),
+        json.dumps({"type": "item.started", "item": {"id": "item-1", "type": "function_call"}}),
         json.dumps({"type": "response.output_item.delta", "delta": {}}),
-        json.dumps(
-            {"type": "item.completed", "item": {"id": "item-1", "type": "function_call"}}
-        ),
+        json.dumps({"type": "item.completed", "item": {"id": "item-1", "type": "function_call"}}),
         json.dumps(
             {
                 "type": "item.completed",

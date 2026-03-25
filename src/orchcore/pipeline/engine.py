@@ -63,13 +63,10 @@ class PhaseRunner:
         telemetry: TelemetryProtocol | None = None,
     ) -> None:
         if max_concurrency < 1:
-            raise ValueError(
-                f"max_concurrency must be at least 1, got {max_concurrency}"
-            )
+            raise ValueError(f"max_concurrency must be at least 1, got {max_concurrency}")
         if stall_check_interval <= 0:
             raise ValueError(
-                "stall_check_interval must be greater than 0, "
-                f"got {stall_check_interval}"
+                f"stall_check_interval must be greater than 0, got {stall_check_interval}"
             )
 
         self._runner = runner
@@ -355,9 +352,7 @@ class PhaseRunner:
                     agent_name=agent.name,
                     output_path=output_path,
                     phase_name=phase_name,
-                    error=(
-                        f"Agent {agent.name!r} failed in phase {phase_name!r}: {exc}"
-                    ),
+                    error=(f"Agent {agent.name!r} failed in phase {phase_name!r}: {exc}"),
                 )
 
     def terminate_active_processes(self) -> None:

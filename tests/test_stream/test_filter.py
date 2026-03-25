@@ -51,9 +51,7 @@ async def test_filter_stream_preserves_actionable_lines_in_order() -> None:
         ):
             yield line
 
-    filtered = [
-        line async for line in StreamFilter(StreamFormat.CLAUDE).filter_stream(raw_lines())
-    ]
+    filtered = [line async for line in StreamFilter(StreamFormat.CLAUDE).filter_stream(raw_lines())]
 
     expected = ['{"type":"content_block_delta"}', '{"type":"assistant"}', '{"type":"result"}']
     assert filtered == expected

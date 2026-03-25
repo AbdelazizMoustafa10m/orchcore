@@ -48,16 +48,11 @@ def test_render_string_renders_template_string() -> None:
     ("content", "expected"),
     [
         (
-            "---\n"
-            "title: Example\n"
-            "---\n"
-            "Body text\n",
+            "---\ntitle: Example\n---\nBody text\n",
             "Body text\n",
         ),
         (
-            "Body text\n"
-            "---\n"
-            "not frontmatter\n",
+            "Body text\n---\nnot frontmatter\n",
             "Body text\n---\nnot frontmatter\n",
         ),
     ],

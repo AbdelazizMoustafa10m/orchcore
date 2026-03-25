@@ -71,9 +71,9 @@ def test_load_settings_with_profile_reads_profile_from_cwd_pyproject(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
         "[tool.orchcore]\n"
-        'concurrency = 11\n'
+        "concurrency = 11\n"
         'log_level = "warning"\n'
-        '[tool.orchcore.profiles.dev]\n'
+        "[tool.orchcore.profiles.dev]\n"
         "concurrency = 13\n"
         'workspace_dir = ".dev-workspace"\n',
         encoding="utf-8",

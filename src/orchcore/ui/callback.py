@@ -106,6 +106,7 @@ class LoggingCallback(NullCallback):
 
     def __init__(self) -> None:
         import logging
+
         self._logger = logging.getLogger("orchcore.ui")
 
     def on_pipeline_start(self, phases: list[Phase]) -> None:

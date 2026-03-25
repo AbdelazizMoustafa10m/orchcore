@@ -24,10 +24,7 @@ def test_load_searches_directories_and_strips_frontmatter(
 ) -> None:
     second_dir = template_dirs[1]
     (second_dir / "welcome.md").write_text(
-        "---\n"
-        "title: Greeting\n"
-        "---\n"
-        "Hello {{ name }}!\n",
+        "---\ntitle: Greeting\n---\nHello {{ name }}!\n",
         encoding="utf-8",
     )
 

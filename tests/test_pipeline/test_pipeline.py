@@ -89,9 +89,7 @@ class StubPhaseRunner(PhaseRunner):
         try:
             return self._results[phase.name]
         except KeyError as exc:
-            raise AssertionError(
-                f"Missing stubbed PhaseResult for phase {phase.name!r}"
-            ) from exc
+            raise AssertionError(f"Missing stubbed PhaseResult for phase {phase.name!r}") from exc
 
 
 @pytest.fixture
@@ -422,9 +420,7 @@ async def test_run_pipeline_saves_state_and_loads_it_for_resume(
         _phase("implementation"),
         _phase("review"),
     ]
-    resumed_runner = StubPhaseRunner(
-        {"review": _phase_result("review", PhaseStatus.DONE)}
-    )
+    resumed_runner = StubPhaseRunner({"review": _phase_result("review", PhaseStatus.DONE)})
     resumed_pipeline_runner = PipelineRunner(
         phase_runner=resumed_runner,
         workspace=workspace,

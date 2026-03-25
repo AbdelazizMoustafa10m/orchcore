@@ -39,8 +39,7 @@ class AgentRegistry:
     def available(self) -> list[str]:
         """Return names of agents whose binary is on PATH."""
         return [
-            name for name, config in self._agents.items()
-            if shutil.which(config.binary) is not None
+            name for name, config in self._agents.items() if shutil.which(config.binary) is not None
         ]
 
     def validate(self, names: list[str]) -> list[str]:
@@ -78,9 +77,7 @@ class AgentRegistry:
             if "stream_format" in agent_data:
                 agent_data["stream_format"] = StreamFormat(agent_data["stream_format"])
             if "flags" in agent_data:
-                agent_data["flags"] = {
-                    AgentMode(k): v for k, v in agent_data["flags"].items()
-                }
+                agent_data["flags"] = {AgentMode(k): v for k, v in agent_data["flags"].items()}
             config = AgentConfig(**agent_data)
             self.register(config)
 
