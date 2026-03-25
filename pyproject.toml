@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "orchcore"
+version = "0.1.0"
+description = "Reusable orchestration core for AI coding agent CLI pipelines"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Abdelaziz Moustafa" },
+]
+dependencies = [
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+rich = ["rich>=13.0"]
+tui = ["textual>=0.40"]
+dev = [
+    "mypy>=1.13",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "coverage>=7.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orchcore"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking
+    "ARG",   # flake8-unused-arguments
+    "S",     # flake8-bandit
+    "RUF",   # ruff-specific rules
+]
+ignore = ["S101"]  # allow assert in tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["orchcore"]
+
+[tool.coverage.run]
+source = ["orchcore"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
