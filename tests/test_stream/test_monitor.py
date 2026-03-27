@@ -235,6 +235,37 @@ def test_monitor_logs_unknown_state_change_hint(caplog: pytest.LogCaptureFixture
     assert "Unknown state change hint" in caplog.text
 
 
+def test_monitor_handles_gemini_tool_lifecycle_with_generated_ids() -> None:
+    # Arrange
+    monitor = AgentMonitor("gemini")
+
+    # Act — feed TOOL_START and TOOL_DONE using the generated ID format
+    monitor.update(
+        StreamEvent(
+            event_type=StreamEventType.TOOL_START,
+            tool_name="web_search_exa",
+            tool_id="gemini-tool-1",
+            tool_status="running",
+        )
+    )
+    running_snap = monitor.snapshot()
+    monitor.update(
+        StreamEvent(
+            event_type=StreamEventType.TOOL_DONE,
+            tool_name="web_search_exa",
+            tool_id="gemini-tool-1",
+            tool_status="done",
+        )
+    )
+    done_snap = monitor.snapshot()
+
+    # Assert — running counter increments then returns to zero after TOOL_DONE
+    assert running_snap.counters.running == 1
+    assert done_snap.counters.running == 0
+    assert done_snap.counters.succeeded == 1
+    assert done_snap.last_tool == "web_search_exa"
+
+
 @pytest.mark.asyncio
 async def test_monitor_consume_updates_state_and_emits_callback() -> None:
     # Arrange

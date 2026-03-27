@@ -55,6 +55,7 @@ class StreamEvent(BaseModel):
 
     # Text fields
     text_preview: str | None = None
+    text_full: str | None = None
 
     # Result fields (RESULT)
     cost_usd: Decimal | None = None

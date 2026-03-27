@@ -276,6 +276,71 @@ def test_to_decimal_returns_none_for_invalid_values() -> None:
     assert StreamParser._to_decimal("not-a-decimal") is None
 
 
+def test_claude_text_event_preserves_full_text_beyond_preview_limit() -> None:
+    # Arrange — build a Claude assistant TEXT event with text longer than 200 chars
+    long_text = "A" * 250
+    line = json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "text", "text": long_text},
+                ]
+            },
+        }
+    )
+    parser = StreamParser(StreamFormat.CLAUDE)
+
+    # Act
+    events = parser.parse_line(line)
+
+    # Assert
+    assert len(events) == 1
+    event = events[0]
+    assert event.event_type == StreamEventType.TEXT
+    assert event.text_preview == long_text[:200]
+    assert event.text_full == long_text
+
+
+def test_gemini_tool_start_events_have_generated_tool_id() -> None:
+    # Arrange
+    parser = StreamParser(StreamFormat.GEMINI)
+    line = json.dumps(
+        {
+            "functionCall": {
+                "name": "web_search_exa",
+                "args": {"query": "test"},
+            }
+        }
+    )
+
+    # Act
+    events = parser.parse_line(line)
+
+    # Assert
+    tool_start_events = [e for e in events if e.event_type == StreamEventType.TOOL_START]
+    assert len(tool_start_events) == 1
+    assert tool_start_events[0].tool_id == "gemini-tool-1"
+
+
+def test_gemini_tool_done_event_references_matching_tool_id() -> None:
+    # Arrange
+    parser = StreamParser(StreamFormat.GEMINI)
+    start_line = json.dumps({"functionCall": {"name": "web_search_exa", "args": {"query": "test"}}})
+    done_line = json.dumps(
+        {"functionResponse": {"name": "web_search_exa", "response": {"result": "ok"}}}
+    )
+
+    # Act
+    parser.parse_line(start_line)
+    done_events = parser.parse_line(done_line)
+
+    # Assert
+    tool_done_events = [e for e in done_events if e.event_type == StreamEventType.TOOL_DONE]
+    assert len(tool_done_events) == 1
+    assert tool_done_events[0].tool_id == "gemini-tool-1"
+
+
 @pytest.mark.asyncio
 async def test_parse_stream_yields_async_events(copilot_jsonl_lines: list[str]) -> None:
     async def raw_lines() -> AsyncIterator[str]:

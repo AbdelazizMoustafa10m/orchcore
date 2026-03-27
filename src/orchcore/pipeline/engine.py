@@ -89,6 +89,7 @@ class PhaseRunner:
         self._telemetry = telemetry
         self._fallback_workspace_dir = Path.cwd() / _DEFAULT_WORKSPACE_NAME
         self._workspace_ready = False
+        self._ui_callback: UICallback | None = None
 
     def _install_signal_handlers(self) -> None:
         """Install SIGINT/SIGTERM handlers on the running event loop."""
@@ -117,6 +118,9 @@ class PhaseRunner:
         self._shutting_down = True
         self.terminate_active_processes()
 
+        if self._ui_callback is not None:
+            self._ui_callback.on_shutdown("Signal received")
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -142,6 +146,7 @@ class PhaseRunner:
     ) -> PhaseResult:
         """Execute all agents in a phase sequentially."""
         self._install_signal_handlers()
+        self._ui_callback = ui_callback
 
         if self._shutting_down:
             result = _failed_phase(phase.name, "Shutdown in progress")
@@ -165,6 +170,8 @@ class PhaseRunner:
         try:
             with _phase_span(self._telemetry, phase.name):
                 for current_agent_name in phase.agents:
+                    if self._shutting_down:
+                        break
                     agent = self._resolve_agent(current_agent_name, phase.name)
                     output_path = await self._resolve_output_path(
                         phase_name=phase.name,
@@ -221,6 +228,7 @@ class PhaseRunner:
     ) -> PhaseResult:
         """Execute all agents in a phase concurrently."""
         self._install_signal_handlers()
+        self._ui_callback = ui_callback
 
         if self._shutting_down:
             result = _failed_phase(phase.name, "Shutdown in progress")
@@ -462,6 +470,13 @@ class PhaseRunner:
             attempt = 1
 
             while True:
+                if self._shutting_down:
+                    return _synthetic_agent_result(
+                        agent_name=agent.name,
+                        output_path=output_path,
+                        phase_name=phase_name,
+                        error=f"Agent {agent.name!r} aborted: shutdown in progress",
+                    )
                 try:
                     with _agent_span(self._telemetry, phase_name, agent.name):
                         result = await self._runner.run(
@@ -521,6 +536,8 @@ class PhaseRunner:
                     )
 
                 ui_callback.on_retry(agent.name, attempt, policy.max_retries)
+                if self._shutting_down:
+                    return result
                 await asyncio.sleep(wait_seconds)
                 attempt += 1
 

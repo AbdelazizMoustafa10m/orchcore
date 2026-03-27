@@ -9,7 +9,13 @@ import pytest
 
 from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
 from orchcore.runner.subprocess import AgentRunner, _strip_preamble_text, _translate_toolset
-from orchcore.stream.events import StreamEvent, StreamEventType, StreamFormat
+from orchcore.stream.events import (
+    AgentMonitorSnapshot,
+    AgentState,
+    StreamEvent,
+    StreamEventType,
+    StreamFormat,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -416,6 +422,89 @@ async def test_run_uses_stdout_fallback_for_error_when_stderr_is_empty(
     # Assert
     assert result.exit_code == 7
     assert result.error == "stdout failure"
+
+
+@pytest.mark.asyncio
+async def test_run_writes_full_text_not_truncated_preview(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    # Arrange — write a helper script that emits a TEXT event with text > 200 chars
+    long_text = "X" * 250
+    script_path = tmp_path / "emit_long_text.py"
+    script_path.write_text(
+        textwrap.dedent(
+            """\
+            import json
+            long_text = "X" * 250
+            print(json.dumps({"type": "system", "subtype": "init", "session_id": "s1"}),
+                flush=True)
+            print(json.dumps({
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": long_text}]}
+            }), flush=True)
+            print(json.dumps({"type": "result", "exit_code": 0}), flush=True)
+            """
+        ),
+        encoding="utf-8",
+    )
+    agent = sample_agent_config.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": str(script_path),
+            "flags": {AgentMode.PLAN: []},
+        }
+    )
+
+    # Act
+    result = await AgentRunner().run(
+        agent,
+        "",
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    # Assert — persisted output contains the full 250-char text, not just the 200-char preview
+    assert result.exit_code == 0
+    output = (tmp_path / "output.md").read_text(encoding="utf-8")
+    assert long_text in output
+    assert len(output) >= 250
+
+
+@pytest.mark.asyncio
+async def test_run_emits_failed_snapshot_when_process_exits_nonzero(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    # Arrange — script exits non-zero without emitting a RESULT stream event
+    script = textwrap.dedent(
+        """
+        raise SystemExit(3)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": "-c",
+            "flags": {AgentMode.PLAN: []},
+        }
+    )
+    snapshots: list[AgentMonitorSnapshot] = []
+
+    # Act
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+        on_snapshot=snapshots.append,
+    )
+
+    # Assert — the final on_snapshot call reflects the failure state
+    assert result.exit_code == 3
+    assert len(snapshots) >= 1
+    final_snapshot = snapshots[-1]
+    assert final_snapshot.state == AgentState.FAILED
 
 
 @pytest.mark.parametrize(

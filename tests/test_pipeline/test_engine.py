@@ -582,3 +582,125 @@ async def test_run_parallel_evaluates_continue_and_require_minimum_statuses(
 
     # Assert
     assert result.status is expected_status
+
+
+@pytest.mark.asyncio
+async def test_run_phase_aborts_remaining_agents_on_shutdown(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    registry = AgentRegistry()
+    _register_agents(registry, sample_agent_config, "agent-one", "agent-two")
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=registry)
+    output_path_one = tmp_path / "agent-one.md"
+    output_path_two = tmp_path / "agent-two.md"
+
+    async def fake_resolve_output_path(phase_name: str, agent_name: str) -> Path:
+        del phase_name
+        return tmp_path / f"{agent_name}.md"
+
+    async def fake_run_with_semaphore(
+        *,
+        agent: AgentConfig,
+        output_path: Path,
+        **_: object,
+    ) -> AgentResult:
+        # Trigger shutdown during the first agent's execution
+        phase_runner._shutting_down = True
+        return _build_agent_result(
+            agent_name=agent.name,
+            output_path=output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    monkeypatch.setattr(phase_runner, "_resolve_output_path", fake_resolve_output_path)
+    monkeypatch.setattr(phase_runner, "_run_with_semaphore", fake_run_with_semaphore)
+
+    # Act
+    result = await phase_runner.run_phase(
+        phase=Phase(name="analysis", agents=["agent-one", "agent-two"]),
+        prompt="run",
+        ui_callback=NullCallback(),
+        mode=AgentMode.PLAN,
+    )
+
+    # Assert — only agent-one ran; agent-two was skipped because shutdown was set
+    assert len(result.agent_results) == 1
+    assert result.agent_results[0].agent_name == "agent-one"
+    assert result.agent_results[0].output_path == output_path_one
+    _ = output_path_two  # agent-two was never started
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Arrange
+    runner = AgentRunner()
+    phase_runner = PhaseRunner(runner=runner, registry=AgentRegistry())
+    ui_callback = _RecordingCallback()
+    output_path = tmp_path / "codex.md"
+    agent = sample_agent_config.model_copy(update={"name": "codex"})
+    attempts = 0
+    sleep_calls: list[float] = []
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=output_path,
+            exit_code=1,
+            output_empty=True,
+            error="rate limit exceeded",
+        )
+
+    async def fake_is_tree_dirty(self: object) -> bool:
+        del self
+        return False
+
+    async def fake_auto_commit(self: object) -> bool:
+        del self
+        return False
+
+    def fake_compute_wait(self: object, attempt: int, reset_seconds: int | None = None) -> float:
+        del self, attempt, reset_seconds
+        # Set shutdown flag so the retry is skipped
+        phase_runner._shutting_down = True
+        return 0.25
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr(runner, "run", fake_run)
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.is_tree_dirty", fake_is_tree_dirty)
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.auto_commit", fake_auto_commit)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        fake_compute_wait,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", fake_sleep)
+
+    # Act
+    result = await phase_runner._run_with_semaphore(
+        agent=agent,
+        prompt="retry",
+        output_path=output_path,
+        phase_name="analysis",
+        ui_callback=ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(max_retries=3, failure_mode=FailureMode.FAIL_FAST),
+    )
+
+    # Assert — rate-limited result is returned immediately without sleeping or retrying
+    assert attempts == 1
+    assert result.exit_code == 1
+    assert result.error == "rate limit exceeded"
+    assert sleep_calls == []
+    assert ui_callback.retries == [("codex", 1, 3)]

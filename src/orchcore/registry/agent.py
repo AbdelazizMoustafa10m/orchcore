@@ -67,7 +67,8 @@ class ToolSet(BaseModel):
     Max turns limits conversation depth for the agent invocation.
 
     ToolSet is resolved per agent per phase using the resolution order:
-        Phase.agent_tools[agent] > Phase.tools > AgentConfig.flags[mode] > defaults
+        Phase.agent_tools[agent] > explicit_toolset > Phase.tools > AgentConfig.flags[mode]
+        > defaults
     """
 
     internal: list[str] = Field(default_factory=list)

@@ -20,7 +20,13 @@ from orchcore.registry.agent import (
     OutputExtraction,
     ToolSet,
 )
-from orchcore.stream.events import AgentResult, StreamEvent, StreamEventType, StreamFormat
+from orchcore.stream.events import (
+    AgentResult,
+    AgentState,
+    StreamEvent,
+    StreamEventType,
+    StreamFormat,
+)
 from orchcore.stream.filter import StreamFilter
 from orchcore.stream.monitor import AgentMonitor
 from orchcore.stream.parser import StreamParser
@@ -113,8 +119,10 @@ class AgentRunner:
         stall_callback = _resolve_stall_callback(on_event)
 
         def _collecting_on_event(event: StreamEvent) -> None:
-            if event.event_type == StreamEventType.TEXT and event.text_preview is not None:
-                text_chunks.append(event.text_preview)
+            if event.event_type == StreamEventType.TEXT:
+                full = event.text_full or event.text_preview
+                if full is not None:
+                    text_chunks.append(full)
             if on_event is not None:
                 on_event(event)
             if (
@@ -172,6 +180,22 @@ class AgentRunner:
             await asyncio.to_thread(log_path.write_text, "".join(stderr_chunks), encoding="utf-8")
 
             exit_code = await proc.wait()
+
+            # Sync monitor state with process exit when stream didn't emit a terminal event.
+            if exit_code != 0:
+                current_snap = monitor.snapshot()
+                if current_snap.state not in {
+                    AgentState.COMPLETED,
+                    AgentState.FAILED,
+                    AgentState.CANCELLED,
+                }:
+                    monitor.update(
+                        StreamEvent(
+                            event_type=StreamEventType.RESULT,
+                            exit_code=exit_code,
+                            error=_derive_error(exit_code, stderr_chunks, stdout_chunks),
+                        )
+                    )
 
             duration = datetime.now() - started_at
 

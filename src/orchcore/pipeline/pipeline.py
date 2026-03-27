@@ -70,14 +70,14 @@ class PipelineRunner:
                 if phase.name == resume_from:
                     resuming = False
                 elif phase.name in completed_phases:
+                    reason = "Already completed (resuming)"
+                    phase_results.append(_skipped_phase_result(name=phase.name, reason=reason))
+                    ui_callback.on_phase_skip(phase, reason)
                     continue
                 else:
-                    phase_results.append(
-                        _skipped_phase_result(
-                            name=phase.name,
-                            reason="Skipped (resuming from later phase)",
-                        )
-                    )
+                    reason = "Skipped (resuming from later phase)"
+                    phase_results.append(_skipped_phase_result(name=phase.name, reason=reason))
+                    ui_callback.on_phase_skip(phase, reason)
                     continue
 
             if phase.name in skip_set:

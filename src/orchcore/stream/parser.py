@@ -23,6 +23,8 @@ class StreamParser:
         self._json_parse_error_count = 0
         # Gemini fallback: count parsed lines to emit periodic init/heartbeat pings.
         self._gemini_line_count: int = 0
+        # Gemini tool counter: generate stable tool_id values for Gemini tool events.
+        self._gemini_tool_counter: int = 0
         self._parsers: dict[StreamFormat, _ParseFn] = {
             StreamFormat.CLAUDE: self._parse_claude,
             StreamFormat.CODEX: self._parse_codex,
@@ -299,6 +301,7 @@ class StreamParser:
                         StreamEvent(
                             event_type=StreamEventType.TEXT,
                             text_preview=text[:200],
+                            text_full=text,
                             raw=data,
                         )
                     )
@@ -400,6 +403,7 @@ class StreamParser:
                     StreamEvent(
                         event_type=StreamEventType.TEXT,
                         text_preview=text_val[:200] if text_val else None,
+                        text_full=text_val or None,
                         raw=data,
                     )
                 ]
@@ -518,6 +522,7 @@ class StreamParser:
                 StreamEvent(
                     event_type=StreamEventType.TEXT,
                     text_preview=text_val[:200],
+                    text_full=text_val,
                     raw=data,
                 )
             )
@@ -575,6 +580,7 @@ class StreamParser:
                     StreamEvent(
                         event_type=StreamEventType.TEXT,
                         text_preview=text_val[:200],
+                        text_full=text_val,
                         raw=data,
                     )
                 ]
@@ -633,10 +639,13 @@ class StreamParser:
                     tool_args_dict: dict[str, Any] | None = (
                         tool_args if isinstance(tool_args, dict) else None
                     )
+                    self._gemini_tool_counter += 1
+                    tool_id = f"gemini-tool-{self._gemini_tool_counter}"
                     events.append(
                         StreamEvent(
                             event_type=StreamEventType.TOOL_START,
                             tool_name=tool_name,
+                            tool_id=tool_id,
                             tool_detail=self._extract_tool_detail(tool_name, tool_args_dict),
                             tool_status="running",
                             raw=data,
@@ -663,6 +672,7 @@ class StreamParser:
                 StreamEvent(
                     event_type=StreamEventType.TOOL_DONE,
                     tool_name=tool_name_resp,
+                    tool_id=f"gemini-tool-{self._gemini_tool_counter}",
                     tool_status="done",
                     raw=data,
                 )
@@ -708,6 +718,7 @@ class StreamParser:
                     StreamEvent(
                         event_type=StreamEventType.TEXT,
                         text_preview=text_val[:200],
+                        text_full=text_val,
                         raw=data,
                     )
                 )

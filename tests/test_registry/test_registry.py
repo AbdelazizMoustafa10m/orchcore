@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from orchcore.registry import AgentRegistry
 from orchcore.registry.agent import AgentMode
@@ -87,6 +88,13 @@ def test_with_overrides_returns_new_registry_with_patched_configs(sample_agent_c
     assert patched.get(sample_agent_config.name).model == "patched-model"
     assert patched.get(sample_agent_config.name).env_vars == {"A": "1", "B": "2"}
     assert registry.get(sample_agent_config.name).model == "test-model"
+
+
+def test_with_overrides_rejects_invalid_field_types(sample_agent_config) -> None:
+    registry = AgentRegistry({sample_agent_config.name: sample_agent_config})
+
+    with pytest.raises(ValidationError):
+        registry.with_overrides({sample_agent_config.name: {"stall_timeout": "not-a-number"}})
 
 
 def test_load_from_toml_reads_nested_models(tmp_path) -> None:

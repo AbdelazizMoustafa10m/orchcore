@@ -97,7 +97,7 @@ class AgentRegistry:
             # Merge env_vars if both exist
             if "env_vars" in override and config.env_vars:
                 override = {**override, "env_vars": {**config.env_vars, **override["env_vars"]}}
-            patched[name] = config.model_copy(update=override)
+            patched[name] = AgentConfig.model_validate({**config.model_dump(), **override})
         return AgentRegistry(patched)
 
 

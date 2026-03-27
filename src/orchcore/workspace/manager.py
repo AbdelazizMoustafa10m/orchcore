@@ -90,25 +90,30 @@ class WorkspaceManager:
         return await asyncio.to_thread(self.archive)
 
     def archive(self) -> Path:
-        """Copy workspace to archive directory.
+        """Copy workspace to archive directory, preserving nested structure.
 
-        - Compresses .stream files with gzip
-        - .md and .log files stored uncompressed
+        - Recursively walks the entire workspace tree
+        - Compresses .stream files with gzip (anywhere in the tree)
+        - All other files are stored uncompressed, preserving directory structure
         - Creates 'latest' symlink
+        - Removes all .stream files from workspace after archival
         """
         archive = self._next_archive_dir()
         archive.mkdir(parents=True, exist_ok=False)
 
-        for src_file in self.workspace_dir.iterdir():
+        for src_file in self.workspace_dir.rglob("*"):
             if not src_file.is_file():
                 continue
+            rel_path = src_file.relative_to(self.workspace_dir)
             if src_file.suffix == ".stream":
-                # Compress .stream files with gzip
-                dest = archive / f"{src_file.name}.gz"
+                dest = archive / rel_path.parent / f"{src_file.name}.gz"
+                dest.parent.mkdir(parents=True, exist_ok=True)
                 with src_file.open("rb") as f_in, gzip.open(dest, "wb") as f_out:
                     shutil.copyfileobj(f_in, f_out)
             else:
-                shutil.copy2(src_file, archive / src_file.name)
+                dest = archive / rel_path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, dest)
 
         # Create 'latest' symlink
         latest = archive.parent / "latest"
@@ -116,8 +121,8 @@ class WorkspaceManager:
             latest.unlink()
         latest.symlink_to(archive.name)
 
-        # Clean up .stream files from the active workspace after archival
-        for stream_file in self.workspace_dir.glob("*.stream"):
+        # Clean up all .stream files from the active workspace after archival
+        for stream_file in self.workspace_dir.rglob("*.stream"):
             stream_file.unlink()
 
         return archive

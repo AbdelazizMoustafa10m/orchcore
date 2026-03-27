@@ -53,6 +53,33 @@ def test_archive_compresses_stream_files_and_creates_latest_symlink(tmp_path) ->
     assert not (manager.workspace_dir / "run.stream").exists()
 
 
+def test_archive_preserves_nested_output_directory_structure(tmp_path) -> None:
+    manager = WorkspaceManager(tmp_path)
+    manager.ensure_dirs()
+    manager.set_task_slug("nested outputs test")
+
+    nested_dir = manager.workspace_dir / "outputs" / "phase1"
+    nested_dir.mkdir(parents=True)
+    (nested_dir / "agent.md").write_text("# Agent output", encoding="utf-8")
+    (nested_dir / "agent.stream").write_bytes(b"stream data\n")
+
+    archive = manager.archive()
+
+    # Nested .md preserved with directory structure
+    archived_md = archive / "outputs" / "phase1" / "agent.md"
+    assert archived_md.exists()
+    assert archived_md.read_text(encoding="utf-8") == "# Agent output"
+
+    # Nested .stream compressed with directory structure
+    archived_stream_gz = archive / "outputs" / "phase1" / "agent.stream.gz"
+    assert archived_stream_gz.exists()
+    with gzip.open(archived_stream_gz, "rb") as fh:
+        assert fh.read() == b"stream data\n"
+
+    # Nested .stream file removed from workspace after archival
+    assert not (nested_dir / "agent.stream").exists()
+
+
 def test_archive_creates_unique_directories_for_repeated_calls(tmp_path) -> None:
     manager = WorkspaceManager(tmp_path)
     manager.ensure_dirs()

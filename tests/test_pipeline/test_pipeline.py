@@ -541,7 +541,16 @@ async def test_run_pipeline_saves_state_and_loads_it_for_resume(
     )
 
     # Assert
-    assert [phase_result.name for phase_result in result.phases] == ["review"]
+    assert [phase_result.name for phase_result in result.phases] == [
+        "planning",
+        "implementation",
+        "review",
+    ]
+    assert result.phases[0].status is PhaseStatus.SKIPPED
+    assert result.phases[0].error == "Already completed (resuming)"
+    assert result.phases[1].status is PhaseStatus.SKIPPED
+    assert result.phases[1].error == "Already completed (resuming)"
+    assert result.phases[2].status is PhaseStatus.DONE
     assert [call.phase_name for call in resumed_runner.calls] == ["review"]
     assert json.loads(state_path.read_text(encoding="utf-8")) == {
         "completed_phases": ["implementation", "planning", "review"]
@@ -595,3 +604,87 @@ async def test_run_pipeline_logs_warning_when_save_state_fails(
     assert (
         "Failed to save pipeline resume state to '.state.json' after phase 'review': disk full"
     ) in caplog.text
+
+
+class _PhaseSkipRecordingCallback(NullCallback):
+    def __init__(self) -> None:
+        self.phase_skips: list[tuple[str, str]] = []
+
+    def on_phase_skip(self, phase: Phase, reason: str) -> None:
+        self.phase_skips.append((phase.name, reason))
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_on_phase_skip_called_for_resume_skipped_phases(
+    workspace: WorkspaceManager,
+) -> None:
+    # Arrange — save state so that planning and implementation appear completed
+    phases_initial = [_phase("planning"), _phase("implementation")]
+    initial_runner = StubPhaseRunner(
+        {
+            "planning": _phase_result("planning", PhaseStatus.DONE),
+            "implementation": _phase_result("implementation", PhaseStatus.DONE),
+        }
+    )
+    initial_pipeline = PipelineRunner(phase_runner=initial_runner, workspace=workspace)
+    await initial_pipeline.run_pipeline(
+        phases=phases_initial,
+        prompts={phase.name: phase.name for phase in phases_initial},
+        ui_callback=NullCallback(),
+    )
+
+    # Arrange — resume run with a new phase added; planning + implementation are in completed state
+    resumed_phases = [
+        _phase("planning"),
+        _phase("implementation"),
+        _phase("review"),
+    ]
+    resumed_runner = StubPhaseRunner({"review": _phase_result("review", PhaseStatus.DONE)})
+    recording_callback = _PhaseSkipRecordingCallback()
+    resumed_pipeline = PipelineRunner(phase_runner=resumed_runner, workspace=workspace)
+
+    # Act
+    result = await resumed_pipeline.run_pipeline(
+        phases=resumed_phases,
+        prompts={phase.name: phase.name for phase in resumed_phases},
+        ui_callback=recording_callback,
+        resume_from="review",
+    )
+
+    # Assert — on_phase_skip fired for both already-completed phases
+    assert result.success is True
+    assert recording_callback.phase_skips == [
+        ("planning", "Already completed (resuming)"),
+        ("implementation", "Already completed (resuming)"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_on_phase_skip_called_for_phases_before_resume_from() -> None:
+    # Arrange — no workspace state; phases before resume_from get the "resuming from later" reason
+    phases = [
+        _phase("planning"),
+        _phase("implementation"),
+        _phase("review"),
+    ]
+    phase_runner = StubPhaseRunner(
+        {
+            "implementation": _phase_result("implementation", PhaseStatus.DONE),
+            "review": _phase_result("review", PhaseStatus.DONE),
+        }
+    )
+    recording_callback = _PhaseSkipRecordingCallback()
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    # Act
+    await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={phase.name: phase.name for phase in phases},
+        ui_callback=recording_callback,
+        resume_from="implementation",
+    )
+
+    # Assert — on_phase_skip fired for the phase before resume_from
+    assert recording_callback.phase_skips == [
+        ("planning", "Skipped (resuming from later phase)"),
+    ]
