@@ -1,6 +1,8 @@
 # AI tool configurations
 .claude/
 .codex/
+AGENTS.md
+CLAUDE.md
 
 # Documentation (generated/managed separately)
 docs/
