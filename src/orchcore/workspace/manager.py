@@ -133,14 +133,11 @@ class WorkspaceManager:
         if not archive.exists() and not archive.is_symlink():
             return archive
 
-        suffix = 1
-        while True:
-            # Preserve earlier archives by allocating a new sibling directory
-            # instead of reusing an existing timestamp/slug path.
+        for suffix in range(1, 10001):
             candidate = archive.parent / f"{archive.name}-{suffix}"
             if not candidate.exists() and not candidate.is_symlink():
                 return candidate
-            suffix += 1
+        raise OSError(f"Could not find unused archive directory after 10000 attempts: {archive}")
 
     def cleanup(self) -> None:
         """Remove the workspace directory."""

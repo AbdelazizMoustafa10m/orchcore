@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal  # noqa: TC003 — required by Pydantic runtime validation
 from enum import StrEnum
 from pathlib import Path  # noqa: TC003 — required by Pydantic runtime validation
@@ -44,7 +44,7 @@ class StreamEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     event_type: StreamEventType
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Tool lifecycle fields (TOOL_START, TOOL_EXEC, TOOL_DONE)
     tool_id: str | None = None

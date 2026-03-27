@@ -5,7 +5,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 from types import new_class
-from typing import Any, cast
+from typing import Any
 
 from pydantic import Field
 from pydantic_settings import (
@@ -176,7 +176,8 @@ def _profiled_settings_class(
         (settings_class,),
         exec_body=exec_body,
     )
-    return cast("type[OrchcoreSettings]", profiled_settings_class)
+    assert issubclass(profiled_settings_class, OrchcoreSettings)
+    return profiled_settings_class
 
 
 def _build_settings_sources(

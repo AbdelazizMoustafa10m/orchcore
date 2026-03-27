@@ -7,7 +7,7 @@ import contextlib
 import logging
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path  # noqa: TC003 — used at runtime in path operations
 from typing import TYPE_CHECKING
 
@@ -92,7 +92,7 @@ class AgentRunner:
                 output_empty=True,
             )
 
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -197,7 +197,7 @@ class AgentRunner:
                         )
                     )
 
-            duration = datetime.now() - started_at
+            duration = datetime.now(UTC) - started_at
 
             await asyncio.to_thread(
                 _write_output,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, TypedDict
 
@@ -55,9 +55,9 @@ class PipelineRunner:
 
         effective_mode = AgentMode.PLAN if mode is None else mode
         skip_set = set(skip_phases or [])
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
         phase_results: list[PhaseResult] = []
-        completed_phases = self._load_state() if resume_from is not None else set()
+        completed_phases = await self._load_state() if resume_from is not None else set()
         resuming = resume_from is not None
 
         ui_callback.on_pipeline_start(phases)
@@ -122,7 +122,7 @@ class PipelineRunner:
 
             if self._workspace is not None:
                 try:
-                    self._save_state(completed_phases)
+                    await self._save_state(completed_phases)
                 except OSError as exc:
                     logger.warning(
                         "Failed to save pipeline resume state to '.state.json' after phase %r: %s",
@@ -136,19 +136,19 @@ class PipelineRunner:
 
         pipeline_result = PipelineResult(
             phases=phase_results,
-            total_duration=datetime.now() - started_at,
+            total_duration=datetime.now(UTC) - started_at,
             total_cost_usd=_total_cost(phase_results),
             success=_pipeline_succeeded(phase_results),
         )
         ui_callback.on_pipeline_complete(pipeline_result)
         return pipeline_result
 
-    def _load_state(self) -> set[str]:
+    async def _load_state(self) -> set[str]:
         """Load completed phase names from the workspace state file."""
         if self._workspace is None:
             return set()
 
-        state_content = self._workspace.read_file(".state.json")
+        state_content = await self._workspace.aread_file(".state.json")
         if state_content is None:
             return set()
 
@@ -166,7 +166,7 @@ class PipelineRunner:
 
         return {phase_name for phase_name in completed_phases if isinstance(phase_name, str)}
 
-    def _save_state(self, completed_phases: set[str]) -> None:
+    async def _save_state(self, completed_phases: set[str]) -> None:
         """Save completed phase names to the workspace state file."""
         if self._workspace is None:
             return
@@ -174,7 +174,7 @@ class PipelineRunner:
         state_data: _PipelineState = {
             "completed_phases": sorted(completed_phases),
         }
-        self._workspace.write_file(".state.json", json.dumps(state_data, indent=2))
+        await self._workspace.awrite_file(".state.json", json.dumps(state_data, indent=2))
 
 
 def _validate_pipeline_request(

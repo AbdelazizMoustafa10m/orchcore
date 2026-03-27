@@ -192,7 +192,10 @@ class BackoffStrategy:
         jitter_range: tuple[int, int] | None = None,
         max_wait: int = 21600,
     ) -> None:
-        self._schedule = list(schedule) if schedule is not None else list(self.DEFAULT_SCHEDULE)
+        resolved_schedule = list(schedule) if schedule is not None else list(self.DEFAULT_SCHEDULE)
+        if not resolved_schedule:
+            raise ValueError("BackoffStrategy schedule must not be empty")
+        self._schedule = resolved_schedule
         self._jitter_range = jitter_range if jitter_range is not None else self.DEFAULT_JITTER_RANGE
         self._max_wait = max_wait
 

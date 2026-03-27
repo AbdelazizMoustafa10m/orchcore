@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import re
 import signal
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -163,7 +163,7 @@ class PhaseRunner:
             return result
 
         ui_callback.on_phase_start(phase)
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
         agent_results: list[AgentResult] = []
         current_agent_name = ""
 
@@ -209,11 +209,22 @@ class PhaseRunner:
             ui_callback.on_phase_end(phase, result)
             return result
 
+        policy = phase.retry_policy or RetryPolicy(failure_mode=phase.failure_mode)
+        succeeded = sum(1 for r in agent_results if _agent_error_message(r) is None)
+        failed = len(agent_results) - succeeded
+        allow_partial = (
+            policy.evaluate_results(
+                succeeded=succeeded,
+                failed=failed,
+                total=len(agent_results),
+            )
+            == "partial"
+        )
         phase_result = _build_phase_result(
             phase_name=phase.name,
             started_at=started_at,
             agent_results=agent_results,
-            allow_partial=False,
+            allow_partial=allow_partial,
         )
         ui_callback.on_phase_end(phase, phase_result)
         return phase_result
@@ -245,7 +256,7 @@ class PhaseRunner:
             return result
 
         ui_callback.on_phase_start(phase)
-        started_at = datetime.now()
+        started_at = datetime.now(UTC)
         current_agent_name = ""
 
         try:
@@ -323,7 +334,7 @@ class PhaseRunner:
                             agent = agent_by_task[completed_task]
                             try:
                                 outcome = await completed_task
-                            except BaseException as exc:
+                            except Exception as exc:
                                 raw_results_by_agent[agent.name] = exc
                                 stop_on_failure = True
                             else:
@@ -411,7 +422,7 @@ class PhaseRunner:
             failed=failed,
             total=len(agent_results),
         )
-        duration = datetime.now() - started_at
+        duration = datetime.now(UTC) - started_at
         output_files: list[Path] = []
         for agent_result in agent_results:
             if agent_result.output_empty or agent_result.output_path is None:
@@ -658,7 +669,7 @@ def _build_phase_result(
     allow_partial: bool,
 ) -> PhaseResult:
     """Aggregate agent results into a single phase result."""
-    duration = datetime.now() - started_at
+    duration = datetime.now(UTC) - started_at
     output_files = [
         output_path
         for result in agent_results

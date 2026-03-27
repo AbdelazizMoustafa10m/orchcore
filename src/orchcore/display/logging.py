@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 
 RED = "\033[31m"
 GREEN = "\033[32m"
@@ -24,7 +24,7 @@ ICON_COST = "$"
 
 def _timestamp() -> str:
     """Return current time as HH:MM:SS."""
-    return datetime.now().strftime("%H:%M:%S")
+    return datetime.now(UTC).strftime("%H:%M:%S")
 
 
 def log_info(msg: str) -> None:

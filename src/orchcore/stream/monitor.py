@@ -106,7 +106,8 @@ class AgentMonitor:
     def _handle_tool_exec(self, event: StreamEvent) -> None:
         if event.tool_id is not None and event.tool_id in self._active_tools:
             self._active_tools[event.tool_id].detail = event.tool_detail
-        self._state = AgentState.TOOL_RUNNING
+        if self._active_tools:
+            self._state = AgentState.TOOL_RUNNING
 
     def _handle_tool_done(self, event: StreamEvent) -> None:
         tool_id = event.tool_id
@@ -219,8 +220,8 @@ class AgentMonitor:
             state=self._state,
             elapsed=elapsed,
             counters=self._counters.model_copy(),
-            active_tools=list(self._active_tools.values()),
-            recent_tools=list(self._recent_tools),
+            active_tools=[tool.model_copy() for tool in self._active_tools.values()],
+            recent_tools=[tool.model_copy() for tool in self._recent_tools],
             last_tool=last_tool,
             last_tool_detail=last_tool_detail,
             cost_usd=self._cost_usd,

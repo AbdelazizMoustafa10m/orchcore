@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import Counter
 from typing import TYPE_CHECKING, ClassVar, Final
 
 from orchcore.stream.events import StreamEvent, StreamEventType
@@ -61,7 +62,7 @@ class StallDetector:
         self._normal_timeout = normal_timeout
         self._deep_timeout = deep_timeout
         self._check_interval = check_interval
-        self._active_tools: set[str] = set()
+        self._active_tools: Counter[str] = Counter()
 
     def _is_deep_tool_active(self) -> bool:
         """Return True if any active tool name contains a deep-tool pattern (case-insensitive)."""
@@ -80,9 +81,12 @@ class StallDetector:
         if event.event_type == StreamEventType.HEARTBEAT:
             return
         if event.event_type == StreamEventType.TOOL_START and event.tool_name is not None:
-            self._active_tools.add(event.tool_name)
+            self._active_tools[event.tool_name] += 1
         elif event.event_type == StreamEventType.TOOL_DONE and event.tool_name is not None:
-            self._active_tools.discard(event.tool_name)
+            if self._active_tools[event.tool_name] > 1:
+                self._active_tools[event.tool_name] -= 1
+            else:
+                del self._active_tools[event.tool_name]
 
     async def watch(self, events: AsyncIterator[StreamEvent]) -> AsyncIterator[StreamEvent]:
         """Yield events from the wrapped stream, injecting STALL events on silence.

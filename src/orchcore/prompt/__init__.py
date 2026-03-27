@@ -5,6 +5,7 @@ from orchcore.prompt.template import (
     create_jinja_env,
     render_string,
     render_template,
+    resolve_template_path,
     strip_frontmatter,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "create_jinja_env",
     "render_string",
     "render_template",
+    "resolve_template_path",
     "strip_frontmatter",
 ]
