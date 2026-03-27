@@ -16,11 +16,16 @@ type SignalHandler = int | Callable[[int, FrameType | None], object] | None
 
 
 class SignalManager:
-    """Context manager for SIGINT/SIGTERM handling with graceful shutdown."""
+    """Context manager for SIGINT/SIGTERM handling with graceful shutdown.
+
+    The first shutdown signal requests graceful cancellation. Only repeated
+    ``SIGINT`` escalates to a forced exit; ``SIGTERM`` participates in graceful
+    shutdown but never counts toward the forced-exit threshold.
+    """
 
     def __init__(self) -> None:
         self._shutdown_requested = False
-        self._signal_count = 0
+        self._sigint_count = 0
         self._original_handlers: dict[signal.Signals, SignalHandler] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -68,16 +73,17 @@ class SignalManager:
 
     def _handle_signal(self, sig: signal.Signals) -> None:
         """Handle a received signal."""
-        self._signal_count += 1
         sig_name = sig.name
 
-        if self._signal_count == 1:
+        if sig is signal.SIGINT:
+            self._sigint_count += 1
+            if self._sigint_count >= 2:
+                logger.warning("Received second SIGINT, forcing exit.")
+                sys.exit(130)
+
+        if not self._shutdown_requested:
             logger.info("Received %s, initiating graceful shutdown...", sig_name)
             self._shutdown_requested = True
-            return
-
-        logger.warning("Received second %s, forcing exit.", sig_name)
-        sys.exit(130)
 
     def check_shutdown(self) -> None:
         """Raise CancelledError if shutdown has been requested."""

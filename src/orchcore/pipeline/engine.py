@@ -12,6 +12,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from orchcore.pipeline.phase import PhaseResult, PhaseStatus
+from orchcore.recovery import (
+    BackoffStrategy,
+    FailureMode,
+    GitRecovery,
+    RateLimitDetector,
+    ResetTimeParser,
+    RetryPolicy,
+)
 from orchcore.stream.events import AgentResult
 
 if TYPE_CHECKING:
@@ -114,7 +122,7 @@ class PhaseRunner:
         except RuntimeError:
             return
 
-        loop.call_later(5.0, self._force_kill_all)
+        loop.call_later(30.0, self._force_kill_all)
 
     def _force_kill_all(self) -> None:
         """Kill any subprocess still running after the grace period."""
@@ -169,6 +177,8 @@ class PhaseRunner:
                         phase_name=phase.name,
                         ui_callback=ui_callback,
                         mode=mode,
+                        phase_failure_mode=phase.failure_mode,
+                        retry_policy=phase.retry_policy,
                         toolset=self._resolve_toolset(
                             phase=phase,
                             agent_name=agent.name,
@@ -264,48 +274,164 @@ class PhaseRunner:
             ui_callback.on_phase_end(phase, result)
             return result
 
+        policy = phase.retry_policy or RetryPolicy(failure_mode=phase.failure_mode)
+
         with _phase_span(self._telemetry, phase.name):
-            coroutines = [
-                self._run_with_semaphore(
-                    agent=agent,
-                    prompt=prompt,
-                    output_path=output_path,
-                    phase_name=phase.name,
-                    ui_callback=ui_callback,
-                    mode=mode,
-                    toolset=effective_toolset,
+            raw_results: list[AgentResult | BaseException]
+            if policy.failure_mode is FailureMode.FAIL_FAST:
+                task_by_agent_name = {
+                    agent.name: asyncio.create_task(
+                        self._run_with_semaphore(
+                            agent=agent,
+                            prompt=prompt,
+                            output_path=output_path,
+                            phase_name=phase.name,
+                            ui_callback=ui_callback,
+                            mode=mode,
+                            phase_failure_mode=phase.failure_mode,
+                            retry_policy=policy,
+                            toolset=effective_toolset,
+                        )
+                    )
+                    for agent, output_path, effective_toolset in prepared_runs
+                }
+                agent_by_task = {
+                    task: agent
+                    for agent, task in (
+                        (agent, task_by_agent_name[agent.name]) for agent, _, _ in prepared_runs
+                    )
+                }
+                raw_results_by_agent: dict[str, AgentResult | BaseException] = {}
+                pending_tasks = set(agent_by_task)
+                stop_on_failure = False
+
+                try:
+                    while pending_tasks:
+                        done_tasks, pending_tasks = await asyncio.wait(
+                            pending_tasks,
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        for completed_task in done_tasks:
+                            agent = agent_by_task[completed_task]
+                            try:
+                                outcome = await completed_task
+                            except BaseException as exc:
+                                raw_results_by_agent[agent.name] = exc
+                                stop_on_failure = True
+                            else:
+                                raw_results_by_agent[agent.name] = outcome
+                                if _agent_error_message(outcome) is not None:
+                                    stop_on_failure = True
+
+                        if not stop_on_failure:
+                            continue
+
+                        for pending_task in pending_tasks:
+                            pending_task.cancel()
+
+                        pending_task_list = list(pending_tasks)
+                        pending_results = await asyncio.gather(
+                            *pending_task_list,
+                            return_exceptions=True,
+                        )
+                        for pending_task, pending_result in zip(
+                            pending_task_list,
+                            pending_results,
+                            strict=True,
+                        ):
+                            pending_agent = agent_by_task[pending_task]
+                            if isinstance(pending_result, asyncio.CancelledError):
+                                raw_results_by_agent[pending_agent.name] = RuntimeError(
+                                    "Cancelled due to fail-fast sibling failure"
+                                )
+                            else:
+                                raw_results_by_agent[pending_agent.name] = pending_result
+                        break
+                finally:
+                    for task in agent_by_task:
+                        if task.done():
+                            continue
+                        task.cancel()
+
+                raw_results = [raw_results_by_agent[agent.name] for agent, _, _ in prepared_runs]
+            else:
+                coroutines = [
+                    self._run_with_semaphore(
+                        agent=agent,
+                        prompt=prompt,
+                        output_path=output_path,
+                        phase_name=phase.name,
+                        ui_callback=ui_callback,
+                        mode=mode,
+                        phase_failure_mode=phase.failure_mode,
+                        retry_policy=policy,
+                        toolset=effective_toolset,
+                    )
+                    for agent, output_path, effective_toolset in prepared_runs
+                ]
+                # Preserve per-agent outcomes for partial-failure evaluation.
+                raw_results = await asyncio.gather(
+                    *coroutines,
+                    return_exceptions=True,
                 )
-                for agent, output_path, effective_toolset in prepared_runs
-            ]
-            raw_results: list[AgentResult | BaseException] = await asyncio.gather(
-                *coroutines,
-                return_exceptions=True,
-            )
 
         agent_results: list[AgentResult] = []
-        for (agent, output_path, _toolset), outcome in zip(
+        for (agent, output_path, _toolset), raw_outcome in zip(
             prepared_runs,
             raw_results,
             strict=True,
         ):
-            if isinstance(outcome, BaseException):
+            if isinstance(raw_outcome, AgentResult):
+                agent_result = raw_outcome
+            else:
                 agent_result = _synthetic_agent_result(
                     agent_name=agent.name,
                     output_path=output_path,
                     phase_name=phase.name,
-                    error=_exception_message(outcome),
+                    error=_exception_message(raw_outcome),
                 )
-            else:
-                agent_result = outcome
 
             agent_results.append(agent_result)
             self._emit_agent_callbacks(ui_callback, agent_result)
 
-        phase_result = _build_phase_result(
-            phase_name=phase.name,
-            started_at=started_at,
+        succeeded = sum(
+            1 for agent_result in agent_results if _agent_error_message(agent_result) is None
+        )
+        failed = len(agent_results) - succeeded
+        evaluated_status = policy.evaluate_results(
+            succeeded=succeeded,
+            failed=failed,
+            total=len(agent_results),
+        )
+        duration = datetime.now() - started_at
+        output_files: list[Path] = []
+        for agent_result in agent_results:
+            if agent_result.output_empty or agent_result.output_path is None:
+                continue
+            output_files.append(agent_result.output_path)
+        error_messages = [
+            error_message
+            for agent_result in agent_results
+            if (error_message := _agent_error_message(agent_result)) is not None
+        ]
+        costs = [
+            agent_result.cost_usd
+            for agent_result in agent_results
+            if agent_result.cost_usd is not None
+        ]
+        status_map = {
+            "done": PhaseStatus.DONE,
+            "partial": PhaseStatus.PARTIAL,
+            "failed": PhaseStatus.FAILED,
+        }
+        phase_result = PhaseResult(
+            name=phase.name,
+            status=status_map[evaluated_status],
+            duration=duration,
+            output_files=output_files,
             agent_results=agent_results,
-            allow_partial=True,
+            error="; ".join(error_messages) if error_messages else None,
+            cost_usd=sum(costs, Decimal(0)) if costs else None,
         )
         ui_callback.on_phase_end(phase, phase_result)
         return phase_result
@@ -318,42 +444,85 @@ class PhaseRunner:
         phase_name: str,
         ui_callback: UICallback,
         mode: AgentMode,
+        phase_failure_mode: FailureMode,
+        retry_policy: RetryPolicy | None = None,
         toolset: ToolSet | None = None,
     ) -> AgentResult:
         """Acquire the phase semaphore before running an agent."""
         async with self._semaphore:
             ui_callback.on_agent_start(agent.name, phase_name)
-            try:
-                with _agent_span(self._telemetry, phase_name, agent.name):
-                    return await self._runner.run(
-                        agent=agent,
-                        prompt=prompt,
+            policy = retry_policy or RetryPolicy(failure_mode=phase_failure_mode)
+            rate_limit_detector = RateLimitDetector()
+            reset_time_parser = ResetTimeParser()
+            backoff_strategy = BackoffStrategy(
+                schedule=policy.backoff_schedule,
+                max_wait=policy.max_wait,
+            )
+            git_recovery = GitRecovery()
+            attempt = 1
+
+            while True:
+                try:
+                    with _agent_span(self._telemetry, phase_name, agent.name):
+                        result = await self._runner.run(
+                            agent=agent,
+                            prompt=prompt,
+                            output_path=output_path,
+                            mode=mode,
+                            on_event=ui_callback.on_agent_event,
+                            snapshot_interval=self._snapshot_interval,
+                            stall_check_interval=self._stall_check_interval,
+                            on_process_start=self._register_process,
+                            on_process_end=self._unregister_process,
+                            toolset=toolset,
+                        )
+                except FileNotFoundError as exc:
+                    return _synthetic_agent_result(
+                        agent_name=agent.name,
                         output_path=output_path,
-                        mode=mode,
-                        on_event=ui_callback.on_agent_event,
-                        snapshot_interval=self._snapshot_interval,
-                        stall_check_interval=self._stall_check_interval,
-                        on_process_start=self._register_process,
-                        on_process_end=self._unregister_process,
-                        toolset=toolset,
+                        phase_name=phase_name,
+                        error=(
+                            f"Agent {agent.name!r} binary {agent.binary!r} could not be "
+                            f"started in phase {phase_name!r}: {exc}"
+                        ),
                     )
-            except FileNotFoundError as exc:
-                return _synthetic_agent_result(
-                    agent_name=agent.name,
-                    output_path=output_path,
-                    phase_name=phase_name,
-                    error=(
-                        f"Agent {agent.name!r} binary {agent.binary!r} could not be "
-                        f"started in phase {phase_name!r}: {exc}"
-                    ),
+                except OSError as exc:
+                    return _synthetic_agent_result(
+                        agent_name=agent.name,
+                        output_path=output_path,
+                        phase_name=phase_name,
+                        error=(f"Agent {agent.name!r} failed in phase {phase_name!r}: {exc}"),
+                    )
+
+                if result.exit_code == 0:
+                    return result
+
+                error_output = result.error or ""
+                if not rate_limit_detector.is_rate_limited(error_output):
+                    return result
+                if not policy.should_retry(attempt):
+                    return result
+
+                message = rate_limit_detector.extract_message(error_output) or error_output.strip()
+                if not message:
+                    message = f"Agent {agent.name!r} hit a rate limit"
+
+                ui_callback.on_rate_limit(agent.name, message)
+                wait_seconds = backoff_strategy.compute_wait(
+                    attempt,
+                    reset_seconds=reset_time_parser.parse(error_output),
                 )
-            except OSError as exc:
-                return _synthetic_agent_result(
-                    agent_name=agent.name,
-                    output_path=output_path,
-                    phase_name=phase_name,
-                    error=(f"Agent {agent.name!r} failed in phase {phase_name!r}: {exc}"),
-                )
+                ui_callback.on_rate_limit_wait(agent.name, wait_seconds)
+
+                if await git_recovery.is_tree_dirty() and await git_recovery.auto_commit():
+                    ui_callback.on_git_recovery(
+                        "auto_commit",
+                        "cleaned dirty tree before retry",
+                    )
+
+                ui_callback.on_retry(agent.name, attempt, policy.max_retries)
+                await asyncio.sleep(wait_seconds)
+                attempt += 1
 
     def terminate_active_processes(self) -> None:
         """Send SIGTERM to all currently running subprocesses."""
@@ -386,7 +555,14 @@ class PhaseRunner:
         agent_name: str,
         explicit_toolset: ToolSet | None,
     ) -> ToolSet | None:
-        """Resolve the effective ToolSet for an agent invocation."""
+        """Resolve the effective ToolSet for an agent invocation.
+
+        Priority (highest first):
+        1. ``Phase.agent_tools[agent_name]``
+        2. ``explicit_toolset``
+        3. ``Phase.tools``
+        4. ``None`` -> ``AgentRunner`` falls back to ``AgentConfig.flags[mode]``
+        """
         if agent_name in phase.agent_tools:
             return phase.agent_tools[agent_name]
         if explicit_toolset is not None:

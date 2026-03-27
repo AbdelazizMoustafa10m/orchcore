@@ -52,6 +52,14 @@ def test_render_string_renders_template_string() -> None:
             "Body text\n",
         ),
         (
+            "---\ntitle: Example\n---",
+            "",
+        ),
+        (
+            "---\ntitle: Example\nsummary: not closed --- still metadata\nBody text\n",
+            "---\ntitle: Example\nsummary: not closed --- still metadata\nBody text\n",
+        ),
+        (
             "Body text\n---\nnot frontmatter\n",
             "Body text\n---\nnot frontmatter\n",
         ),

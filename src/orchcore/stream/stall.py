@@ -2,24 +2,29 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Final
 
 from orchcore.stream.events import StreamEvent, StreamEventType
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-_SENTINEL = object()
+
+class _StreamExhausted:
+    """Sentinel returned when the wrapped async iterator is exhausted."""
+
+
+_STREAM_EXHAUSTED: Final = _StreamExhausted()
 
 
 async def _next_or_sentinel(
     aiter: AsyncIterator[StreamEvent],
-) -> StreamEvent | object:
+) -> StreamEvent | _StreamExhausted:
     """Await the next item from an async iterator, returning a sentinel on exhaustion."""
     try:
         return await aiter.__anext__()
     except StopAsyncIteration:
-        return _SENTINEL
+        return _STREAM_EXHAUSTED
 
 
 class StallDetector:
@@ -33,8 +38,17 @@ class StallDetector:
             "deep_search",
             "deep_researcher",
             "deep_research",
+            "web_search_exa",
             "tavily_research",
             "tavily_crawl",
+            "tavily_search",
+            "mcp__exa__web_search_exa",
+            "mcp__exa__deep_search_exa",
+            "mcp__exa__deep_researcher_start",
+            "mcp__exa__deep_researcher_check",
+            "mcp__tavily__tavily_search",
+            "mcp__tavily__tavily_research",
+            "mcp__tavily__tavily_crawl",
         }
     )
 
@@ -63,6 +77,8 @@ class StallDetector:
 
     def _track_tool(self, event: StreamEvent) -> None:
         """Update active tool set from TOOL_START / TOOL_DONE events."""
+        if event.event_type == StreamEventType.HEARTBEAT:
+            return
         if event.event_type == StreamEventType.TOOL_START and event.tool_name is not None:
             self._active_tools.add(event.tool_name)
         elif event.event_type == StreamEventType.TOOL_DONE and event.tool_name is not None:
@@ -71,10 +87,18 @@ class StallDetector:
     async def watch(self, events: AsyncIterator[StreamEvent]) -> AsyncIterator[StreamEvent]:
         """Yield events from the wrapped stream, injecting STALL events on silence.
 
-        Uses asyncio.wait_for with check_interval as the polling window. When no event
-        arrives within check_interval seconds, idle time is measured against
-        _current_timeout(). A synthetic STALL event is yielded once per stall period;
-        the flag resets when a real event arrives.
+        This shipped API differs from the earlier design doc: callers pass the
+        upstream async event iterator into ``watch()`` and iterate over the
+        returned stream. There is no separate ``activity()`` method or background
+        watcher task that pushes directly into a ``UICallback``. Instead,
+        ``watch()`` forwards real events, updates tool activity internally, and
+        yields synthetic ``STALL`` events inline when silence crosses the active
+        timeout.
+
+        Uses ``asyncio.wait_for()`` with ``check_interval`` as the polling
+        window. When no event arrives within that window, idle time is measured
+        against ``_current_timeout()``. A synthetic ``STALL`` event is yielded
+        once per stall period; the flag resets when a real event arrives.
         """
         aiter_obj = events.__aiter__()
         last_event_at = time.monotonic()
@@ -93,11 +117,10 @@ class StallDetector:
                     yield StreamEvent(event_type=StreamEventType.STALL, idle_seconds=idle)
                 continue
 
-            if result is _SENTINEL:
+            if isinstance(result, _StreamExhausted):
                 break
 
-            event: StreamEvent = result  # type: ignore[assignment]
             last_event_at = time.monotonic()
             stall_injected = False
-            self._track_tool(event)
-            yield event
+            self._track_tool(result)
+            yield result

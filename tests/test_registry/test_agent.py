@@ -39,8 +39,14 @@ def test_output_extraction_strategies_cover_all_variants() -> None:
     assert [strategy.value for strategy in OutputExtraction.Strategy] == [
         "jq_filter",
         "direct_file",
-        "stdout",
+        "stdout_capture",
     ]
+    assert (
+        OutputExtraction(
+            strategy=OutputExtraction.Strategy.STDOUT_CAPTURE,
+        ).model_dump(mode="json")["strategy"]
+        == "stdout_capture"
+    )
 
 
 def test_toolset_defaults_and_custom_values() -> None:

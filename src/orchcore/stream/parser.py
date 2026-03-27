@@ -9,6 +9,7 @@ from typing import Any
 from orchcore.stream.events import StreamEvent, StreamEventType, StreamFormat
 
 logger = logging.getLogger(__name__)
+_MAX_JSON_PARSE_WARNINGS = 3
 
 type _ParseFn = Callable[[dict[str, Any]], list[StreamEvent]]
 
@@ -19,7 +20,8 @@ class StreamParser:
     def __init__(self, stream_format: StreamFormat) -> None:
         self._format = stream_format
         self._copilot_init_seen: bool = False
-        # Gemini fallback: count parsed lines to emit periodic init/progress pings
+        self._json_parse_error_count = 0
+        # Gemini fallback: count parsed lines to emit periodic init/heartbeat pings.
         self._gemini_line_count: int = 0
         self._parsers: dict[StreamFormat, _ParseFn] = {
             StreamFormat.CLAUDE: self._parse_claude,
@@ -32,7 +34,8 @@ class StreamParser:
     def parse_line(self, line: str) -> list[StreamEvent]:
         """Parse one JSONL line. Returns zero or more StreamEvents.
 
-        On malformed JSON: logs warning, returns empty list.
+        On malformed JSON: increments the parse error count, emits bounded warnings,
+        and returns an empty list.
         On unknown event type: logs debug, returns empty list.
         """
         stripped = line.strip()
@@ -41,7 +44,21 @@ class StreamParser:
         try:
             data = json.loads(stripped)
         except json.JSONDecodeError:
-            logger.warning("Malformed JSON line: %s", stripped[:200])
+            self._json_parse_error_count += 1
+            if self._json_parse_error_count <= _MAX_JSON_PARSE_WARNINGS:
+                logger.warning(
+                    "Malformed JSON line for %s stream (count=%d): %s",
+                    self._format.value,
+                    self._json_parse_error_count,
+                    stripped[:200],
+                )
+            elif self._json_parse_error_count == _MAX_JSON_PARSE_WARNINGS + 1:
+                logger.warning(
+                    "Suppressing further malformed JSON warnings for %s stream after %d "
+                    "parse errors",
+                    self._format.value,
+                    _MAX_JSON_PARSE_WARNINGS,
+                )
             return []
         if not isinstance(data, dict):
             return []
@@ -49,6 +66,11 @@ class StreamParser:
         if parser is None:
             return []
         return parser(data)
+
+    @property
+    def json_parse_error_count(self) -> int:
+        """Return the number of malformed JSON lines seen by this parser instance."""
+        return self._json_parse_error_count
 
     async def parse_stream(self, stream: AsyncIterator[str]) -> AsyncGenerator[StreamEvent, None]:
         """Async generator yielding StreamEvents from an async line iterator."""
@@ -296,9 +318,11 @@ class StreamParser:
                 event_type=StreamEventType.RESULT,
                 cost_usd=self._to_decimal(data.get("total_cost_usd")),
                 duration_ms=_int_or_none(data.get("duration_ms")),
+                exit_code=_int_or_none(data.get("exit_code")),
                 num_turns=_int_or_none(data.get("num_turns")),
                 session_id=_str_or_none(data.get("session_id")),
                 token_usage=token_usage,
+                error=_error_text_or_none(data.get("error")),
                 raw=data,
             )
         ]
@@ -311,7 +335,18 @@ class StreamParser:
         event_type: str = data.get("type", "")
 
         if event_type == "thread.started":
-            return [StreamEvent(event_type=StreamEventType.INIT, raw=data)]
+            return [
+                StreamEvent(
+                    event_type=StreamEventType.INIT,
+                    session_id=_first_str_from_mapping(
+                        data,
+                        "session_id",
+                        "thread_id",
+                        "conversation_id",
+                    ),
+                    raw=data,
+                )
+            ]
 
         if event_type == "item.started":
             item = data.get("item", {})
@@ -388,6 +423,8 @@ class StreamParser:
             return [
                 StreamEvent(
                     event_type=StreamEventType.RESULT,
+                    exit_code=_int_or_none(data.get("exit_code")),
+                    error=_error_text_or_none(data.get("error")),
                     token_usage=token_usage,
                     raw=data,
                 )
@@ -395,20 +432,27 @@ class StreamParser:
 
         # Issue 4.1: rate-limit signalled via error event
         if event_type == "error":
-            error_code: str = str(data.get("code", "") or data.get("error", ""))
-            if "rate_limit" in error_code.lower() or "429" in error_code:
+            error_code = _str_or_none(data.get("code")) or _error_text_or_none(data.get("error"))
+            error_code_text = error_code or ""
+            if "rate_limit" in error_code_text.lower() or "429" in error_code_text:
                 return [
                     StreamEvent(
                         event_type=StreamEventType.RATE_LIMIT,
                         retry_delay_ms=_int_or_none(data.get("retry_after_ms")),
-                        error_category=error_code or "rate_limit",
+                        error_category=error_code_text or "rate_limit",
                         raw=data,
                     )
                 ]
             return [
                 StreamEvent(
-                    event_type=StreamEventType.RETRY,
-                    error_category=error_code or "error",
+                    event_type=StreamEventType.ERROR,
+                    error=(
+                        _error_text_or_none(data.get("message"))
+                        or _error_text_or_none(data.get("error"))
+                        or error_code_text
+                    ),
+                    exit_code=_int_or_none(data.get("exit_code")),
+                    error_category=error_code_text or "error",
                     raw=data,
                 )
             ]
@@ -425,7 +469,15 @@ class StreamParser:
 
         if not self._copilot_init_seen:
             self._copilot_init_seen = True
-            events.append(StreamEvent(event_type=StreamEventType.INIT, raw=data))
+            # Copilot does not emit a dedicated init frame, so the first object becomes an
+            # implicit INIT event and carries whatever session metadata is available.
+            events.append(
+                StreamEvent(
+                    event_type=StreamEventType.INIT,
+                    session_id=_copilot_session_id(data),
+                    raw=data,
+                )
+            )
 
         # Tool invocation: presence of "toolName" or "tool" key
         tool_name = _str_or_none(data.get("toolName") or data.get("tool"))
@@ -529,7 +581,14 @@ class StreamParser:
             return []
 
         if event_type == "step_finish":
-            return [StreamEvent(event_type=StreamEventType.RESULT, raw=data)]
+            return [
+                StreamEvent(
+                    event_type=StreamEventType.RESULT,
+                    exit_code=_int_or_none(data.get("exit_code")),
+                    error=_error_text_or_none(data.get("error")),
+                    raw=data,
+                )
+            ]
 
         logger.debug("OpenCode: unknown event type %r", event_type)
         return []
@@ -657,17 +716,16 @@ class StreamParser:
             return events
 
         # Issue 4.3: fallback path — emit INIT on first unrecognised line, then periodic
-        # TOOL_EXEC pings so the UI receives visible progress instead of silence.
+        # HEARTBEAT pings so the UI receives visible progress instead of silence.
         logger.debug("Gemini: unrecognised object keys: %s", list(data.keys())[:10])
         if self._gemini_line_count == 1:
             # First line seen — treat as implicit session init
             return [StreamEvent(event_type=StreamEventType.INIT, raw=data)]
-        # Every 10 unrecognised lines emit a TOOL_EXEC ping so the monitor sees activity
+        # Every 10 unrecognised lines emit a HEARTBEAT ping so the monitor sees activity.
         if self._gemini_line_count % 10 == 0:
             return [
                 StreamEvent(
-                    event_type=StreamEventType.TOOL_EXEC,
-                    tool_status="running",
+                    event_type=StreamEventType.HEARTBEAT,
                     text_preview=f"Gemini processing (line {self._gemini_line_count})",
                     raw=data,
                 )
@@ -685,6 +743,52 @@ def _str_or_none(value: object) -> str | None:
         return None
     s = str(value)
     return s if s else None
+
+
+def _first_str_from_mapping(data: dict[str, object], *keys: str) -> str | None:
+    for key in keys:
+        if (value := _str_or_none(data.get(key))) is not None:
+            return value
+    return None
+
+
+def _error_text_or_none(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        return _first_str_from_mapping(
+            value, "message", "text", "detail", "error", "code", "status"
+        ) or str(value)
+    return _str_or_none(value)
+
+
+def _copilot_session_id(data: dict[str, object]) -> str | None:
+    session_id = _first_str_from_mapping(
+        data,
+        "sessionId",
+        "session_id",
+        "conversationId",
+        "conversation_id",
+        "threadId",
+        "thread_id",
+    )
+    if session_id is not None:
+        return session_id
+
+    metadata = data.get("metadata")
+    if isinstance(metadata, dict):
+        return _first_str_from_mapping(
+            metadata,
+            "sessionId",
+            "session_id",
+            "conversationId",
+            "conversation_id",
+            "threadId",
+            "thread_id",
+        )
+    return None
 
 
 def _int_or_none(value: object) -> int | None:

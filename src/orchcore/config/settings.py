@@ -9,7 +9,9 @@ from typing import Any, cast
 
 from pydantic import Field
 from pydantic_settings import (
-    BaseSettings,
+    BaseSettings as PydanticSettingsBase,
+)
+from pydantic_settings import (
     PydanticBaseSettingsSource,
     PyprojectTomlConfigSettingsSource,
     SettingsConfigDict,
@@ -31,7 +33,7 @@ class _ProfileTomlSettingsSource(PydanticBaseSettingsSource):
 
     def __init__(
         self,
-        settings_cls: type[BaseSettings],
+        settings_cls: type[PydanticSettingsBase],
         *,
         config_path: Path,
         profile_name: str,
@@ -56,8 +58,8 @@ class _ProfileTomlSettingsSource(PydanticBaseSettingsSource):
         return self._profile_data
 
 
-class OrchcoreSettings(BaseSettings):
-    """Base settings for orchcore."""
+class OrchcoreSettings(PydanticSettingsBase):
+    """Canonical orchcore settings model defined by ADR-005."""
 
     concurrency: int = Field(default=4, ge=1)
     stall_timeout: int = Field(default=300, ge=1)
@@ -85,7 +87,7 @@ class OrchcoreSettings(BaseSettings):
     @classmethod
     def settings_customise_sources(
         cls,
-        settings_cls: type[BaseSettings],
+        settings_cls: type[PydanticSettingsBase],
         init_settings: PydanticBaseSettingsSource,
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
@@ -100,18 +102,34 @@ class OrchcoreSettings(BaseSettings):
         )
 
 
+BaseSettings = OrchcoreSettings
+
+
 def load_settings_with_profile(
     settings_class: type[OrchcoreSettings] = OrchcoreSettings,
     profile: str | None = None,
     **overrides: Any,
 ) -> OrchcoreSettings:
-    """Load settings with an optional named profile overlay."""
+    """Load settings with an optional named profile overlay.
 
+    Profile selection is intentionally resolved in two passes.
+
+    The first instantiation reads the normal source chain so constructor kwargs,
+    environment variables, and ``.env`` values can decide which profile should
+    apply. When a profile is active, the second instantiation uses a temporary
+    subclass whose source chain injects ``[profiles.<name>]`` tables ahead of
+    the base TOML files. That keeps profile-specific source ordering isolated to
+    this call instead of mutating shared class state on ``settings_class``.
+    """
+
+    # Resolve the effective profile from the standard source chain first.
     settings = settings_class(**overrides)
     effective_profile = profile or settings.profile
     if effective_profile is None:
         return settings
 
+    # Rebuild settings with a profile-aware subclass so the extra TOML overlay
+    # applies only to this load and to any consumer subclass passed in.
     profiled_settings_class = _profiled_settings_class(settings_class, effective_profile)
     profiled_overrides = dict(overrides)
     profiled_overrides["profile"] = effective_profile
@@ -122,9 +140,18 @@ def _profiled_settings_class(
     settings_class: type[OrchcoreSettings],
     profile_name: str,
 ) -> type[OrchcoreSettings]:
+    """Create an ephemeral subclass that overlays a single named profile.
+
+    ``pydantic-settings`` stores the source customisation hook on the class, so
+    mutating ``settings_class.settings_customise_sources`` would make every
+    future load share the same profile. A one-off subclass avoids that shared
+    mutable state and preserves any additional fields defined by consuming
+    project subclasses.
+    """
+
     def settings_customise_sources(
-        cls: type[BaseSettings],
-        settings_cls: type[BaseSettings],
+        cls: type[PydanticSettingsBase],
+        settings_cls: type[PydanticSettingsBase],
         init_settings: PydanticBaseSettingsSource,
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
@@ -141,6 +168,7 @@ def _profiled_settings_class(
 
     def exec_body(namespace: dict[str, Any]) -> None:
         namespace["__module__"] = settings_class.__module__
+        # Bind the source customisation hook on the ephemeral subclass only.
         namespace["settings_customise_sources"] = classmethod(settings_customise_sources)
 
     profiled_settings_class = new_class(
@@ -153,12 +181,31 @@ def _profiled_settings_class(
 
 def _build_settings_sources(
     *,
-    settings_cls: type[BaseSettings],
+    settings_cls: type[PydanticSettingsBase],
     init_settings: PydanticBaseSettingsSource,
     env_settings: PydanticBaseSettingsSource,
     dotenv_settings: PydanticBaseSettingsSource,
     profile_name: str | None = None,
 ) -> tuple[PydanticBaseSettingsSource, ...]:
+    """Build settings sources in descending priority order.
+
+    ADR-005 defines this seven-level chain, from highest priority to lowest:
+
+    1. constructor kwargs / CLI overrides (``init_settings``)
+    2. environment variables (``env_settings``)
+    3. ``.env`` values (``dotenv_settings``)
+    4. project ``orchcore.toml``
+    5. user ``~/.config/orchcore/config.toml``
+    6. ``pyproject.toml`` ``[tool.orchcore]``
+    7. built-in field defaults on the settings model
+
+    When ``profile_name`` is set, matching ``[profiles.<name>]`` tables from
+    the same three TOML locations are inserted between levels 3 and 4. That
+    makes profile values override file-based defaults while still allowing
+    explicit env and constructor overrides to win.
+    """
+
+    # pydantic-settings consumes sources from highest priority to lowest.
     sources: list[PydanticBaseSettingsSource] = [
         init_settings,
         env_settings,
@@ -166,6 +213,8 @@ def _build_settings_sources(
     ]
 
     if profile_name is not None:
+        # Profile tables are file-backed overlays, so they sit above the base
+        # TOML files but below constructor, env, and dotenv sources.
         sources.extend(
             [
                 _ProfileTomlSettingsSource(
@@ -254,3 +303,6 @@ def _load_toml_table(
         table_name = ".".join(traversed_path)
         raise SettingsError(f"Expected [{table_name}] in {config_path} to be a TOML table")
     return dict(current)
+
+
+__all__ = ["BaseSettings", "OrchcoreSettings", "load_settings_with_profile"]

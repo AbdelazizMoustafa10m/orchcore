@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from orchcore.pipeline import Phase, PhaseResult, PhaseStatus, PipelineResult
+from orchcore.recovery.retry import FailureMode, RetryPolicy
 from orchcore.registry.agent import ToolSet
 from orchcore.stream.events import AgentResult
 
@@ -21,14 +22,55 @@ def test_phase_status_has_all_expected_values() -> None:
 
 
 def test_phase_creation_uses_defaults() -> None:
+    # Arrange
     phase = Phase(name="planning", agents=["writer", "reviewer"])
 
+    # Act
+    dumped = phase.model_dump(mode="json")
+
+    # Assert
     assert phase.name == "planning"
     assert phase.parallel is False
     assert phase.required is True
     assert phase.depends_on == []
     assert phase.tools is None
     assert phase.agent_tools == {}
+    assert phase.retry_policy is None
+    assert phase.failure_mode is FailureMode.FAIL_FAST
+    assert dumped["retry_policy"] is None
+    assert dumped["failure_mode"] == "fail_fast"
+
+
+def test_phase_model_dump_serializes_retry_policy_and_failure_mode() -> None:
+    # Arrange
+    retry_policy = RetryPolicy(
+        max_retries=5,
+        backoff_schedule=[30, 90],
+        max_wait=300,
+        failure_mode=FailureMode.REQUIRE_MINIMUM,
+        min_count=2,
+    )
+    phase = Phase(
+        name="analysis",
+        agents=["analyst", "reviewer"],
+        retry_policy=retry_policy,
+        failure_mode=FailureMode.CONTINUE,
+    )
+
+    # Act
+    dumped = phase.model_dump(mode="json")
+    restored = Phase.model_validate(dumped)
+
+    # Assert
+    assert dumped["retry_policy"] == {
+        "max_retries": 5,
+        "backoff_schedule": [30, 90],
+        "max_wait": 300,
+        "failure_mode": "require_minimum",
+        "min_count": 2,
+    }
+    assert dumped["failure_mode"] == "continue"
+    assert restored == phase
 
 
 def test_phase_creation_with_tools_and_agent_tools() -> None:

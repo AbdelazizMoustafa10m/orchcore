@@ -8,6 +8,20 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
+type _SkipMatcher = tuple[str, ...]
+
+
+def _type_matchers(*event_types: str) -> tuple[_SkipMatcher, ...]:
+    return tuple(
+        matcher
+        for event_type in event_types
+        for matcher in (
+            (f'"type":"{event_type}"',),
+            (f'"type": "{event_type}"',),
+        )
+    )
+
+
 class StreamFilter:
     """
     Drops high-volume events before parsing.
@@ -16,26 +30,35 @@ class StreamFilter:
     that are dropped. This is the key optimization.
     """
 
-    SKIP_TYPES_CLAUDE: ClassVar[set[str]] = {
-        "content_block_stop",
-        "message_start",
-        "message_stop",
+    SKIP_MATCHERS: ClassVar[dict[StreamFormat, tuple[_SkipMatcher, ...]]] = {
+        StreamFormat.CLAUDE: _type_matchers(
+            "content_block_stop",
+            "message_start",
+            "message_stop",
+        ),
+        StreamFormat.CODEX: _type_matchers(
+            "response.output_text.delta",
+            "response.reasoning_summary.delta",
+            "turn.started",
+        ),
+        StreamFormat.OPENCODE: (
+            ('"type":"text"', '"text":""'),
+            ('"type": "text"', '"text": ""'),
+        ),
+        StreamFormat.GEMINI: (('"promptFeedback"',),),
+        StreamFormat.COPILOT: (
+            ('"text":""',),
+            ('"text": ""',),
+            ('"message":""',),
+            ('"message": ""',),
+            ('"content":""',),
+            ('"content": ""',),
+        ),
     }
-
-    SKIP_TYPES_CODEX: ClassVar[set[str]] = set()
 
     def __init__(self, stream_format: StreamFormat) -> None:
         self._format = stream_format
-        # Pre-build string patterns for fast matching
-        if stream_format == StreamFormat.CLAUDE:
-            self._skip_patterns = [f'"type":"{t}"' for t in self.SKIP_TYPES_CLAUDE]
-            # Also match with space after colon
-            self._skip_patterns += [f'"type": "{t}"' for t in self.SKIP_TYPES_CLAUDE]
-        elif stream_format == StreamFormat.CODEX:
-            self._skip_patterns = [f'"type":"{t}"' for t in self.SKIP_TYPES_CODEX]
-            self._skip_patterns += [f'"type": "{t}"' for t in self.SKIP_TYPES_CODEX]
-        else:
-            self._skip_patterns = []
+        self._skip_matchers = self.SKIP_MATCHERS.get(stream_format, ())
 
     def should_keep(self, line: str) -> bool:
         """
@@ -54,7 +77,9 @@ class StreamFilter:
         if not line or not line.strip():
             return False
 
-        return all(pattern not in line for pattern in self._skip_patterns)
+        return not any(
+            all(fragment in line for fragment in matcher) for matcher in self._skip_matchers
+        )
 
     async def filter_stream(self, raw: AsyncIterator[str]) -> AsyncIterator[str]:
         """Async generator yielding only actionable JSONL lines."""

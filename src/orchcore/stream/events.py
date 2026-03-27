@@ -6,7 +6,7 @@ from enum import StrEnum
 from pathlib import Path  # noqa: TC003 — required by Pydantic runtime validation
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class StreamFormat(StrEnum):
@@ -24,12 +24,15 @@ class StreamEventType(StrEnum):
 
     INIT = "init"
     STATE_CHANGE = "state"
+    HEARTBEAT = "heartbeat"
     TOOL_START = "tool_start"
     TOOL_EXEC = "tool_exec"
     TOOL_DONE = "tool_done"
     TEXT = "text"
     SUBAGENT = "subagent"
     RESULT = "result"
+    ERROR = "error"
+    CANCELLED = "cancelled"
     RETRY = "retry"
     RATE_LIMIT = "rate_limit"
     STALL = "stall"
@@ -37,6 +40,8 @@ class StreamEventType(StrEnum):
 
 class StreamEvent(BaseModel):
     """Normalized event from any agent stream."""
+
+    model_config = ConfigDict(frozen=True)
 
     event_type: StreamEventType
     timestamp: datetime = Field(default_factory=datetime.now)
@@ -54,9 +59,11 @@ class StreamEvent(BaseModel):
     # Result fields (RESULT)
     cost_usd: Decimal | None = None
     duration_ms: int | None = None
+    exit_code: int | None = None
     num_turns: int | None = None
     session_id: str | None = None
     token_usage: dict[str, int] | None = None
+    error: str | None = None
 
     # Retry/rate limit/stall fields
     retry_attempt: int | None = None
@@ -75,12 +82,12 @@ class AgentState(StrEnum):
     STARTING = "starting"
     THINKING = "thinking"
     WRITING = "writing"
-    TOOL_ACTIVE = "tool_active"
-    IDLE = "idle"
+    TOOL_RUNNING = "tool_running"
     STALLED = "stalled"
     RATE_LIMITED = "rate_limited"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class ToolExecution(BaseModel):
@@ -126,7 +133,14 @@ class AgentMonitorSnapshot(BaseModel):
 
 
 class AgentResult(BaseModel):
-    """Return type of AgentRunner.run(). Captures all outputs from a single agent execution."""
+    """Return type of AgentRunner.run().
+
+    Captures all outputs from a single agent execution.
+
+    Note:
+        The design doc uses different names for some result fields. The field names on
+        this model are the authoritative runtime contract.
+    """
 
     agent_name: str = ""
     output_path: Path | None = None

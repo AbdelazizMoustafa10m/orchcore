@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from orchcore.stream.events import StreamFormat
+
+DEFAULT_TOOLSET_PERMISSION = "read-only"
+DEFAULT_TOOLSET_MAX_TURNS = 25
+CODEX_PERMISSION_VALUES = frozenset({"read-only", "workspace-write", "full-access"})
 
 
 class AgentMode(StrEnum):
@@ -24,7 +28,7 @@ class OutputExtraction(BaseModel):
     class Strategy(StrEnum):
         JQ_FILTER = "jq_filter"
         DIRECT_FILE = "direct_file"
-        STDOUT_CAPTURE = "stdout"
+        STDOUT_CAPTURE = "stdout_capture"
 
     strategy: Strategy
     # Declarative reference for the extraction logic applied by StreamParser.
@@ -38,6 +42,8 @@ class OutputExtraction(BaseModel):
 
 class AgentConfig(BaseModel):
     """Single agent definition."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     binary: str
@@ -66,8 +72,8 @@ class ToolSet(BaseModel):
 
     internal: list[str] = Field(default_factory=list)
     mcp: list[str] = Field(default_factory=list)
-    permission: str = "read-only"
-    max_turns: int = 25
+    permission: str = DEFAULT_TOOLSET_PERMISSION
+    max_turns: int = DEFAULT_TOOLSET_MAX_TURNS
 
 
 __all__ = [

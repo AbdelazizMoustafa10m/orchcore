@@ -44,7 +44,7 @@ class WorkspaceManager:
 
     @property
     def archive_dir(self) -> Path:
-        """Archive: {reports_root}/{archive_subdir}/{timestamp}_{slug}/"""
+        """Base archive path before collision suffixes are applied."""
         return self._reports_root / self._archive_subdir / f"{self._timestamp}_{self._task_slug}"
 
     def set_task_slug(self, description: str) -> None:
@@ -96,8 +96,8 @@ class WorkspaceManager:
         - .md and .log files stored uncompressed
         - Creates 'latest' symlink
         """
-        archive = self.archive_dir
-        archive.mkdir(parents=True, exist_ok=True)
+        archive = self._next_archive_dir()
+        archive.mkdir(parents=True, exist_ok=False)
 
         for src_file in self.workspace_dir.iterdir():
             if not src_file.is_file():
@@ -121,6 +121,21 @@ class WorkspaceManager:
             stream_file.unlink()
 
         return archive
+
+    def _next_archive_dir(self) -> Path:
+        """Return the next unused archive directory for this run slug."""
+        archive = self.archive_dir
+        if not archive.exists() and not archive.is_symlink():
+            return archive
+
+        suffix = 1
+        while True:
+            # Preserve earlier archives by allocating a new sibling directory
+            # instead of reusing an existing timestamp/slug path.
+            candidate = archive.parent / f"{archive.name}-{suffix}"
+            if not candidate.exists() and not candidate.is_symlink():
+                return candidate
+            suffix += 1
 
     def cleanup(self) -> None:
         """Remove the workspace directory."""

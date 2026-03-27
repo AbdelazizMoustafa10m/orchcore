@@ -13,6 +13,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
+_FRONTMATTER_PATTERN = re.compile(
+    r"\A---[ \t]*\r?\n.*?^---[ \t]*(?:\r?\n|$)",
+    re.DOTALL | re.MULTILINE,
+)
 
 
 def create_jinja_env(template_dir: Path) -> SandboxedEnvironment:
@@ -101,7 +105,8 @@ def strip_frontmatter(content: str) -> str:
     """Remove YAML frontmatter from template content.
 
     Frontmatter is delimited by ``---`` on its own line at the start
-    of the file, followed by another ``---`` line.
+    of the file, followed by another ``---`` line that must also start
+    at the beginning of a line.
 
     Args:
         content: Raw template content potentially containing frontmatter.
@@ -109,5 +114,4 @@ def strip_frontmatter(content: str) -> str:
     Returns:
         Content with frontmatter removed.
     """
-    pattern = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
-    return pattern.sub("", content)
+    return _FRONTMATTER_PATTERN.sub("", content)

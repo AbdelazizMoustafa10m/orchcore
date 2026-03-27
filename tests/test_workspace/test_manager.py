@@ -53,6 +53,24 @@ def test_archive_compresses_stream_files_and_creates_latest_symlink(tmp_path) ->
     assert not (manager.workspace_dir / "run.stream").exists()
 
 
+def test_archive_creates_unique_directories_for_repeated_calls(tmp_path) -> None:
+    manager = WorkspaceManager(tmp_path)
+    manager.ensure_dirs()
+    manager.set_task_slug("My task for archival")
+    manager.write_file("summary.md", "first archive")
+
+    first_archive = manager.archive()
+
+    manager.write_file("summary.md", "second archive")
+    second_archive = manager.archive()
+
+    assert first_archive != second_archive
+    assert first_archive.parent == second_archive.parent
+    assert (first_archive / "summary.md").read_text(encoding="utf-8") == "first archive"
+    assert (second_archive / "summary.md").read_text(encoding="utf-8") == "second archive"
+    assert (first_archive.parent / "latest").resolve() == second_archive
+
+
 def test_cleanup_removes_workspace_directory(tmp_path) -> None:
     manager = WorkspaceManager(tmp_path)
     manager.ensure_dirs()

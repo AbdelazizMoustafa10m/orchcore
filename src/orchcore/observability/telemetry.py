@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import logging
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import types
@@ -131,23 +131,23 @@ class OrchcoreTelemetry:
         ) as span:
             yield span
 
-    def tool_span(self, agent: str, tool: ToolExecution) -> object | None:
+    @contextmanager
+    def tool_span(self, agent: str, tool: ToolExecution) -> Iterator[object | None]:
         """Create a child span for a tool invocation."""
         if not self._enabled or self._tracer is None:
-            return None
+            yield None
+            return
 
-        return cast(
-            "object",
-            self._tracer.start_span(
-                f"orchcore.tool.{tool.name}",
-                attributes={
-                    "orchcore.agent": agent,
-                    "orchcore.tool.name": tool.name,
-                    "orchcore.tool.detail": tool.detail or "",
-                    "orchcore.tool.id": tool.tool_id,
-                },
-            ),
-        )
+        with self._tracer.start_as_current_span(
+            f"orchcore.tool.{tool.name}",
+            attributes={
+                "orchcore.agent": agent,
+                "orchcore.tool.name": tool.name,
+                "orchcore.tool.detail": tool.detail or "",
+                "orchcore.tool.id": tool.tool_id,
+            },
+        ) as span:
+            yield span
 
     def record_cost(self, agent: str, cost_usd: Decimal) -> None:
         """Record cost information on the current span if telemetry is active."""

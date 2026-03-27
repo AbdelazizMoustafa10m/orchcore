@@ -121,8 +121,14 @@ class LoggingCallback(NullCallback):
     def on_phase_end(self, phase: Phase, result: PhaseResult) -> None:
         self._logger.info("Phase '%s' ended: %s", phase.name, result.status)
 
+    def on_phase_skip(self, phase: Phase, reason: str) -> None:
+        self._logger.info("Phase '%s' skipped: %s", phase.name, reason)
+
     def on_agent_start(self, agent_name: str, phase: str) -> None:
         self._logger.info("Agent '%s' starting in phase '%s'", agent_name, phase)
+
+    def on_agent_event(self, event: StreamEvent) -> None:
+        self._logger.debug("Agent event: %s", event.event_type)
 
     def on_agent_complete(self, agent_name: str, result: AgentResult) -> None:
         self._logger.info("Agent '%s' complete: exit_code=%d", agent_name, result.exit_code)
@@ -130,8 +136,29 @@ class LoggingCallback(NullCallback):
     def on_agent_error(self, agent_name: str, error: str) -> None:
         self._logger.error("Agent '%s' error: %s", agent_name, error)
 
+    def on_stall_detected(self, agent_name: str, duration: float) -> None:
+        self._logger.warning("Agent '%s' stalled for %.1f seconds", agent_name, duration)
+
     def on_rate_limit(self, agent_name: str, message: str) -> None:
         self._logger.warning("Agent '%s' rate limited: %s", agent_name, message)
+
+    def on_rate_limit_wait(self, agent_name: str, wait_seconds: float) -> None:
+        self._logger.warning(
+            "Agent '%s' waiting %.1f seconds after rate limit",
+            agent_name,
+            wait_seconds,
+        )
+
+    def on_retry(self, agent_name: str, attempt: int, max_attempts: int) -> None:
+        self._logger.warning(
+            "Retrying agent '%s' (attempt %d/%d)",
+            agent_name,
+            attempt,
+            max_attempts,
+        )
+
+    def on_git_recovery(self, action: str, detail: str) -> None:
+        self._logger.info("Git recovery '%s': %s", action, detail)
 
     def on_shutdown(self, reason: str) -> None:
         self._logger.info("Shutdown: %s", reason)

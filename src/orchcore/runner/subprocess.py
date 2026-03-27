@@ -11,7 +11,15 @@ from datetime import datetime, timedelta
 from pathlib import Path  # noqa: TC003 — used at runtime in path operations
 from typing import TYPE_CHECKING
 
-from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
+from orchcore.registry.agent import (
+    CODEX_PERMISSION_VALUES,
+    DEFAULT_TOOLSET_MAX_TURNS,
+    DEFAULT_TOOLSET_PERMISSION,
+    AgentConfig,
+    AgentMode,
+    OutputExtraction,
+    ToolSet,
+)
 from orchcore.stream.events import AgentResult, StreamEvent, StreamEventType, StreamFormat
 from orchcore.stream.filter import StreamFilter
 from orchcore.stream.monitor import AgentMonitor
@@ -24,6 +32,13 @@ if TYPE_CHECKING:
     from orchcore.stream.events import AgentMonitorSnapshot
 
 logger = logging.getLogger(__name__)
+
+type RequiredFlagCheck = tuple[str, tuple[str, ...]]
+
+_REQUIRED_STREAM_FLAG_CHECKS: dict[StreamFormat, tuple[RequiredFlagCheck, ...]] = {
+    StreamFormat.CODEX: (("--json", ("--json",)),),
+    StreamFormat.OPENCODE: (("--format json", ("--format", "json")),),
+}
 
 
 async def _read_lines(stream: asyncio.StreamReader) -> AsyncIterator[str]:
@@ -55,6 +70,7 @@ class AgentRunner:
     ) -> AgentResult:
         """Run the agent subprocess and return a fully-populated AgentResult."""
         cmd = self._build_command(agent, prompt, output_path, mode, toolset)
+        _warn_if_missing_required_stream_flags(agent, cmd)
 
         env = {**os.environ, **agent.env_vars}
 
@@ -94,12 +110,19 @@ class AgentRunner:
         monitor = AgentMonitor(agent.name)
 
         text_chunks: list[str] = []
+        stall_callback = _resolve_stall_callback(on_event)
 
         def _collecting_on_event(event: StreamEvent) -> None:
             if event.event_type == StreamEventType.TEXT and event.text_preview is not None:
                 text_chunks.append(event.text_preview)
             if on_event is not None:
                 on_event(event)
+            if (
+                event.event_type == StreamEventType.STALL
+                and event.idle_seconds is not None
+                and stall_callback is not None
+            ):
+                stall_callback(agent.name, event.idle_seconds)
 
         assert proc.stdout is not None  # guaranteed by PIPE flag
         assert proc.stderr is not None  # guaranteed by PIPE flag
@@ -128,6 +151,7 @@ class AgentRunner:
             on_snapshot=on_snapshot,
             snapshot_interval=snapshot_interval,
         )
+        run_completed = False
 
         try:
             raw_lines = _read_lines(primary_stream)
@@ -135,7 +159,7 @@ class AgentRunner:
                 _tee_to_file(
                     raw_lines,
                     stream_path,
-                    collector=stderr_chunks if primary_is_stderr else None,
+                    collector=stderr_chunks if primary_is_stderr else stdout_chunks,
                 )
             )
             parsed = stream_parser.parse_stream(filtered)
@@ -165,7 +189,7 @@ class AgentRunner:
 
             output_empty = await asyncio.to_thread(_check_output_empty, output_path)
 
-            return AgentResult(
+            result = AgentResult(
                 agent_name=agent.name,
                 output_path=output_path,
                 stream_path=stream_path,
@@ -177,12 +201,17 @@ class AgentRunner:
                 num_turns=snap.num_turns,
                 session_id=snap.session_id,
                 output_empty=output_empty,
-                error=_derive_error(exit_code, stderr_chunks) if exit_code != 0 else None,
+                error=(
+                    _derive_error(exit_code, stderr_chunks, stdout_chunks)
+                    if exit_code != 0
+                    else None
+                ),
             )
-        except BaseException:
-            await _shutdown_process(proc)
-            raise
+            run_completed = True
+            return result
         finally:
+            if not run_completed:
+                await _shutdown_process(proc)
             await _cancel_task(snapshot_task)
             await _cancel_task(secondary_task)
             if on_process_end is not None:
@@ -225,35 +254,120 @@ def _translate_toolset(agent: AgentConfig, toolset: ToolSet) -> list[str]:
     if format_ == StreamFormat.CLAUDE:
         # Claude uses --allowedTools with comma-separated tool names
         all_tools = toolset.internal + toolset.mcp
-        if all_tools:
-            flags.extend(["--allowedTools", ",".join(all_tools)])
+        flags.extend(["--allowedTools", ",".join(all_tools)])
         if toolset.max_turns > 0:
             flags.extend(["--max-turns", str(toolset.max_turns)])
         # Claude always needs streaming flags
         flags.extend(["--verbose", "--output-format", "stream-json", "--include-partial-messages"])
+        return flags
 
-    elif format_ == StreamFormat.CODEX:
+    _log_ignored_non_claude_toolset_fields(format_, toolset)
+
+    if format_ == StreamFormat.CODEX:
         # Codex uses --sandbox for permission level
-        if toolset.permission:
-            flags.extend(["-s", toolset.permission])
+        _append_codex_permission_flag(flags, toolset.permission)
         flags.append("--json")
-
     elif format_ == StreamFormat.GEMINI:
         # Gemini uses --yolo for full access, default is sandboxed
         if toolset.permission == "full-access":
             flags.append("--yolo")
-
     elif format_ == StreamFormat.COPILOT:
         # Copilot uses --allow-tool and --deny-tool
         if toolset.internal:
             for tool in toolset.internal:
                 flags.extend(["--allow-tool", tool.lower()])
-
+        _log_ignored_permission_for_partial_support(format_, toolset.permission)
     elif format_ == StreamFormat.OPENCODE:
         # OpenCode uses agent-specific flags
+        _log_ignored_permission_for_partial_support(format_, toolset.permission)
         flags.extend(["--format", "json"])
 
     return flags
+
+
+def _append_codex_permission_flag(flags: list[str], permission: str) -> None:
+    """Append the validated Codex sandbox flag when a permission is configured."""
+    if not permission:
+        return
+
+    if permission not in CODEX_PERMISSION_VALUES:
+        logger.warning(
+            "Codex received unknown ToolSet.permission=%r; expected one of %s. "
+            "Skipping sandbox flag.",
+            permission,
+            sorted(CODEX_PERMISSION_VALUES),
+        )
+        return
+
+    flags.extend(["-s", permission])
+
+
+def _log_ignored_non_claude_toolset_fields(format_: StreamFormat, toolset: ToolSet) -> None:
+    """Log ToolSet fields that non-Claude formats do not translate into CLI flags."""
+    if toolset.mcp:
+        logger.debug(
+            "%s ignores ToolSet.mcp on the command line; configure MCP tools on the agent CLI: %s",
+            format_.value,
+            toolset.mcp,
+        )
+
+    if toolset.max_turns != DEFAULT_TOOLSET_MAX_TURNS:
+        logger.debug(
+            "%s ignores ToolSet.max_turns=%s; only Claude translates max_turns to CLI flags.",
+            format_.value,
+            toolset.max_turns,
+        )
+
+
+def _log_ignored_permission_for_partial_support(format_: StreamFormat, permission: str) -> None:
+    """Log non-default permissions for CLIs whose permission mapping is not implemented."""
+    if permission in ("", DEFAULT_TOOLSET_PERMISSION):
+        return
+
+    logger.debug(
+        "%s ignores ToolSet.permission=%r; permission flag mapping is not implemented.",
+        format_.value,
+        permission,
+    )
+
+
+def _warn_if_missing_required_stream_flags(agent: AgentConfig, cmd: list[str]) -> None:
+    """Warn when the final command is missing required parsing flags for the stream format."""
+    missing_flags = _find_missing_required_stream_flags(cmd, agent.stream_format)
+    if not missing_flags:
+        return
+
+    logger.warning(
+        "Agent %s (%s) command is missing required stream/JSON flags: %s. Stream parsing may fail.",
+        agent.name,
+        agent.stream_format.value,
+        ", ".join(missing_flags),
+    )
+
+
+def _find_missing_required_stream_flags(
+    cmd: list[str],
+    stream_format: StreamFormat,
+) -> list[str]:
+    """Return required stream/JSON flags that are absent from the final command."""
+    checks = _REQUIRED_STREAM_FLAG_CHECKS.get(stream_format, ())
+    return [
+        display_flag
+        for display_flag, expected_sequence in checks
+        if not _command_contains_flag_sequence(cmd, expected_sequence)
+    ]
+
+
+def _command_contains_flag_sequence(cmd: list[str], expected_sequence: tuple[str, ...]) -> bool:
+    """Return True when the command contains the expected flag sequence."""
+    expected_length = len(expected_sequence)
+    if expected_length == 0 or expected_length > len(cmd):
+        return False
+
+    return any(
+        cmd[start_index : start_index + expected_length] == list(expected_sequence)
+        for start_index in range(len(cmd) - expected_length + 1)
+    )
 
 
 async def _tee_to_file(
@@ -331,6 +445,27 @@ def _start_snapshot_task(
     return asyncio.create_task(_emit_snapshots())
 
 
+def _resolve_stall_callback(
+    on_event: Callable[[StreamEvent], None] | None,
+) -> Callable[[str, float], None] | None:
+    """Extract a stall callback from a bound UI event handler when available."""
+    if on_event is None:
+        return None
+
+    callback_owner = getattr(on_event, "__self__", None)
+    if callback_owner is None:
+        return None
+
+    stall_callback = getattr(callback_owner, "on_stall_detected", None)
+    if not callable(stall_callback):
+        return None
+
+    def _invoke_stall(agent_name: str, duration: float) -> None:
+        stall_callback(agent_name, duration)
+
+    return _invoke_stall
+
+
 async def _cancel_task(task: asyncio.Task[None] | None) -> None:
     """Cancel and await a background task, ignoring normal cancellation noise."""
     if task is None or task.done():
@@ -359,15 +494,29 @@ def _check_output_empty(path: Path) -> bool:
     return not path.exists() or path.stat().st_size == 0
 
 
-def _derive_error(exit_code: int, stderr_chunks: list[str]) -> str:
-    """Build a diagnostic error message from exit code and available stderr content.
+def _derive_error(
+    exit_code: int,
+    stderr_chunks: list[str],
+    stdout_chunks: list[str],
+) -> str:
+    """Build a diagnostic error message from exit code and available stream content.
 
-    Returns the last few lines of stderr when available, otherwise a generic
-    message quoting the exit code so callers always get actionable context.
+    Returns the last few non-blank lines of stderr when available. When stderr
+    is empty, falls back to stdout before emitting the generic exit-code
+    message so callers still get actionable context.
     """
-    if stderr_chunks:
-        # Take up to the last 10 non-blank lines from stderr for conciseness.
-        non_blank = [line.rstrip() for line in stderr_chunks if line.strip()]
-        tail = non_blank[-10:] if len(non_blank) > 10 else non_blank
-        return "\n".join(tail) if tail else f"Process exited with code {exit_code}"
+    if error_text := _non_blank_tail(stderr_chunks):
+        return error_text
+    if error_text := _non_blank_tail(stdout_chunks):
+        return error_text
     return f"Process exited with code {exit_code}"
+
+
+def _non_blank_tail(chunks: list[str]) -> str | None:
+    """Return the last few non-blank lines from a stream, if any."""
+    non_blank = [line.rstrip() for line in chunks if line.strip()]
+    if not non_blank:
+        return None
+
+    tail = non_blank[-10:] if len(non_blank) > 10 else non_blank
+    return "\n".join(tail)

@@ -2,12 +2,34 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from orchcore.config.settings import OrchcoreSettings, load_settings_with_profile
+from orchcore.config import BaseSettings as PackageBaseSettings
+from orchcore.config.settings import (
+    BaseSettings as ModuleBaseSettings,
+)
+from orchcore.config.settings import (
+    OrchcoreSettings,
+    load_settings_with_profile,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
+
+
+def test_base_settings_alias_is_exported_from_module_and_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    module_settings = ModuleBaseSettings()
+    package_settings = PackageBaseSettings()
+
+    assert ModuleBaseSettings is OrchcoreSettings
+    assert PackageBaseSettings is OrchcoreSettings
+    assert isinstance(module_settings, OrchcoreSettings)
+    assert isinstance(package_settings, OrchcoreSettings)
 
 
 def test_orchcore_settings_use_defaults_in_empty_working_directory(
@@ -44,6 +66,50 @@ def test_orchcore_settings_allow_environment_overrides(
     assert settings.concurrency == 12
     assert settings.log_level == "debug"
     assert settings.max_retries == 5
+
+
+def test_orchcore_settings_load_dotenv_from_current_working_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ORCHCORE_CONCURRENCY", raising=False)
+    monkeypatch.delenv("ORCHCORE_LOG_LEVEL", raising=False)
+    (tmp_path / ".env").write_text(
+        "ORCHCORE_CONCURRENCY=9\nORCHCORE_LOG_LEVEL=trace\n",
+        encoding="utf-8",
+    )
+
+    settings = OrchcoreSettings()
+
+    assert settings.concurrency == 9
+    assert settings.log_level == "trace"
+
+
+def test_orchcore_settings_load_agent_tables_from_cwd_toml(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "orchcore.toml").write_text(
+        "[agents.claude]\n"
+        'model = "claude-custom"\n'
+        "stall_timeout = 400\n"
+        "\n"
+        "[agents.claude.env_vars]\n"
+        'HTTP_PROXY = "http://proxy.internal"\n',
+        encoding="utf-8",
+    )
+
+    settings = OrchcoreSettings()
+
+    assert settings.agents == {
+        "claude": {
+            "model": "claude-custom",
+            "stall_timeout": 400,
+            "env_vars": {"HTTP_PROXY": "http://proxy.internal"},
+        }
+    }
 
 
 def test_load_settings_with_profile_without_profile_reads_cwd_toml_sources(

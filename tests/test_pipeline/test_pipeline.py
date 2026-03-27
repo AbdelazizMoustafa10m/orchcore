@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -240,6 +241,39 @@ async def test_run_pipeline_skips_requested_phases(ui_callback: NullCallback) ->
 
 
 @pytest.mark.asyncio
+async def test_run_pipeline_skips_dependents_of_user_skipped_phases(
+    ui_callback: NullCallback,
+) -> None:
+    # Arrange
+    phases = [
+        _phase("planning"),
+        _phase("implementation", depends_on=["planning"]),
+    ]
+    pipeline_runner = PipelineRunner(
+        phase_runner=StubPhaseRunner(
+            {"implementation": _phase_result("implementation", PhaseStatus.DONE)}
+        )
+    )
+
+    # Act
+    result = await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={phase.name: phase.name for phase in phases},
+        ui_callback=ui_callback,
+        skip_phases=["planning"],
+    )
+
+    # Assert
+    assert [phase_result.status for phase_result in result.phases] == [
+        PhaseStatus.SKIPPED,
+        PhaseStatus.SKIPPED,
+    ]
+    assert result.phases[0].error == "Skipped by user request"
+    assert result.phases[1].error == "Dependencies not met: planning"
+    assert result.success is True
+
+
+@pytest.mark.asyncio
 async def test_run_pipeline_runs_only_selected_phase(ui_callback: NullCallback) -> None:
     # Arrange
     phases = [_phase("planning"), _phase("implementation")]
@@ -266,6 +300,36 @@ async def test_run_pipeline_runs_only_selected_phase(ui_callback: NullCallback) 
             toolset=None,
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_only_phase_still_enforces_dependencies(
+    ui_callback: NullCallback,
+) -> None:
+    # Arrange
+    phases = [
+        _phase("planning"),
+        _phase("implementation", depends_on=["planning"]),
+    ]
+    phase_runner = StubPhaseRunner(
+        {"implementation": _phase_result("implementation", PhaseStatus.DONE)}
+    )
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    # Act
+    result = await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={"implementation": "Build it"},
+        ui_callback=ui_callback,
+        only_phase="implementation",
+    )
+
+    # Assert
+    assert [phase_result.name for phase_result in result.phases] == ["implementation"]
+    assert result.phases[0].status is PhaseStatus.SKIPPED
+    assert result.phases[0].error == "Dependencies not met: planning"
+    assert result.success is True
+    assert phase_runner.calls == []
 
 
 @pytest.mark.asyncio
@@ -384,6 +448,48 @@ async def test_run_pipeline_skips_phase_when_dependency_failed(
 
 
 @pytest.mark.asyncio
+async def test_run_pipeline_rejects_unknown_dependencies(ui_callback: NullCallback) -> None:
+    # Arrange
+    phases = [_phase("implementation", depends_on=["planning"])]
+    pipeline_runner = PipelineRunner(phase_runner=StubPhaseRunner({}))
+
+    # Act
+    with pytest.raises(ValueError) as exc_info:
+        await pipeline_runner.run_pipeline(
+            phases=phases,
+            prompts={"implementation": "Build it"},
+            ui_callback=ui_callback,
+        )
+
+    # Assert
+    assert str(exc_info.value) == "Unknown depends_on phase(s): implementation -> planning"
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_rejects_dependency_cycles(ui_callback: NullCallback) -> None:
+    # Arrange
+    phases = [
+        _phase("planning", depends_on=["implementation"]),
+        _phase("implementation", depends_on=["review"]),
+        _phase("review", depends_on=["planning"]),
+    ]
+    pipeline_runner = PipelineRunner(phase_runner=StubPhaseRunner({}))
+
+    # Act
+    with pytest.raises(ValueError) as exc_info:
+        await pipeline_runner.run_pipeline(
+            phases=phases,
+            prompts={phase.name: phase.name for phase in phases},
+            ui_callback=ui_callback,
+        )
+
+    # Assert
+    assert str(exc_info.value) == (
+        "Dependency cycle detected: planning -> implementation -> review -> planning"
+    )
+
+
+@pytest.mark.asyncio
 async def test_run_pipeline_saves_state_and_loads_it_for_resume(
     ui_callback: NullCallback,
     workspace: WorkspaceManager,
@@ -440,3 +546,52 @@ async def test_run_pipeline_saves_state_and_loads_it_for_resume(
     assert json.loads(state_path.read_text(encoding="utf-8")) == {
         "completed_phases": ["implementation", "planning", "review"]
     }
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_logs_warning_when_save_state_fails(
+    ui_callback: NullCallback,
+    workspace: WorkspaceManager,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    phases = [_phase("planning"), _phase("review")]
+    phase_runner = StubPhaseRunner(
+        {
+            "planning": _phase_result("planning", PhaseStatus.DONE),
+            "review": _phase_result("review", PhaseStatus.DONE),
+        }
+    )
+    pipeline_runner = PipelineRunner(
+        phase_runner=phase_runner,
+        workspace=workspace,
+    )
+
+    def _raise_write_error(name: str, content: str) -> None:
+        del name, content
+        raise OSError("disk full")
+
+    monkeypatch.setattr(workspace, "write_file", _raise_write_error)
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="orchcore.pipeline.pipeline"):
+        result = await pipeline_runner.run_pipeline(
+            phases=phases,
+            prompts={phase.name: phase.name for phase in phases},
+            ui_callback=ui_callback,
+        )
+
+    # Assert
+    assert [phase_result.status for phase_result in result.phases] == [
+        PhaseStatus.DONE,
+        PhaseStatus.DONE,
+    ]
+    assert result.success is True
+    assert [call.phase_name for call in phase_runner.calls] == ["planning", "review"]
+    assert (
+        "Failed to save pipeline resume state to '.state.json' after phase 'planning': disk full"
+    ) in caplog.text
+    assert (
+        "Failed to save pipeline resume state to '.state.json' after phase 'review': disk full"
+    ) in caplog.text

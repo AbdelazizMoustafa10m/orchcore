@@ -121,7 +121,14 @@ class PipelineRunner:
                 completed_phases.add(phase.name)
 
             if self._workspace is not None:
-                self._save_state(completed_phases)
+                try:
+                    self._save_state(completed_phases)
+                except OSError as exc:
+                    logger.warning(
+                        "Failed to save pipeline resume state to '.state.json' after phase %r: %s",
+                        phase.name,
+                        exc,
+                    )
 
             if phase_result.status is PhaseStatus.FAILED and phase.required:
                 logger.warning("Required phase %r failed, stopping pipeline", phase.name)
@@ -199,6 +206,71 @@ def _validate_pipeline_request(
         raise ValueError(
             "resume_from and only_phase must reference the same phase when both are set"
         )
+
+    phases_by_name = {phase.name: phase for phase in phases}
+    unknown_dependencies = _collect_unknown_dependencies(phases_by_name)
+    if unknown_dependencies:
+        details = ", ".join(
+            f"{phase_name} -> {', '.join(dependency_names)}"
+            for phase_name, dependency_names in unknown_dependencies.items()
+        )
+        raise ValueError(f"Unknown depends_on phase(s): {details}")
+
+    cycle_path = _find_dependency_cycle(phases_by_name)
+    if cycle_path is not None:
+        raise ValueError(f"Dependency cycle detected: {' -> '.join(cycle_path)}")
+
+
+def _collect_unknown_dependencies(phases_by_name: dict[str, Phase]) -> dict[str, list[str]]:
+    """Return unknown dependency names grouped by phase."""
+    phase_names = set(phases_by_name)
+    unknown_dependencies: dict[str, list[str]] = {}
+
+    for phase_name, phase in phases_by_name.items():
+        missing_dependencies = sorted(
+            dependency_name
+            for dependency_name in phase.depends_on
+            if dependency_name not in phase_names
+        )
+        if missing_dependencies:
+            unknown_dependencies[phase_name] = missing_dependencies
+
+    return unknown_dependencies
+
+
+def _find_dependency_cycle(phases_by_name: dict[str, Phase]) -> list[str] | None:
+    """Return the first detected dependency cycle as an ordered phase path."""
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    path: list[str] = []
+
+    def _visit(phase_name: str) -> list[str] | None:
+        if phase_name in visited:
+            return None
+
+        if phase_name in visiting:
+            cycle_start = path.index(phase_name)
+            return [*path[cycle_start:], phase_name]
+
+        visiting.add(phase_name)
+        path.append(phase_name)
+
+        for dependency_name in phases_by_name[phase_name].depends_on:
+            cycle_path = _visit(dependency_name)
+            if cycle_path is not None:
+                return cycle_path
+
+        path.pop()
+        visiting.remove(phase_name)
+        visited.add(phase_name)
+        return None
+
+    for phase_name in phases_by_name:
+        cycle_path = _visit(phase_name)
+        if cycle_path is not None:
+            return cycle_path
+
+    return None
 
 
 def _skipped_phase_result(*, name: str, reason: str) -> PhaseResult:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import deque
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
     from datetime import timedelta
     from decimal import Decimal
 
+logger = logging.getLogger(__name__)
+
 _FRIENDLY_NAMES: dict[str, str] = {
     "Read": "Read file",
     "Write": "Write file",
@@ -28,6 +31,14 @@ _FRIENDLY_NAMES: dict[str, str] = {
     "Grep": "Search content",
     "LS": "List directory",
 }
+
+_TERMINAL_STATES: frozenset[AgentState] = frozenset(
+    {
+        AgentState.COMPLETED,
+        AgentState.FAILED,
+        AgentState.CANCELLED,
+    }
+)
 
 
 def _friendly_name(tool_name: str) -> str:
@@ -58,10 +69,24 @@ class AgentMonitor:
             self._session_id = event.session_id
 
     def _handle_state_change(self, event: StreamEvent) -> None:
-        if event.text_preview == "thinking":
+        hint = (event.text_preview or "").strip().lower()
+        if hint == "thinking":
             self._state = AgentState.THINKING
-        else:
+            return
+        if hint == "writing":
             self._state = AgentState.WRITING
+            return
+
+        logger.warning(
+            "Unknown state change hint for agent %s: %r",
+            self._agent_name,
+            event.text_preview,
+        )
+
+    def _handle_heartbeat(self, event: StreamEvent) -> None:  # noqa: ARG002
+        if self._state != AgentState.STALLED:
+            return
+        self._state = AgentState.TOOL_RUNNING if self._active_tools else AgentState.THINKING
 
     def _handle_tool_start(self, event: StreamEvent) -> None:
         tool_id = event.tool_id or f"tool-{self._counters.total}"
@@ -76,12 +101,12 @@ class AgentMonitor:
         self._active_tools[tool_id] = execution
         self._counters.running += 1
         self._counters.total += 1
-        self._state = AgentState.TOOL_ACTIVE
+        self._state = AgentState.TOOL_RUNNING
 
     def _handle_tool_exec(self, event: StreamEvent) -> None:
         if event.tool_id is not None and event.tool_id in self._active_tools:
             self._active_tools[event.tool_id].detail = event.tool_detail
-        self._state = AgentState.TOOL_ACTIVE
+        self._state = AgentState.TOOL_RUNNING
 
     def _handle_tool_done(self, event: StreamEvent) -> None:
         tool_id = event.tool_id
@@ -103,7 +128,7 @@ class AgentMonitor:
             self._counters.succeeded += 1
 
         self._recent_tools.append(execution)
-        self._state = AgentState.TOOL_ACTIVE if self._active_tools else AgentState.THINKING
+        self._state = AgentState.TOOL_RUNNING if self._active_tools else AgentState.THINKING
 
     def _handle_text(self, event: StreamEvent) -> None:  # noqa: ARG002
         self._text_count += 1
@@ -111,7 +136,7 @@ class AgentMonitor:
 
     def _handle_subagent(self, event: StreamEvent) -> None:  # noqa: ARG002
         self._subagent_count += 1
-        self._state = AgentState.TOOL_ACTIVE
+        self._state = AgentState.TOOL_RUNNING
 
     def _handle_result(self, event: StreamEvent) -> None:
         if event.cost_usd is not None:
@@ -122,13 +147,25 @@ class AgentMonitor:
             self._session_id = event.session_id
         if event.token_usage is not None:
             self._token_usage = event.token_usage
-        self._state = AgentState.COMPLETED
+        self._state = AgentState.FAILED if event.error is not None else AgentState.COMPLETED
+
+    def _handle_error(self, event: StreamEvent) -> None:  # noqa: ARG002
+        self._state = AgentState.FAILED
+
+    def _handle_cancelled(self, event: StreamEvent) -> None:  # noqa: ARG002
+        self._state = AgentState.CANCELLED
 
     def _handle_rate_limit(self, event: StreamEvent) -> None:  # noqa: ARG002
         self._state = AgentState.RATE_LIMITED
 
     def _handle_stall(self, event: StreamEvent) -> None:  # noqa: ARG002
         self._state = AgentState.STALLED
+
+    def cancel(self) -> None:
+        """Transition the monitor to CANCELLED unless it already reached a terminal state."""
+        if self._state in _TERMINAL_STATES:
+            return
+        self.update(StreamEvent(event_type=StreamEventType.CANCELLED))
 
     def update(self, event: StreamEvent) -> None:
         """Apply a stream event to the state machine."""
@@ -137,6 +174,8 @@ class AgentMonitor:
                 self._handle_init(event)
             case StreamEventType.STATE_CHANGE:
                 self._handle_state_change(event)
+            case StreamEventType.HEARTBEAT:
+                self._handle_heartbeat(event)
             case StreamEventType.TOOL_START:
                 self._handle_tool_start(event)
             case StreamEventType.TOOL_EXEC:
@@ -149,6 +188,10 @@ class AgentMonitor:
                 self._handle_subagent(event)
             case StreamEventType.RESULT:
                 self._handle_result(event)
+            case StreamEventType.ERROR:
+                self._handle_error(event)
+            case StreamEventType.CANCELLED:
+                self._handle_cancelled(event)
             case StreamEventType.RETRY:
                 pass  # state unchanged; retry logged upstream
             case StreamEventType.RATE_LIMIT:

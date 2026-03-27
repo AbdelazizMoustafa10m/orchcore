@@ -104,7 +104,7 @@ plan = ["--verbose"]
 fix = []
 
 [agents.demo.output_extraction]
-strategy = "stdout"
+strategy = "stdout_capture"
 """.strip(),
         encoding="utf-8",
     )
@@ -116,4 +116,4 @@ strategy = "stdout"
     assert agent.binary == "echo"
     assert agent.model == "demo-model"
     assert agent.flags[AgentMode.PLAN] == ["--verbose"]
-    assert agent.output_extraction.strategy.value == "stdout"
+    assert agent.output_extraction.strategy.value == "stdout_capture"

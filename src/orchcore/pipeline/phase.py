@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from datetime import timedelta  # noqa: TC003 — required by Pydantic runtime validation
+from decimal import Decimal  # noqa: TC003 — required by Pydantic runtime validation
 from enum import StrEnum
 from pathlib import Path  # noqa: TC003
-from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from orchcore.recovery.retry import FailureMode, RetryPolicy
 from orchcore.registry.agent import ToolSet  # noqa: TC001
 from orchcore.stream.events import AgentResult  # noqa: TC001
-
-if TYPE_CHECKING:
-    from datetime import timedelta
-    from decimal import Decimal
 
 
 class PhaseStatus(StrEnum):
@@ -31,6 +28,8 @@ class PhaseStatus(StrEnum):
 class Phase(BaseModel):
     """Definition of a pipeline phase."""
 
+    model_config = ConfigDict(frozen=True)
+
     name: str
     agents: list[str]
     parallel: bool = False
@@ -38,23 +37,23 @@ class Phase(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     tools: ToolSet | None = None
     agent_tools: dict[str, ToolSet] = Field(default_factory=dict)
+    retry_policy: RetryPolicy | None = Field(default=None)
+    failure_mode: FailureMode = Field(default=FailureMode.FAIL_FAST)
 
 
-@dataclass
-class PhaseResult:
+class PhaseResult(BaseModel):
     """Result of a single pipeline phase."""
 
     name: str
     status: PhaseStatus
     duration: timedelta | None = None
-    output_files: list[Path] = field(default_factory=list)
-    agent_results: list[AgentResult] = field(default_factory=list)
+    output_files: list[Path] = Field(default_factory=list)
+    agent_results: list[AgentResult] = Field(default_factory=list)
     error: str | None = None
     cost_usd: Decimal | None = None
 
 
-@dataclass
-class PipelineResult:
+class PipelineResult(BaseModel):
     """Aggregated result of a complete pipeline run."""
 
     phases: list[PhaseResult]
