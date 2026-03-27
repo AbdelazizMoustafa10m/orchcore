@@ -73,23 +73,36 @@ class OrchcoreTelemetry:
             self._tracer = None
 
     @contextmanager
+    def _span(
+        self,
+        span_name: str,
+        attributes: dict[str, str],
+    ) -> Iterator[object | None]:
+        """Start a span when telemetry is active, or yield None when disabled.
+
+        Centralises the disabled-check/start-span scaffolding shared by
+        pipeline_span, phase_span, agent_span, and tool_span.
+        """
+        if not self._enabled or self._tracer is None:
+            yield None
+            return
+
+        with self._tracer.start_as_current_span(span_name, attributes=attributes) as span:
+            yield span
+
+    @contextmanager
     def pipeline_span(
         self,
         pipeline_name: str,
         task_slug: str,
     ) -> Iterator[object | None]:
         """Create a root span for the entire orchestration pipeline."""
-        if not self._enabled or self._tracer is None:
-            yield None
-            return
-
-        attributes = {
-            "orchcore.pipeline": pipeline_name,
-            "orchcore.task_slug": task_slug,
-        }
-        with self._tracer.start_as_current_span(
+        with self._span(
             "orchcore.pipeline",
-            attributes=attributes,
+            {
+                "orchcore.pipeline": pipeline_name,
+                "orchcore.task_slug": task_slug,
+            },
         ) as span:
             yield span
 
@@ -100,47 +113,33 @@ class OrchcoreTelemetry:
         agent: str | None = None,
     ) -> Iterator[object | None]:
         """Create a workflow phase span or yield `None` when telemetry is disabled."""
-        if not self._enabled or self._tracer is None:
-            yield None
-            return
-
-        attributes = {
-            "orchcore.phase": phase,
-            "orchcore.agent": agent or "",
-        }
-        with self._tracer.start_as_current_span(
+        with self._span(
             f"orchcore.phase.{phase}",
-            attributes=attributes,
+            {
+                "orchcore.phase": phase,
+                "orchcore.agent": agent or "",
+            },
         ) as span:
             yield span
 
     @contextmanager
     def agent_span(self, phase: str, agent: str) -> Iterator[object | None]:
         """Create an agent-level span within a phase."""
-        if not self._enabled or self._tracer is None:
-            yield None
-            return
-
-        attributes = {
-            "orchcore.phase": phase,
-            "orchcore.agent": agent,
-        }
-        with self._tracer.start_as_current_span(
+        with self._span(
             f"orchcore.agent.{agent}",
-            attributes=attributes,
+            {
+                "orchcore.phase": phase,
+                "orchcore.agent": agent,
+            },
         ) as span:
             yield span
 
     @contextmanager
     def tool_span(self, agent: str, tool: ToolExecution) -> Iterator[object | None]:
         """Create a child span for a tool invocation."""
-        if not self._enabled or self._tracer is None:
-            yield None
-            return
-
-        with self._tracer.start_as_current_span(
+        with self._span(
             f"orchcore.tool.{tool.name}",
-            attributes={
+            {
                 "orchcore.agent": agent,
                 "orchcore.tool.name": tool.name,
                 "orchcore.tool.detail": tool.detail or "",
@@ -161,7 +160,10 @@ class OrchcoreTelemetry:
             span.set_attribute("orchcore.agent", agent)
             span.set_attribute(f"orchcore.cost.{agent}", float(cost_usd))
             span.set_attribute("orchcore.cost.total", float(cost_usd))
-        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+        except (AttributeError, RuntimeError, ValueError) as exc:
+            # AttributeError: span type doesn't expose set_attribute (non-recording span).
+            # RuntimeError: span implementation rejects the mutation (e.g. already ended).
+            # ValueError: OTel rejects an unsupported attribute value type.
             logger.debug(
                 "Failed to record telemetry cost for agent %s: %s",
                 agent,

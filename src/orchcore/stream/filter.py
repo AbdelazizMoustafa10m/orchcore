@@ -62,17 +62,20 @@ class StreamFilter:
 
     def should_keep(self, line: str) -> bool:
         """
-        Fast-path: use string search ('"type":"content_block_delta"' in line)
-        BEFORE json.loads(). This avoids parsing ~95% of lines.
+        Fast-path: use string matching BEFORE json.loads() to drop high-volume events.
+        This avoids parsing ~95% of lines that would be discarded anyway.
 
-        For CLAUDE format: check against SKIP_TYPES_CLAUDE
-        For CODEX format: check against SKIP_TYPES_CODEX
-        For other formats: keep all lines (no known high-volume types)
+        Supports all five formats: Claude, Codex, OpenCode, Gemini, and Copilot.
+        Each format has its own set of skip matchers defined in SKIP_MATCHERS:
+          - Claude: content_block_stop, message_start, message_stop
+          - Codex: response.output_text.delta, response.reasoning_summary.delta, turn.started
+          - OpenCode: empty "text" events
+          - Gemini: promptFeedback lines
+          - Copilot: empty text/message/content fields
 
         Empty lines and whitespace-only lines are always dropped.
-        If the line doesn't contain a "type" field at all, keep it
-        (could be malformed but important).
-        Only drop lines that positively match a skip type.
+        If a line does not match any skip matcher it is kept, even if malformed.
+        Only drop lines that positively match a skip pattern.
         """
         if not line or not line.strip():
             return False

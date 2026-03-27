@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -75,6 +76,31 @@ def _register_agents(
 ) -> None:
     for agent_name in agent_names:
         registry.register(sample_agent_config.model_copy(update={"name": agent_name}))
+
+
+@dataclass
+class _RetryTestSetup:
+    """Common objects shared across rate-limit retry tests."""
+
+    runner: AgentRunner
+    phase_runner: PhaseRunner
+    ui_callback: _RecordingCallback
+    output_path: Path
+    agent: AgentConfig
+
+
+@pytest.fixture
+def retry_test_setup(sample_agent_config: AgentConfig, tmp_path: Path) -> _RetryTestSetup:
+    """Construct the shared runner, phase_runner, ui_callback, output_path, and agent
+    used by all four rate-limit retry tests."""
+    runner = AgentRunner()
+    return _RetryTestSetup(
+        runner=runner,
+        phase_runner=PhaseRunner(runner=runner, registry=AgentRegistry()),
+        ui_callback=_RecordingCallback(),
+        output_path=tmp_path / "codex.md",
+        agent=sample_agent_config.model_copy(update={"name": "codex"}),
+    )
 
 
 @pytest.mark.parametrize(
@@ -212,16 +238,11 @@ def test_resolve_toolset_applies_priority_order(
 
 @pytest.mark.asyncio
 async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
-    sample_agent_config: AgentConfig,
+    retry_test_setup: _RetryTestSetup,
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     # Arrange
-    runner = AgentRunner()
-    phase_runner = PhaseRunner(runner=runner, registry=AgentRegistry())
-    ui_callback = _RecordingCallback()
-    output_path = tmp_path / "codex.md"
-    agent = sample_agent_config.model_copy(update={"name": "codex"})
+    setup = retry_test_setup
     attempts = 0
     wait_inputs: list[tuple[int, int | None]] = []
     sleep_calls: list[float] = []
@@ -232,14 +253,14 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
         if attempts == 1:
             return _build_agent_result(
                 agent_name="codex",
-                output_path=output_path,
+                output_path=setup.output_path,
                 exit_code=1,
                 output_empty=True,
                 error="429 rate limit exceeded, try again in 17 seconds",
             )
         return _build_agent_result(
             agent_name="codex",
-            output_path=output_path,
+            output_path=setup.output_path,
             exit_code=0,
             output_empty=False,
         )
@@ -260,7 +281,7 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
     async def fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
 
-    monkeypatch.setattr(runner, "run", fake_run)
+    monkeypatch.setattr(setup.runner, "run", fake_run)
     monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.is_tree_dirty", fake_is_tree_dirty)
     monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.auto_commit", fake_auto_commit)
     monkeypatch.setattr(
@@ -270,12 +291,12 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
     monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", fake_sleep)
 
     # Act
-    result = await phase_runner._run_with_semaphore(
-        agent=agent,
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
         prompt="retry",
-        output_path=output_path,
+        output_path=setup.output_path,
         phase_name="analysis",
-        ui_callback=ui_callback,
+        ui_callback=setup.ui_callback,
         mode=AgentMode.PLAN,
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
@@ -287,25 +308,21 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
     assert result.error is None
     assert wait_inputs == [(1, 17)]
     assert sleep_calls == [0.25]
-    assert ui_callback.rate_limits == [
+    assert setup.ui_callback.rate_limits == [
         ("codex", "429 rate limit exceeded, try again in 17 seconds")
     ]
-    assert ui_callback.rate_limit_waits == [("codex", 0.25)]
-    assert ui_callback.retries == [("codex", 1, 2)]
-    assert ui_callback.git_recoveries == []
+    assert setup.ui_callback.rate_limit_waits == [("codex", 0.25)]
+    assert setup.ui_callback.retries == [("codex", 1, 2)]
+    assert setup.ui_callback.git_recoveries == []
 
 
 @pytest.mark.asyncio
 async def test_run_with_semaphore_does_not_retry_non_rate_limit_failures(
-    sample_agent_config: AgentConfig,
+    retry_test_setup: _RetryTestSetup,
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     # Arrange
-    runner = AgentRunner()
-    phase_runner = PhaseRunner(runner=runner, registry=AgentRegistry())
-    ui_callback = _RecordingCallback()
-    output_path = tmp_path / "codex.md"
+    setup = retry_test_setup
     attempts = 0
     sleep_calls: list[float] = []
 
@@ -314,7 +331,7 @@ async def test_run_with_semaphore_does_not_retry_non_rate_limit_failures(
         attempts += 1
         return _build_agent_result(
             agent_name="codex",
-            output_path=output_path,
+            output_path=setup.output_path,
             exit_code=1,
             output_empty=True,
             error="internal failure",
@@ -323,16 +340,16 @@ async def test_run_with_semaphore_does_not_retry_non_rate_limit_failures(
     async def fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
 
-    monkeypatch.setattr(runner, "run", fake_run)
+    monkeypatch.setattr(setup.runner, "run", fake_run)
     monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", fake_sleep)
 
     # Act
-    result = await phase_runner._run_with_semaphore(
-        agent=sample_agent_config.model_copy(update={"name": "codex"}),
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
         prompt="retry",
-        output_path=output_path,
+        output_path=setup.output_path,
         phase_name="analysis",
-        ui_callback=ui_callback,
+        ui_callback=setup.ui_callback,
         mode=AgentMode.PLAN,
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=3, failure_mode=FailureMode.FAIL_FAST),
@@ -343,23 +360,19 @@ async def test_run_with_semaphore_does_not_retry_non_rate_limit_failures(
     assert result.exit_code == 1
     assert result.error == "internal failure"
     assert sleep_calls == []
-    assert ui_callback.rate_limits == []
-    assert ui_callback.rate_limit_waits == []
-    assert ui_callback.retries == []
-    assert ui_callback.git_recoveries == []
+    assert setup.ui_callback.rate_limits == []
+    assert setup.ui_callback.rate_limit_waits == []
+    assert setup.ui_callback.retries == []
+    assert setup.ui_callback.git_recoveries == []
 
 
 @pytest.mark.asyncio
 async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
-    sample_agent_config: AgentConfig,
+    retry_test_setup: _RetryTestSetup,
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     # Arrange
-    runner = AgentRunner()
-    phase_runner = PhaseRunner(runner=runner, registry=AgentRegistry())
-    ui_callback = _RecordingCallback()
-    output_path = tmp_path / "codex.md"
+    setup = retry_test_setup
     attempts = 0
 
     async def fake_run(**_: object) -> AgentResult:
@@ -368,14 +381,14 @@ async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
         if attempts == 1:
             return _build_agent_result(
                 agent_name="codex",
-                output_path=output_path,
+                output_path=setup.output_path,
                 exit_code=1,
                 output_empty=True,
                 error="rate limit exceeded",
             )
         return _build_agent_result(
             agent_name="codex",
-            output_path=output_path,
+            output_path=setup.output_path,
             exit_code=0,
             output_empty=False,
         )
@@ -395,7 +408,7 @@ async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
     async def fake_sleep(delay: float) -> None:
         del delay
 
-    monkeypatch.setattr(runner, "run", fake_run)
+    monkeypatch.setattr(setup.runner, "run", fake_run)
     monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.is_tree_dirty", fake_is_tree_dirty)
     monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.auto_commit", fake_auto_commit)
     monkeypatch.setattr(
@@ -405,12 +418,12 @@ async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
     monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", fake_sleep)
 
     # Act
-    result = await phase_runner._run_with_semaphore(
-        agent=sample_agent_config.model_copy(update={"name": "codex"}),
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
         prompt="retry",
-        output_path=output_path,
+        output_path=setup.output_path,
         phase_name="analysis",
-        ui_callback=ui_callback,
+        ui_callback=setup.ui_callback,
         mode=AgentMode.PLAN,
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
@@ -419,7 +432,7 @@ async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
     # Assert
     assert attempts == 2
     assert result.exit_code == 0
-    assert ui_callback.git_recoveries == [("auto_commit", "cleaned dirty tree before retry")]
+    assert setup.ui_callback.git_recoveries == [("auto_commit", "cleaned dirty tree before retry")]
 
 
 @pytest.mark.asyncio
@@ -636,16 +649,11 @@ async def test_run_phase_aborts_remaining_agents_on_shutdown(
 
 @pytest.mark.asyncio
 async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
-    sample_agent_config: AgentConfig,
+    retry_test_setup: _RetryTestSetup,
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     # Arrange
-    runner = AgentRunner()
-    phase_runner = PhaseRunner(runner=runner, registry=AgentRegistry())
-    ui_callback = _RecordingCallback()
-    output_path = tmp_path / "codex.md"
-    agent = sample_agent_config.model_copy(update={"name": "codex"})
+    setup = retry_test_setup
     attempts = 0
     sleep_calls: list[float] = []
 
@@ -654,7 +662,7 @@ async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
         attempts += 1
         return _build_agent_result(
             agent_name="codex",
-            output_path=output_path,
+            output_path=setup.output_path,
             exit_code=1,
             output_empty=True,
             error="rate limit exceeded",
@@ -671,13 +679,13 @@ async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
     def fake_compute_wait(self: object, attempt: int, reset_seconds: int | None = None) -> float:
         del self, attempt, reset_seconds
         # Set shutdown flag so the retry is skipped
-        phase_runner._shutting_down = True
+        setup.phase_runner._shutting_down = True
         return 0.25
 
     async def fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
 
-    monkeypatch.setattr(runner, "run", fake_run)
+    monkeypatch.setattr(setup.runner, "run", fake_run)
     monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.is_tree_dirty", fake_is_tree_dirty)
     monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.auto_commit", fake_auto_commit)
     monkeypatch.setattr(
@@ -687,12 +695,12 @@ async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
     monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", fake_sleep)
 
     # Act
-    result = await phase_runner._run_with_semaphore(
-        agent=agent,
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
         prompt="retry",
-        output_path=output_path,
+        output_path=setup.output_path,
         phase_name="analysis",
-        ui_callback=ui_callback,
+        ui_callback=setup.ui_callback,
         mode=AgentMode.PLAN,
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=3, failure_mode=FailureMode.FAIL_FAST),
@@ -703,4 +711,4 @@ async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
     assert result.exit_code == 1
     assert result.error == "rate limit exceeded"
     assert sleep_calls == []
-    assert ui_callback.retries == [("codex", 1, 3)]
+    assert setup.ui_callback.retries == [("codex", 1, 3)]

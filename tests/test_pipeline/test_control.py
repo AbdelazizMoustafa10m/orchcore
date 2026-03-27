@@ -12,8 +12,8 @@ def test_flow_control_initial_state() -> None:
     control = FlowControl()
 
     # Assert
-    assert control.is_paused is False
-    assert control.skip_requested is False
+    assert not control.is_paused
+    assert not control.skip_requested
 
 
 def test_pause_and_resume_toggle_paused_state() -> None:
@@ -24,13 +24,13 @@ def test_pause_and_resume_toggle_paused_state() -> None:
     control.pause()
 
     # Assert
-    assert control.is_paused is True
+    assert control.is_paused
 
     # Act
     control.resume()
 
     # Assert
-    assert control.is_paused is False
+    assert not control.is_paused
 
 
 def test_request_skip_and_clear_skip_toggle_skip_flag() -> None:
@@ -41,13 +41,13 @@ def test_request_skip_and_clear_skip_toggle_skip_flag() -> None:
     control.request_skip()
 
     # Assert
-    assert control.skip_requested is True
+    assert control.skip_requested
 
     # Act
     control.clear_skip()
 
     # Assert
-    assert control.skip_requested is False
+    assert not control.skip_requested
 
 
 @pytest.mark.asyncio
@@ -70,11 +70,11 @@ async def test_wait_if_paused_blocks_until_resume() -> None:
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(asyncio.shield(wait_task), timeout=0.05)
 
-    assert wait_task.done() is False
+    assert not wait_task.done()
 
     # Act
     control.resume()
 
     # Assert
     await asyncio.wait_for(wait_task, timeout=0.1)
-    assert wait_task.done() is True
+    assert wait_task.done()

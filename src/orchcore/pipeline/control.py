@@ -8,9 +8,11 @@ import asyncio
 class FlowControl:
     """Shared control object for pausing, resuming, and skipping phases.
 
-    Thread-safety note: all methods are safe to call from worker threads
-    because ``asyncio.Event`` is loop-aware and the boolean skip flag is
-    updated atomically before external process termination is coordinated.
+    Async-only safety: ``pause()`` and ``resume()`` mutate an
+    ``asyncio.Event`` directly and must be called from within the running
+    event loop (i.e. from a coroutine or a callback scheduled on the loop).
+    They are not safe to call from worker threads or a different event loop
+    without explicit loop hand-off (e.g. ``loop.call_soon_threadsafe``).
     """
 
     def __init__(self) -> None:

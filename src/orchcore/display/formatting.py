@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import timedelta
     from decimal import Decimal
 
@@ -46,7 +47,7 @@ def format_file_size(size_bytes: int) -> str:
     return f"{size_bytes} bytes"
 
 
-def format_tokens(token_usage: dict[str, int] | None) -> str:
+def format_tokens(token_usage: Mapping[str, int] | None) -> str:
     """Format token usage as ``"in/out"`` or a dash when unavailable."""
     if token_usage is None:
         return "\u2014"

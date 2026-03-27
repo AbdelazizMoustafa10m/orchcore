@@ -177,6 +177,26 @@ class PipelineRunner:
         await self._workspace.awrite_file(".state.json", json.dumps(state_data, indent=2))
 
 
+class PipelineError(Exception):
+    """Base class for all orchcore pipeline errors."""
+
+
+class EmptyPipelineError(PipelineError):
+    """Raised when a pipeline has no phases to execute."""
+
+
+class DuplicatePhaseError(PipelineError):
+    """Raised when two or more phases share the same name."""
+
+
+class UnknownAgentError(PipelineError):
+    """Raised when a phase references an unknown dependency or agent name."""
+
+
+class PipelineValidationError(PipelineError):
+    """Raised when pipeline configuration is structurally invalid."""
+
+
 def _validate_pipeline_request(
     *,
     phases: list[Phase],
@@ -194,16 +214,16 @@ def _validate_pipeline_request(
 
     if duplicate_phase_names:
         duplicates = ", ".join(sorted(duplicate_phase_names))
-        raise ValueError(f"Duplicate phase names are not allowed: {duplicates}")
+        raise DuplicatePhaseError(f"Duplicate phase names are not allowed: {duplicates}")
 
     if resume_from is not None and resume_from not in phase_names:
-        raise ValueError(f"Unknown resume_from phase: {resume_from!r}")
+        raise PipelineValidationError(f"Unknown resume_from phase: {resume_from!r}")
 
     if only_phase is not None and only_phase not in phase_names:
-        raise ValueError(f"Unknown only_phase: {only_phase!r}")
+        raise PipelineValidationError(f"Unknown only_phase: {only_phase!r}")
 
     if resume_from is not None and only_phase is not None and resume_from != only_phase:
-        raise ValueError(
+        raise PipelineValidationError(
             "resume_from and only_phase must reference the same phase when both are set"
         )
 
@@ -214,11 +234,11 @@ def _validate_pipeline_request(
             f"{phase_name} -> {', '.join(dependency_names)}"
             for phase_name, dependency_names in unknown_dependencies.items()
         )
-        raise ValueError(f"Unknown depends_on phase(s): {details}")
+        raise UnknownAgentError(f"Unknown depends_on phase(s): {details}")
 
     cycle_path = _find_dependency_cycle(phases_by_name)
     if cycle_path is not None:
-        raise ValueError(f"Dependency cycle detected: {' -> '.join(cycle_path)}")
+        raise PipelineValidationError(f"Dependency cycle detected: {' -> '.join(cycle_path)}")
 
 
 def _collect_unknown_dependencies(phases_by_name: dict[str, Phase]) -> dict[str, list[str]]:
@@ -298,4 +318,11 @@ def _pipeline_succeeded(phase_results: list[PhaseResult]) -> bool:
     )
 
 
-__all__ = ["PipelineRunner"]
+__all__ = [
+    "DuplicatePhaseError",
+    "EmptyPipelineError",
+    "PipelineError",
+    "PipelineRunner",
+    "PipelineValidationError",
+    "UnknownAgentError",
+]

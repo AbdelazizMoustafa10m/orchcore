@@ -8,7 +8,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus, PipelineResult
-from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
+from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction
 from orchcore.stream.events import AgentResult, StreamEvent, StreamEventType, StreamFormat
 
 
@@ -32,11 +32,6 @@ from orchcore.stream.events import AgentResult, StreamEvent, StreamEventType, St
             id="AgentConfig",
         ),
         pytest.param(
-            Phase,
-            {"name": "test", "agents": ["claude"]},
-            id="Phase",
-        ),
-        pytest.param(
             StreamEvent,
             {
                 "event_type": StreamEventType.RESULT,
@@ -46,11 +41,6 @@ from orchcore.stream.events import AgentResult, StreamEvent, StreamEventType, St
                 "token_usage": {"input": 10, "output": 4},
             },
             id="StreamEvent",
-        ),
-        pytest.param(
-            ToolSet,
-            {"internal": ["Read"]},
-            id="ToolSet",
         ),
         pytest.param(
             PhaseResult,

@@ -174,7 +174,7 @@ def test_agent_runner_processes_claude_stream_end_to_end(tmp_path: Path) -> None
     assert result["token_usage"] == {"input_tokens": 12, "output_tokens": 34}
     assert result["num_turns"] == 2
     assert result["session_id"] == "claude-session-1"
-    assert result["output_empty"] is False
+    assert not result["output_empty"]
     assert result["error"] is None
 
     assert output_path.read_text(encoding="utf-8") == "# Claude Output\n\nIntegration succeeded.\n"

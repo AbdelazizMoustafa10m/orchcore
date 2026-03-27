@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import logging
 import signal
-import sys
 from collections.abc import Callable
 from types import FrameType, TracebackType
 
@@ -78,8 +77,10 @@ class SignalManager:
         if sig is signal.SIGINT:
             self._sigint_count += 1
             if self._sigint_count >= 2:
-                logger.warning("Received second SIGINT, forcing exit.")
-                sys.exit(130)
+                logger.warning("Received second SIGINT, forcing shutdown.")
+                # Raise KeyboardInterrupt instead of sys.exit so embedding
+                # applications retain control over the process exit path.
+                raise KeyboardInterrupt
 
         if not self._shutdown_requested:
             logger.info("Received %s, initiating graceful shutdown...", sig_name)

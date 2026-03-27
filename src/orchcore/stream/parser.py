@@ -19,12 +19,12 @@ class StreamParser:
 
     def __init__(self, stream_format: StreamFormat) -> None:
         self._format = stream_format
-        self._copilot_init_seen: bool = False
+        self._copilot_init_seen = False
         self._json_parse_error_count = 0
         # Gemini fallback: count parsed lines to emit periodic init/heartbeat pings.
-        self._gemini_line_count: int = 0
+        self._gemini_line_count = 0
         # Gemini tool counter: generate stable tool_id values for Gemini tool events.
-        self._gemini_tool_counter: int = 0
+        self._gemini_tool_counter = 0
         self._parsers: dict[StreamFormat, _ParseFn] = {
             StreamFormat.CLAUDE: self._parse_claude,
             StreamFormat.CODEX: self._parse_codex,

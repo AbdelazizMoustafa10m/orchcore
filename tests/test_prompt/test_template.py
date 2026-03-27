@@ -24,9 +24,9 @@ def test_create_jinja_env_returns_sandboxed_environment(tmp_path: Path) -> None:
     assert isinstance(env.loader, FileSystemLoader)
     assert env.loader.searchpath == [str(tmp_path)]
     assert env.undefined is StrictUndefined
-    assert env.keep_trailing_newline is True
-    assert env.trim_blocks is True
-    assert env.lstrip_blocks is True
+    assert env.keep_trailing_newline
+    assert env.trim_blocks
+    assert env.lstrip_blocks
 
 
 def test_render_template_renders_template_file(tmp_path: Path) -> None:

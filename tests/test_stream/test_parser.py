@@ -20,55 +20,109 @@ def _flatten_events(parser: StreamParser, lines: list[str]) -> list[StreamEvent]
     return events
 
 
-def test_parse_claude_stream_events(claude_jsonl_lines: list[str]) -> None:
-    events = _flatten_events(StreamParser(StreamFormat.CLAUDE), claude_jsonl_lines)
+@pytest.mark.parametrize(
+    ("stream_format", "fixture_name", "expected_types", "spot_checks"),
+    [
+        pytest.param(
+            StreamFormat.CLAUDE,
+            "claude_jsonl_lines",
+            [
+                StreamEventType.INIT,
+                StreamEventType.TOOL_START,
+                StreamEventType.TOOL_EXEC,
+                StreamEventType.TOOL_DONE,
+                StreamEventType.TEXT,
+                StreamEventType.RESULT,
+            ],
+            {
+                0: {"session_id": "sess-123"},
+                1: {"tool_name": "Read", "tool_id": "tb-1"},
+                3: {"tool_detail": "foo.py"},
+                4: {"text_preview": "# Plan\n\nAdd the requested tests."},
+                5: {"cost_usd": Decimal("0.0123"), "num_turns": 3},
+            },
+            id="claude",
+        ),
+        pytest.param(
+            StreamFormat.CODEX,
+            "codex_jsonl_lines",
+            [
+                StreamEventType.INIT,
+                StreamEventType.TOOL_START,
+                StreamEventType.TOOL_EXEC,
+                StreamEventType.TOOL_DONE,
+                StreamEventType.TEXT,
+                StreamEventType.RESULT,
+            ],
+            {
+                1: {"tool_name": "function_call"},
+                3: {"tool_status": "done"},
+                4: {"text_preview": "Codex summary"},
+            },
+            id="codex",
+        ),
+        pytest.param(
+            StreamFormat.COPILOT,
+            "copilot_jsonl_lines",
+            [
+                StreamEventType.INIT,
+                StreamEventType.TOOL_START,
+                StreamEventType.TOOL_DONE,
+                StreamEventType.TEXT,
+            ],
+            {
+                1: {"tool_name": "Read", "tool_detail": "src/planora/core/config.py"},
+                2: {"tool_status": "done"},
+                3: {"text_preview": "Copilot response text"},
+            },
+            id="copilot",
+        ),
+        pytest.param(
+            StreamFormat.OPENCODE,
+            "opencode_jsonl_lines",
+            [
+                StreamEventType.INIT,
+                StreamEventType.TOOL_START,
+                StreamEventType.TOOL_DONE,
+                StreamEventType.TEXT,
+                StreamEventType.RESULT,
+            ],
+            {
+                1: {"tool_name": "bash", "tool_detail": "$ ls -la"},
+                3: {"text_preview": "OpenCode response text"},
+            },
+            id="opencode",
+        ),
+        pytest.param(
+            StreamFormat.GEMINI,
+            "gemini_jsonl_lines",
+            [
+                StreamEventType.TOOL_START,
+                StreamEventType.TEXT,
+                StreamEventType.RESULT,
+            ],
+            {
+                0: {"tool_name": "web_search_exa", "tool_detail": 'Web "planora tests"'},
+                1: {"text_preview": "Gemini response text"},
+            },
+            id="gemini",
+        ),
+    ],
+)
+def test_parse_stream_events_by_format(
+    request: pytest.FixtureRequest,
+    stream_format: StreamFormat,
+    fixture_name: str,
+    expected_types: list[StreamEventType],
+    spot_checks: dict[int, dict[str, object]],
+) -> None:
+    lines: list[str] = request.getfixturevalue(fixture_name)
+    events = _flatten_events(StreamParser(stream_format), lines)
 
-    assert [event.event_type for event in events] == [
-        StreamEventType.INIT,
-        StreamEventType.TOOL_START,
-        StreamEventType.TOOL_EXEC,  # content_block_delta with input_json_delta
-        StreamEventType.TOOL_DONE,
-        StreamEventType.TEXT,
-        StreamEventType.RESULT,
-    ]
-    assert events[0].session_id == "sess-123"
-    assert events[1].tool_name == "Read"
-    assert events[1].tool_id == "tb-1"
-    assert events[3].tool_detail == "foo.py"
-    assert events[4].text_preview == "# Plan\n\nAdd the requested tests."
-    assert events[5].cost_usd == Decimal("0.0123")
-    assert events[5].num_turns == 3
-
-
-def test_parse_codex_stream_events(codex_jsonl_lines: list[str]) -> None:
-    events = _flatten_events(StreamParser(StreamFormat.CODEX), codex_jsonl_lines)
-
-    assert [event.event_type for event in events] == [
-        StreamEventType.INIT,
-        StreamEventType.TOOL_START,
-        StreamEventType.TOOL_EXEC,  # response.output_item.delta
-        StreamEventType.TOOL_DONE,
-        StreamEventType.TEXT,
-        StreamEventType.RESULT,
-    ]
-    assert events[1].tool_name == "function_call"
-    assert events[3].tool_status == "done"
-    assert events[4].text_preview == "Codex summary"
-
-
-def test_parse_copilot_stream_events(copilot_jsonl_lines: list[str]) -> None:
-    events = _flatten_events(StreamParser(StreamFormat.COPILOT), copilot_jsonl_lines)
-
-    assert [event.event_type for event in events] == [
-        StreamEventType.INIT,
-        StreamEventType.TOOL_START,
-        StreamEventType.TOOL_DONE,
-        StreamEventType.TEXT,
-    ]
-    assert events[1].tool_name == "Read"
-    assert events[1].tool_detail == "src/planora/core/config.py"
-    assert events[2].tool_status == "done"
-    assert events[3].text_preview == "Copilot response text"
+    assert [event.event_type for event in events] == expected_types
+    for idx, attrs in spot_checks.items():
+        for attr, value in attrs.items():
+            assert getattr(events[idx], attr) == value
 
 
 def test_parse_copilot_preserves_metadata_on_implicit_init() -> None:
@@ -90,34 +144,6 @@ def test_parse_copilot_preserves_metadata_on_implicit_init() -> None:
     ]
     assert events[0].session_id == "copilot-session-1"
     assert events[1].tool_detail == "README.md"
-
-
-def test_parse_opencode_stream_events(opencode_jsonl_lines: list[str]) -> None:
-    events = _flatten_events(StreamParser(StreamFormat.OPENCODE), opencode_jsonl_lines)
-
-    assert [event.event_type for event in events] == [
-        StreamEventType.INIT,
-        StreamEventType.TOOL_START,
-        StreamEventType.TOOL_DONE,
-        StreamEventType.TEXT,
-        StreamEventType.RESULT,
-    ]
-    assert events[1].tool_name == "bash"
-    assert events[1].tool_detail == "$ ls -la"
-    assert events[3].text_preview == "OpenCode response text"
-
-
-def test_parse_gemini_stream_events(gemini_jsonl_lines: list[str]) -> None:
-    events = _flatten_events(StreamParser(StreamFormat.GEMINI), gemini_jsonl_lines)
-
-    assert [event.event_type for event in events] == [
-        StreamEventType.TOOL_START,
-        StreamEventType.TEXT,
-        StreamEventType.RESULT,
-    ]
-    assert events[0].tool_name == "web_search_exa"
-    assert events[0].tool_detail == 'Web "planora tests"'
-    assert events[1].text_preview == "Gemini response text"
 
 
 def test_parse_gemini_unknown_lines_emit_init_then_heartbeat() -> None:

@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import gzip
+from typing import TYPE_CHECKING
 
 import pytest
 
 from orchcore.workspace import WorkspaceManager
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
-def test_ensure_dirs_creates_workspace_directory(tmp_path) -> None:
+
+@pytest.fixture
+def workspace(tmp_path: Path) -> WorkspaceManager:
+    manager = WorkspaceManager(tmp_path)
+    manager.ensure_dirs()
+    return manager
+
+
+def test_ensure_dirs_creates_workspace_directory(tmp_path: Path) -> None:
     manager = WorkspaceManager(tmp_path)
 
     manager.ensure_dirs()
@@ -16,31 +27,25 @@ def test_ensure_dirs_creates_workspace_directory(tmp_path) -> None:
     assert manager.workspace_dir.name == ".orchcore-workspace"
 
 
-def test_write_and_read_file_round_trip(tmp_path) -> None:
-    manager = WorkspaceManager(tmp_path)
-    manager.ensure_dirs()
+def test_write_and_read_file_round_trip(workspace: WorkspaceManager) -> None:
+    path = workspace.write_file("notes.md", "hello world")
 
-    path = manager.write_file("notes.md", "hello world")
-
-    assert path == manager.workspace_dir / "notes.md"
-    assert manager.read_file("notes.md") == "hello world"
+    assert path == workspace.workspace_dir / "notes.md"
+    assert workspace.read_file("notes.md") == "hello world"
 
 
-def test_read_file_returns_none_for_missing_file(tmp_path) -> None:
-    manager = WorkspaceManager(tmp_path)
-    manager.ensure_dirs()
-
-    assert manager.read_file("missing.txt") is None
+def test_read_file_returns_none_for_missing_file(workspace: WorkspaceManager) -> None:
+    assert workspace.read_file("missing.txt") is None
 
 
-def test_archive_compresses_stream_files_and_creates_latest_symlink(tmp_path) -> None:
-    manager = WorkspaceManager(tmp_path)
-    manager.ensure_dirs()
-    manager.set_task_slug("My task for archival")
-    manager.write_file("run.stream", "line 1\nline 2\n")
-    manager.write_file("summary.md", "# Summary")
+def test_archive_compresses_stream_files_and_creates_latest_symlink(
+    workspace: WorkspaceManager,
+) -> None:
+    workspace.set_task_slug("My task for archival")
+    workspace.write_file("run.stream", "line 1\nline 2\n")
+    workspace.write_file("summary.md", "# Summary")
 
-    archive = manager.archive()
+    archive = workspace.archive()
 
     assert archive.exists()
     assert (archive / "summary.md").read_text(encoding="utf-8") == "# Summary"
@@ -50,20 +55,18 @@ def test_archive_compresses_stream_files_and_creates_latest_symlink(tmp_path) ->
     latest = archive.parent / "latest"
     assert latest.is_symlink()
     assert latest.resolve() == archive
-    assert not (manager.workspace_dir / "run.stream").exists()
+    assert not (workspace.workspace_dir / "run.stream").exists()
 
 
-def test_archive_preserves_nested_output_directory_structure(tmp_path) -> None:
-    manager = WorkspaceManager(tmp_path)
-    manager.ensure_dirs()
-    manager.set_task_slug("nested outputs test")
+def test_archive_preserves_nested_output_directory_structure(workspace: WorkspaceManager) -> None:
+    workspace.set_task_slug("nested outputs test")
 
-    nested_dir = manager.workspace_dir / "outputs" / "phase1"
+    nested_dir = workspace.workspace_dir / "outputs" / "phase1"
     nested_dir.mkdir(parents=True)
     (nested_dir / "agent.md").write_text("# Agent output", encoding="utf-8")
     (nested_dir / "agent.stream").write_bytes(b"stream data\n")
 
-    archive = manager.archive()
+    archive = workspace.archive()
 
     # Nested .md preserved with directory structure
     archived_md = archive / "outputs" / "phase1" / "agent.md"
@@ -80,16 +83,14 @@ def test_archive_preserves_nested_output_directory_structure(tmp_path) -> None:
     assert not (nested_dir / "agent.stream").exists()
 
 
-def test_archive_creates_unique_directories_for_repeated_calls(tmp_path) -> None:
-    manager = WorkspaceManager(tmp_path)
-    manager.ensure_dirs()
-    manager.set_task_slug("My task for archival")
-    manager.write_file("summary.md", "first archive")
+def test_archive_creates_unique_directories_for_repeated_calls(workspace: WorkspaceManager) -> None:
+    workspace.set_task_slug("My task for archival")
+    workspace.write_file("summary.md", "first archive")
 
-    first_archive = manager.archive()
+    first_archive = workspace.archive()
 
-    manager.write_file("summary.md", "second archive")
-    second_archive = manager.archive()
+    workspace.write_file("summary.md", "second archive")
+    second_archive = workspace.archive()
 
     assert first_archive != second_archive
     assert first_archive.parent == second_archive.parent
@@ -98,16 +99,13 @@ def test_archive_creates_unique_directories_for_repeated_calls(tmp_path) -> None
     assert (first_archive.parent / "latest").resolve() == second_archive
 
 
-def test_cleanup_removes_workspace_directory(tmp_path) -> None:
-    manager = WorkspaceManager(tmp_path)
-    manager.ensure_dirs()
+def test_cleanup_removes_workspace_directory(workspace: WorkspaceManager) -> None:
+    workspace.cleanup()
 
-    manager.cleanup()
-
-    assert not manager.workspace_dir.exists()
+    assert not workspace.workspace_dir.exists()
 
 
-def test_context_manager_preserves_workspace_on_error(tmp_path) -> None:
+def test_context_manager_preserves_workspace_on_error(tmp_path: Path) -> None:
     manager = WorkspaceManager(tmp_path)
 
     with pytest.raises(RuntimeError), manager as workspace:
@@ -118,7 +116,7 @@ def test_context_manager_preserves_workspace_on_error(tmp_path) -> None:
     assert manager.workspace_dir.exists()
 
 
-def test_workspace_name_parameter_is_configurable(tmp_path) -> None:
+def test_workspace_name_parameter_is_configurable(tmp_path: Path) -> None:
     manager = WorkspaceManager(tmp_path, workspace_name=".custom-workspace")
 
     assert manager.workspace_dir == tmp_path / ".custom-workspace"

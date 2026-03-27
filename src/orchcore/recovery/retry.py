@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class FailureMode(StrEnum):
@@ -29,7 +29,7 @@ class RetryPolicy(BaseModel):
     """
 
     max_retries: int = 3
-    backoff_schedule: list[int] = Field(default_factory=lambda: [120, 300, 900, 1800])
+    backoff_schedule: list[int] = [120, 300, 900, 1800]
     max_wait: int = 21600  # 6 hours
     failure_mode: FailureMode = FailureMode.FAIL_FAST
     min_count: int = 1  # For REQUIRE_MINIMUM mode

@@ -7,7 +7,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from orchcore.pipeline import Phase, PhaseResult, PhaseRunner, PhaseStatus, PipelineRunner
+from orchcore.pipeline import (
+    Phase,
+    PhaseResult,
+    PhaseRunner,
+    PhaseStatus,
+    PipelineRunner,
+    PipelineValidationError,
+    UnknownAgentError,
+)
 from orchcore.registry.agent import AgentMode, ToolSet
 from orchcore.registry.registry import AgentRegistry
 from orchcore.runner.subprocess import AgentRunner
@@ -148,7 +156,7 @@ async def test_run_pipeline_runs_single_phase(ui_callback: NullCallback) -> None
 
     # Assert
     assert result.phases == [planning_result]
-    assert result.success is True
+    assert result.success
     assert phase_runner.calls == [
         PhaseCall(
             method="run_phase",
@@ -270,7 +278,7 @@ async def test_run_pipeline_skips_dependents_of_user_skipped_phases(
     ]
     assert result.phases[0].error == "Skipped by user request"
     assert result.phases[1].error == "Dependencies not met: planning"
-    assert result.success is True
+    assert result.success
 
 
 @pytest.mark.asyncio
@@ -328,7 +336,7 @@ async def test_run_pipeline_only_phase_still_enforces_dependencies(
     assert [phase_result.name for phase_result in result.phases] == ["implementation"]
     assert result.phases[0].status is PhaseStatus.SKIPPED
     assert result.phases[0].error == "Dependencies not met: planning"
-    assert result.success is True
+    assert result.success
     assert phase_runner.calls == []
 
 
@@ -404,7 +412,7 @@ async def test_run_pipeline_stops_after_required_phase_failure(
 
     # Assert
     assert result.phases == [planning_result]
-    assert result.success is False
+    assert not result.success
     assert [call.phase_name for call in phase_runner.calls] == ["planning"]
 
 
@@ -454,7 +462,7 @@ async def test_run_pipeline_rejects_unknown_dependencies(ui_callback: NullCallba
     pipeline_runner = PipelineRunner(phase_runner=StubPhaseRunner({}))
 
     # Act
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(UnknownAgentError) as exc_info:
         await pipeline_runner.run_pipeline(
             phases=phases,
             prompts={"implementation": "Build it"},
@@ -476,7 +484,7 @@ async def test_run_pipeline_rejects_dependency_cycles(ui_callback: NullCallback)
     pipeline_runner = PipelineRunner(phase_runner=StubPhaseRunner({}))
 
     # Act
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(PipelineValidationError) as exc_info:
         await pipeline_runner.run_pipeline(
             phases=phases,
             prompts={phase.name: phase.name for phase in phases},
@@ -596,7 +604,7 @@ async def test_run_pipeline_logs_warning_when_save_state_fails(
         PhaseStatus.DONE,
         PhaseStatus.DONE,
     ]
-    assert result.success is True
+    assert result.success
     assert [call.phase_name for call in phase_runner.calls] == ["planning", "review"]
     assert (
         "Failed to save pipeline resume state to '.state.json' after phase 'planning': disk full"
@@ -652,7 +660,7 @@ async def test_run_pipeline_on_phase_skip_called_for_resume_skipped_phases(
     )
 
     # Assert — on_phase_skip fired for both already-completed phases
-    assert result.success is True
+    assert result.success
     assert recording_callback.phase_skips == [
         ("planning", "Already completed (resuming)"),
         ("implementation", "Already completed (resuming)"),

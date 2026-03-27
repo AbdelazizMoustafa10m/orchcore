@@ -40,6 +40,15 @@ _TERMINAL_STATES: frozenset[AgentState] = frozenset(
     }
 )
 
+# Event types whose only effect is a direct state transition.
+# Checked first in update() to avoid dispatching to individual handler methods.
+_STATE_ONLY_TRANSITIONS: dict[StreamEventType, AgentState] = {
+    StreamEventType.ERROR: AgentState.FAILED,
+    StreamEventType.CANCELLED: AgentState.CANCELLED,
+    StreamEventType.RATE_LIMIT: AgentState.RATE_LIMITED,
+    StreamEventType.STALL: AgentState.STALLED,
+}
+
 
 def _friendly_name(tool_name: str) -> str:
     """Map a tool name to a human-readable label."""
@@ -83,7 +92,7 @@ class AgentMonitor:
             event.text_preview,
         )
 
-    def _handle_heartbeat(self, event: StreamEvent) -> None:  # noqa: ARG002
+    def _handle_heartbeat(self) -> None:
         if self._state != AgentState.STALLED:
             return
         self._state = AgentState.TOOL_RUNNING if self._active_tools else AgentState.THINKING
@@ -131,11 +140,11 @@ class AgentMonitor:
         self._recent_tools.append(execution)
         self._state = AgentState.TOOL_RUNNING if self._active_tools else AgentState.THINKING
 
-    def _handle_text(self, event: StreamEvent) -> None:  # noqa: ARG002
+    def _handle_text(self) -> None:
         self._text_count += 1
         self._state = AgentState.WRITING
 
-    def _handle_subagent(self, event: StreamEvent) -> None:  # noqa: ARG002
+    def _handle_subagent(self) -> None:
         self._subagent_count += 1
         self._state = AgentState.TOOL_RUNNING
 
@@ -150,18 +159,6 @@ class AgentMonitor:
             self._token_usage = event.token_usage
         self._state = AgentState.FAILED if event.error is not None else AgentState.COMPLETED
 
-    def _handle_error(self, event: StreamEvent) -> None:  # noqa: ARG002
-        self._state = AgentState.FAILED
-
-    def _handle_cancelled(self, event: StreamEvent) -> None:  # noqa: ARG002
-        self._state = AgentState.CANCELLED
-
-    def _handle_rate_limit(self, event: StreamEvent) -> None:  # noqa: ARG002
-        self._state = AgentState.RATE_LIMITED
-
-    def _handle_stall(self, event: StreamEvent) -> None:  # noqa: ARG002
-        self._state = AgentState.STALLED
-
     def cancel(self) -> None:
         """Transition the monitor to CANCELLED unless it already reached a terminal state."""
         if self._state in _TERMINAL_STATES:
@@ -170,35 +167,31 @@ class AgentMonitor:
 
     def update(self, event: StreamEvent) -> None:
         """Apply a stream event to the state machine."""
-        match event.event_type:
-            case StreamEventType.INIT:
-                self._handle_init(event)
-            case StreamEventType.STATE_CHANGE:
-                self._handle_state_change(event)
-            case StreamEventType.HEARTBEAT:
-                self._handle_heartbeat(event)
-            case StreamEventType.TOOL_START:
-                self._handle_tool_start(event)
-            case StreamEventType.TOOL_EXEC:
-                self._handle_tool_exec(event)
-            case StreamEventType.TOOL_DONE:
-                self._handle_tool_done(event)
-            case StreamEventType.TEXT:
-                self._handle_text(event)
-            case StreamEventType.SUBAGENT:
-                self._handle_subagent(event)
-            case StreamEventType.RESULT:
-                self._handle_result(event)
-            case StreamEventType.ERROR:
-                self._handle_error(event)
-            case StreamEventType.CANCELLED:
-                self._handle_cancelled(event)
-            case StreamEventType.RETRY:
-                pass  # state unchanged; retry logged upstream
-            case StreamEventType.RATE_LIMIT:
-                self._handle_rate_limit(event)
-            case StreamEventType.STALL:
-                self._handle_stall(event)
+        # Fast path: pure state transitions require no per-event data.
+        if (target_state := _STATE_ONLY_TRANSITIONS.get(event.event_type)) is not None:
+            self._state = target_state
+        else:
+            match event.event_type:
+                case StreamEventType.INIT:
+                    self._handle_init(event)
+                case StreamEventType.STATE_CHANGE:
+                    self._handle_state_change(event)
+                case StreamEventType.HEARTBEAT:
+                    self._handle_heartbeat()
+                case StreamEventType.TOOL_START:
+                    self._handle_tool_start(event)
+                case StreamEventType.TOOL_EXEC:
+                    self._handle_tool_exec(event)
+                case StreamEventType.TOOL_DONE:
+                    self._handle_tool_done(event)
+                case StreamEventType.TEXT:
+                    self._handle_text()
+                case StreamEventType.SUBAGENT:
+                    self._handle_subagent()
+                case StreamEventType.RESULT:
+                    self._handle_result(event)
+                case StreamEventType.RETRY:
+                    pass  # state unchanged; retry logged upstream
 
         self._last_activity = datetime.now(UTC)
 

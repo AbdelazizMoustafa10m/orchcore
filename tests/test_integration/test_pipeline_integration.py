@@ -171,7 +171,7 @@ async def test_pipeline_runs_all_phases_sequentially() -> None:
         "run_phase",
         "run_phase",
     ]
-    assert result.success is True
+    assert result.success
 
 
 @pytest.mark.asyncio
@@ -231,7 +231,7 @@ async def test_pipeline_stops_on_required_phase_failure() -> None:
     # Assert
     assert [phase_result.name for phase_result in result.phases] == ["plan", "implement"]
     assert [call.phase_name for call in phase_runner.calls] == ["plan", "implement"]
-    assert result.success is False
+    assert not result.success
 
 
 @pytest.mark.asyncio

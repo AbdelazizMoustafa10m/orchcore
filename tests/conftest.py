@@ -5,42 +5,7 @@ import json
 import pytest
 
 from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction
-from orchcore.stream.events import StreamEvent, StreamEventType, StreamFormat
-
-
-@pytest.fixture
-def workspace_tmp(tmp_path):
-    """Temporary workspace directory."""
-    ws = tmp_path / ".orchcore-workspace"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
-def sample_stream_events():
-    """Sample stream events for testing."""
-    return [
-        StreamEvent(event_type=StreamEventType.INIT, session_id="test-session"),
-        StreamEvent(
-            event_type=StreamEventType.TOOL_START,
-            tool_name="Read",
-            tool_id="tool-1",
-            tool_status="running",
-        ),
-        StreamEvent(
-            event_type=StreamEventType.TOOL_DONE,
-            tool_name="Read",
-            tool_id="tool-1",
-            tool_status="done",
-            tool_detail="src/main.py",
-        ),
-        StreamEvent(event_type=StreamEventType.TEXT, text_preview="Hello world"),
-        StreamEvent(
-            event_type=StreamEventType.RESULT,
-            cost_usd=None,
-            num_turns=5,
-        ),
-    ]
+from orchcore.stream.events import StreamFormat
 
 
 @pytest.fixture

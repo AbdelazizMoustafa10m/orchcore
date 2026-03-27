@@ -22,23 +22,18 @@ def test_phase_status_has_all_expected_values() -> None:
 
 
 def test_phase_creation_uses_defaults() -> None:
-    # Arrange
+    # Arrange / Act
     phase = Phase(name="planning", agents=["writer", "reviewer"])
-
-    # Act
-    dumped = phase.model_dump(mode="json")
 
     # Assert
     assert phase.name == "planning"
-    assert phase.parallel is False
-    assert phase.required is True
+    assert not phase.parallel
+    assert phase.required
     assert phase.depends_on == []
     assert phase.tools is None
     assert phase.agent_tools == {}
     assert phase.retry_policy is None
     assert phase.failure_mode is FailureMode.FAIL_FAST
-    assert dumped["retry_policy"] is None
-    assert dumped["failure_mode"] == "fail_fast"
 
 
 def test_phase_model_dump_serializes_retry_policy_and_failure_mode() -> None:
@@ -116,4 +111,4 @@ def test_pipeline_result_creation() -> None:
     assert pipeline_result.phases == [phase_result]
     assert pipeline_result.total_duration == timedelta(minutes=5)
     assert pipeline_result.total_cost_usd == Decimal("2.50")
-    assert pipeline_result.success is True
+    assert pipeline_result.success

@@ -6,11 +6,14 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import pytest
+
 from orchcore.observability.telemetry import OrchcoreTelemetry
 from orchcore.stream.events import ToolExecution
 
 if TYPE_CHECKING:
-    import pytest
+    from collections.abc import Callable
+    from contextlib import AbstractContextManager
 
 
 class _FakeSpan:
@@ -162,40 +165,41 @@ def test_telemetry_disabled_constructor_is_no_op(
     telemetry = OrchcoreTelemetry(enabled=False)
 
     # Assert
-    assert telemetry._enabled is False
+    assert not telemetry._enabled
     assert telemetry._trace_api is None
     assert telemetry._tracer is None
     assert import_calls == []
 
 
-def test_pipeline_span_yields_none_when_telemetry_is_disabled() -> None:
+@pytest.mark.parametrize(
+    "call_span",
+    [
+        pytest.param(
+            lambda t: t.pipeline_span("delivery", "task-123"),
+            id="pipeline_span",
+        ),
+        pytest.param(
+            lambda t: t.phase_span("implementation", agent="worker-g"),
+            id="phase_span",
+        ),
+        pytest.param(
+            lambda t: t.agent_span("implementation", "worker-g"),
+            id="agent_span",
+        ),
+        pytest.param(
+            lambda t: t.tool_span("worker-g", _build_tool_execution()),
+            id="tool_span",
+        ),
+    ],
+)
+def test_span_yields_none_when_telemetry_is_disabled(
+    call_span: Callable[[OrchcoreTelemetry], AbstractContextManager[object]],
+) -> None:
     # Arrange
     telemetry = OrchcoreTelemetry(enabled=False)
 
-    # Act
-    with telemetry.pipeline_span("delivery", "task-123") as span:
-        # Assert
-        assert span is None
-
-
-def test_phase_span_yields_none_when_telemetry_is_disabled() -> None:
-    # Arrange
-    telemetry = OrchcoreTelemetry(enabled=False)
-
-    # Act
-    with telemetry.phase_span("implementation", agent="worker-g") as span:
-        # Assert
-        assert span is None
-
-
-def test_tool_span_yields_none_when_telemetry_is_disabled() -> None:
-    # Arrange
-    telemetry = OrchcoreTelemetry(enabled=False)
-    tool = _build_tool_execution()
-
-    # Act
-    with telemetry.tool_span("worker-g", tool) as span:
-        # Assert
+    # Act / Assert
+    with call_span(telemetry) as span:
         assert span is None
 
 
@@ -227,7 +231,7 @@ def test_telemetry_builds_spans_when_fake_otel_is_available(
         pass
 
     # Assert
-    assert telemetry._enabled is True
+    assert telemetry._enabled
     assert trace_module.provider is not None
     assert trace_module.provider.resource == {"service.name": "orchcore-tests"}
     assert len(trace_module.provider.processors) == 1
@@ -262,7 +266,7 @@ def test_telemetry_warns_when_exporter_module_is_missing(
         )
 
     # Assert
-    assert telemetry._enabled is True
+    assert telemetry._enabled
     assert "Telemetry will run without exporting spans" in caplog.text
 
 

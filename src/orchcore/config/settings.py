@@ -74,7 +74,7 @@ class OrchcoreSettings(PydanticSettingsBase):
     log_level: str = "info"
     profile: str | None = None
 
-    agents: dict[str, SettingsData] = Field(default_factory=dict)
+    agents: dict[str, SettingsData] = {}
 
     model_config = SettingsConfigDict(
         env_prefix="ORCHCORE_",

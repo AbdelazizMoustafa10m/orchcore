@@ -136,18 +136,16 @@ class PhaseRunner:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
 
-    async def run_phase(
+    def _check_phase_preconditions(
         self,
         phase: Phase,
-        prompt: str,
         ui_callback: UICallback,
-        mode: AgentMode,
-        toolset: ToolSet | None = None,
-    ) -> PhaseResult:
-        """Execute all agents in a phase sequentially."""
-        self._install_signal_handlers()
-        self._ui_callback = ui_callback
+    ) -> PhaseResult | None:
+        """Check shutdown and empty-agents conditions before executing a phase.
 
+        Returns a ``PhaseResult`` if the phase should be short-circuited, or
+        ``None`` when execution should proceed normally.
+        """
         if self._shutting_down:
             result = _failed_phase(phase.name, "Shutdown in progress")
             ui_callback.on_phase_end(phase, result)
@@ -161,6 +159,24 @@ class PhaseRunner:
             ui_callback.on_phase_start(phase)
             ui_callback.on_phase_end(phase, result)
             return result
+
+        return None
+
+    async def run_phase(
+        self,
+        phase: Phase,
+        prompt: str,
+        ui_callback: UICallback,
+        mode: AgentMode,
+        toolset: ToolSet | None = None,
+    ) -> PhaseResult:
+        """Execute all agents in a phase sequentially."""
+        self._install_signal_handlers()
+        self._ui_callback = ui_callback
+
+        early_result = self._check_phase_preconditions(phase, ui_callback)
+        if early_result is not None:
+            return early_result
 
         ui_callback.on_phase_start(phase)
         started_at = datetime.now(UTC)
@@ -241,19 +257,9 @@ class PhaseRunner:
         self._install_signal_handlers()
         self._ui_callback = ui_callback
 
-        if self._shutting_down:
-            result = _failed_phase(phase.name, "Shutdown in progress")
-            ui_callback.on_phase_end(phase, result)
-            return result
-
-        if not phase.agents:
-            result = _skipped_phase(
-                phase.name,
-                f"Phase {phase.name!r} has no configured agents",
-            )
-            ui_callback.on_phase_start(phase)
-            ui_callback.on_phase_end(phase, result)
-            return result
+        early_result = self._check_phase_preconditions(phase, ui_callback)
+        if early_result is not None:
+            return early_result
 
         ui_callback.on_phase_start(phase)
         started_at = datetime.now(UTC)
@@ -423,11 +429,9 @@ class PhaseRunner:
             total=len(agent_results),
         )
         duration = datetime.now(UTC) - started_at
-        output_files: list[Path] = []
-        for agent_result in agent_results:
-            if agent_result.output_empty or agent_result.output_path is None:
-                continue
-            output_files.append(agent_result.output_path)
+        output_files = [
+            r.output_path for r in agent_results if not r.output_empty and r.output_path is not None
+        ]
         error_messages = [
             error_message
             for agent_result in agent_results

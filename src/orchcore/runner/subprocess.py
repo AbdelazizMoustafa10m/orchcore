@@ -73,6 +73,7 @@ class AgentRunner:
         on_process_start: Callable[[asyncio.subprocess.Process], None] | None = None,
         on_process_end: Callable[[asyncio.subprocess.Process], None] | None = None,
         toolset: ToolSet | None = None,
+        on_stall: Callable[[str, float], None] | None = None,
     ) -> AgentResult:
         """Run the agent subprocess and return a fully-populated AgentResult."""
         cmd = self._build_command(agent, prompt, output_path, mode, toolset)
@@ -116,7 +117,10 @@ class AgentRunner:
         monitor = AgentMonitor(agent.name)
 
         text_chunks: list[str] = []
-        stall_callback = _resolve_stall_callback(on_event)
+        # Prefer the explicit on_stall parameter; fall back to introspecting
+        # the on_event callback for a bound on_stall_detected method to
+        # maintain backward compatibility with existing consumers.
+        stall_callback = on_stall if on_stall is not None else _resolve_stall_callback(on_event)
 
         def _collecting_on_event(event: StreamEvent) -> None:
             if event.event_type == StreamEventType.TEXT:

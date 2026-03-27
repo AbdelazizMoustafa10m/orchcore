@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import signal
-import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -39,7 +38,7 @@ def test_shutdown_requested_is_initially_false() -> None:
     manager = SignalManager()
 
     # Act / Assert
-    assert manager.shutdown_requested is False
+    assert not manager.shutdown_requested
 
 
 def test_check_shutdown_does_not_raise_when_not_requested() -> None:
@@ -81,7 +80,7 @@ async def test_signal_manager_supports_async_context_management(
     async with manager as active_manager:
         # Assert
         assert active_manager is manager
-        assert active_manager.shutdown_requested is False
+        assert not active_manager.shutdown_requested
         active_manager.check_shutdown()
         assert [entry[0] for entry in fake_loop.added] == [signal.SIGINT, signal.SIGTERM]
         assert [entry[2] for entry in fake_loop.added] == [
@@ -97,39 +96,28 @@ async def test_signal_manager_supports_async_context_management(
     ]
 
 
-def test_sigterm_then_sigint_does_not_force_exit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_sigterm_then_sigint_does_not_force_exit() -> None:
     # Arrange
     manager = SignalManager()
-    exit_calls: list[int] = []
-
-    monkeypatch.setattr(sys, "exit", lambda code: exit_calls.append(code))
 
     # Act
     manager._handle_signal(signal.SIGTERM)
     manager._handle_signal(signal.SIGINT)
 
     # Assert
-    assert manager.shutdown_requested is True
-    assert exit_calls == []
+    assert manager.shutdown_requested
     with pytest.raises(asyncio.CancelledError, match="Shutdown requested via signal"):
         manager.check_shutdown()
 
 
-def test_second_sigint_forces_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_second_sigint_raises_keyboard_interrupt() -> None:
     # Arrange
     manager = SignalManager()
-
-    def raise_system_exit(code: int) -> None:
-        raise SystemExit(code)
-
-    monkeypatch.setattr(sys, "exit", raise_system_exit)
 
     # Act
     manager._handle_signal(signal.SIGINT)
 
     # Assert
-    assert manager.shutdown_requested is True
-    with pytest.raises(SystemExit, match="130"):
+    assert manager.shutdown_requested
+    with pytest.raises(KeyboardInterrupt):
         manager._handle_signal(signal.SIGINT)

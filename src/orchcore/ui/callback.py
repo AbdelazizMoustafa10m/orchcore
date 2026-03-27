@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from orchcore.pipeline.phase import Phase, PhaseResult, PipelineResult
     from orchcore.stream.events import (
         AgentResult,
@@ -21,7 +23,7 @@ class UICallback(Protocol):
     any display framework -- all presentation is mediated through this protocol.
     """
 
-    def on_pipeline_start(self, phases: list[Phase]) -> None: ...
+    def on_pipeline_start(self, phases: Sequence[Phase]) -> None: ...
 
     def on_pipeline_complete(self, result: PipelineResult) -> None: ...
 
@@ -55,7 +57,7 @@ class UICallback(Protocol):
 class NullCallback:
     """No-op implementation of UICallback. All methods do nothing."""
 
-    def on_pipeline_start(self, phases: list[Phase]) -> None:
+    def on_pipeline_start(self, phases: Sequence[Phase]) -> None:
         pass
 
     def on_pipeline_complete(self, result: PipelineResult) -> None:
@@ -109,7 +111,7 @@ class LoggingCallback(NullCallback):
 
         self._logger = logging.getLogger("orchcore.ui")
 
-    def on_pipeline_start(self, phases: list[Phase]) -> None:
+    def on_pipeline_start(self, phases: Sequence[Phase]) -> None:
         self._logger.info("Pipeline starting with %d phases", len(phases))
 
     def on_pipeline_complete(self, result: PipelineResult) -> None:

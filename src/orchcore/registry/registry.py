@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tomllib
 from typing import TYPE_CHECKING, Any
@@ -10,6 +11,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, StreamFormat
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRegistry:
@@ -67,6 +70,12 @@ class AgentRegistry:
         agents_data = data.get("agents", {})
         for name, agent_data in agents_data.items():
             if not isinstance(agent_data, dict):
+                logger.warning(
+                    "Skipping malformed agent entry %r in %s: expected a TOML table, got %s",
+                    name,
+                    path,
+                    type(agent_data).__name__,
+                )
                 continue
             agent_data["name"] = name
             # Parse nested models
