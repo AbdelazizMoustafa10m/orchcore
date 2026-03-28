@@ -32,12 +32,13 @@ pytest-asyncio, hypothesis, ruff, coverage).
 
 ## Optional Extras
 
-orchcore keeps its core dependency footprint minimal. Optional extras add display framework support:
+orchcore keeps its core dependency footprint minimal. Optional extras add display and observability support:
 
 | Extra | Install Command | What It Adds |
 |-------|----------------|--------------|
 | `rich` | `uv pip install orchcore[rich]` | [Rich](https://rich.readthedocs.io/) >= 13.0 for styled terminal output |
 | `tui` | `uv pip install orchcore[tui]` | [Textual](https://textual.textualize.io/) >= 0.40 for TUI dashboards |
+| `telemetry` | `uv pip install orchcore[telemetry]` | OpenTelemetry tracing support with OTLP gRPC and HTTP exporters |
 | `dev` | `uv pip install orchcore[dev]` | mypy, pytest, pytest-asyncio, hypothesis, ruff, coverage |
 
 ## Core Dependencies

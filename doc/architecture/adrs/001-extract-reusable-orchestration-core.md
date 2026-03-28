@@ -132,7 +132,7 @@ The AI agent CLI ecosystem is expanding rapidly. Each new agent CLI means N impl
 - Distribution: PyPI via standard `pip install orchcore`
 - 10 components: registry, runner, stream, pipeline, recovery, workspace, config, prompt, display, signals, plus UICallback protocol
 - Core dependencies: pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1
-- Optional dependencies: rich (CLI display), textual (TUI base)
+- Optional dependencies: rich (CLI display), textual (TUI base), opentelemetry (tracing via `telemetry` extra)
 - Type checking: mypy strict mode
 
 ### When to Revisit This Decision

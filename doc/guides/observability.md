@@ -21,16 +21,20 @@ pipeline span
 
 ### Install OpenTelemetry Dependencies
 
-OpenTelemetry is not a core dependency. Install the packages you need:
+OpenTelemetry is not a core dependency. The recommended installation path is the bundled telemetry extra:
 
 ```bash
-# Core tracing
+uv pip install orchcore[telemetry]
+```
+
+This installs the tested OpenTelemetry API, SDK, and OTLP exporters for both gRPC and HTTP.
+
+If you need a narrower dependency set, manual installation still works:
+
+```bash
 uv pip install opentelemetry-api opentelemetry-sdk
-
-# OTLP exporter (gRPC)
 uv pip install opentelemetry-exporter-otlp-proto-grpc
-
-# Or OTLP exporter (HTTP)
+# or
 uv pip install opentelemetry-exporter-otlp-proto-http
 ```
 
