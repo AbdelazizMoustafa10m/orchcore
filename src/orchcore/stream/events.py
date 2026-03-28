@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal  # noqa: TC003 — required by Pydantic runtime validation
 from enum import StrEnum
 from pathlib import Path  # noqa: TC003 — required by Pydantic runtime validation
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,7 +41,7 @@ class StreamEventType(StrEnum):
 class StreamEvent(BaseModel):
     """Normalized event from any agent stream."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     event_type: StreamEventType
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))

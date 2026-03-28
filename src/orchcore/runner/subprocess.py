@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
     from orchcore.stream.events import AgentMonitorSnapshot
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 type RequiredFlagCheck = tuple[str, tuple[str, ...]]
 

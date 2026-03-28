@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class GitRecovery:

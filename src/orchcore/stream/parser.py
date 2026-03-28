@@ -8,7 +8,7 @@ from typing import Any
 
 from orchcore.stream.events import StreamEvent, StreamEventType, StreamFormat
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 _MAX_JSON_PARSE_WARNINGS = 3
 
 type _ParseFn = Callable[[dict[str, Any]], list[StreamEvent]]

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from datetime import timedelta
     from decimal import Decimal
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 _FRIENDLY_NAMES: dict[str, str] = {
     "Read": "Read file",

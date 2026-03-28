@@ -9,7 +9,7 @@ import signal
 from collections.abc import Callable
 from types import FrameType, TracebackType
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 type SignalHandler = int | Callable[[int, FrameType | None], object] | None
 

@@ -12,7 +12,7 @@ from jinja2.sandbox import SandboxedEnvironment
 if TYPE_CHECKING:
     from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 _FRONTMATTER_PATTERN = re.compile(
     r"\A---[ \t]*\r?\n.*?^---[ \t]*(?:\r?\n|$)",
     re.DOTALL | re.MULTILINE,

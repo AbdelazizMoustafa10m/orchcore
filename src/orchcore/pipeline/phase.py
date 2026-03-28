@@ -6,6 +6,7 @@ from datetime import timedelta  # noqa: TC003 — required by Pydantic runtime v
 from decimal import Decimal  # noqa: TC003 — required by Pydantic runtime validation
 from enum import StrEnum
 from pathlib import Path  # noqa: TC003
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,7 +29,7 @@ class PhaseStatus(StrEnum):
 class Phase(BaseModel):
     """Definition of a pipeline phase."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     name: str
     agents: list[str]

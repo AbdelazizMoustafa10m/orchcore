@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from orchcore.ui.callback import UICallback
     from orchcore.workspace.manager import WorkspaceManager
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class _PipelineState(TypedDict):

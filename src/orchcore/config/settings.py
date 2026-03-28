@@ -5,7 +5,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 from types import new_class
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import Field
 from pydantic_settings import (
@@ -76,7 +76,7 @@ class OrchcoreSettings(PydanticSettingsBase):
 
     agents: dict[str, SettingsData] = {}
 
-    model_config = SettingsConfigDict(
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_prefix="ORCHCORE_",
         env_file=".env",
         env_file_encoding="utf-8",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,7 +44,7 @@ class OutputExtraction(BaseModel):
 class AgentConfig(BaseModel):
     """Single agent definition."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     name: str
     binary: str

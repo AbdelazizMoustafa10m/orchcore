@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, StreamFormat
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class AgentRegistry:
