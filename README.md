@@ -7,9 +7,10 @@
 [![PyPI](https://img.shields.io/pypi/v/orchcore)](https://pypi.org/project/orchcore/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/AbdelazizMoustafa10m/orchcore/badge)](https://scorecard.dev/viewer/?uri=github.com/AbdelazizMoustafa10m/orchcore)
 [![mypy: strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy-lang.org/)
 [![Ruff](https://img.shields.io/badge/linter-ruff-orange.svg)](https://docs.astral.sh/ruff/)
-[![Coverage: 90%+](https://img.shields.io/badge/coverage-90%25%2B-brightgreen.svg)]()
+[![Coverage](https://codecov.io/gh/AbdelazizMoustafa10m/orchcore/graph/badge.svg)](https://codecov.io/gh/AbdelazizMoustafa10m/orchcore)
 
 ## What is orchcore?
 
@@ -135,7 +136,9 @@ Full documentation is available at **[abdelazizmoustafa10m.github.io/orchcore](h
 
 ## Contributing
 
-See [CONTRIBUTING](doc/development/contributing.md) for development setup, testing instructions, and code standards.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing instructions, and code standards.
+
+Please also review [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md).
 
 ## License
 

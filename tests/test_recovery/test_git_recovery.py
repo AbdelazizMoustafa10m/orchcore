@@ -135,3 +135,135 @@ async def test_auto_commit_runs_git_add_then_commit_with_mocked_subprocess(
         ),
     ]
     assert all(call[1]["cwd"] == working_dir for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_auto_commit_returns_false_when_git_add_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    recovery = GitRecovery()
+
+    async def fake_run_git(*args: str) -> tuple[int, str, str]:
+        assert args == ("add", "-A")
+        return 1, "", "permission denied"
+
+    monkeypatch.setattr(recovery, "_run_git", fake_run_git)
+
+    with caplog.at_level("WARNING"):
+        result = await recovery.auto_commit()
+
+    assert result is False
+    assert "git add failed: permission denied" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_auto_commit_returns_false_when_git_commit_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    recovery = GitRecovery()
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run_git(*args: str) -> tuple[int, str, str]:
+        calls.append(args)
+        if args == ("add", "-A"):
+            return 0, "", ""
+        return 1, "", "nothing to commit"
+
+    monkeypatch.setattr(recovery, "_run_git", fake_run_git)
+
+    with caplog.at_level("WARNING"):
+        result = await recovery.auto_commit()
+
+    assert result is False
+    assert calls == [
+        ("add", "-A"),
+        (
+            "commit",
+            "-m",
+            "orchcore: auto-commit before retry",
+            "--no-verify",
+        ),
+    ]
+    assert "git commit failed: nothing to commit" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("git_result", "expected"),
+    [
+        ((1, "", "stash failed"), False),
+        ((0, "No local changes to save", ""), False),
+        ((0, "Saved working directory", ""), True),
+    ],
+)
+async def test_stash_dirty_tree_handles_all_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    git_result: tuple[int, str, str],
+    expected: bool,
+) -> None:
+    recovery = GitRecovery()
+
+    async def fake_run_git(*args: str) -> tuple[int, str, str]:
+        assert args == ("stash", "push", "-m", "orchcore: stash before retry")
+        return git_result
+
+    monkeypatch.setattr(recovery, "_run_git", fake_run_git)
+
+    with caplog.at_level("INFO"):
+        result = await recovery.stash_dirty_tree()
+
+    assert result is expected
+    if git_result[0] != 0:
+        assert "git stash failed: stash failed" in caplog.text
+    elif expected:
+        assert "Stashed dirty tree changes" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("git_result", "expected"),
+    [
+        ((1, "", "pop failed"), False),
+        ((0, "", ""), True),
+    ],
+)
+async def test_restore_stash_handles_success_and_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    git_result: tuple[int, str, str],
+    expected: bool,
+) -> None:
+    recovery = GitRecovery()
+
+    async def fake_run_git(*args: str) -> tuple[int, str, str]:
+        assert args == ("stash", "pop")
+        return git_result
+
+    monkeypatch.setattr(recovery, "_run_git", fake_run_git)
+
+    with caplog.at_level("INFO"):
+        result = await recovery.restore_stash()
+
+    assert result is expected
+    if git_result[0] != 0:
+        assert "git stash pop failed: pop failed" in caplog.text
+    else:
+        assert "Restored stashed changes" in caplog.text
+
+
+def test_extract_commit_message_prefers_fenced_content() -> None:
+    agent_output = """
+    Summary
+
+    ```text
+    orchcore: fenced commit message
+    Additional detail
+    ```
+    """
+
+    result = GitRecovery.extract_commit_message(agent_output)
+
+    assert result == "orchcore: fenced commit message"

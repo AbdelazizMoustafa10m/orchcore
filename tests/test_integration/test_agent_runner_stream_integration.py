@@ -28,8 +28,8 @@ RUNNER_HARNESS = textwrap.dedent(
 
         agent = AgentConfig(
             name="claude-integration-agent",
-            binary=str(fixture_path),
-            subcommand="stream",
+            binary=sys.executable,
+            subcommand=str(fixture_path),
             model="claude-sonnet-test",
             flags={AgentMode.PLAN: []},
             stream_format=StreamFormat.CLAUDE,

@@ -65,6 +65,14 @@ def test_extract_message_returns_matching_line() -> None:
     assert result == "Error 429 from Codex API: try again in 300 seconds."
 
 
+def test_rate_limit_detector_handles_empty_and_multiline_fallback() -> None:
+    detector = RateLimitDetector()
+
+    assert detector.is_rate_limited("") is False
+    assert detector.extract_message("") is None
+    assert detector.extract_message("rate\nlimit") == "rate\nlimit"
+
+
 @pytest.mark.parametrize(
     ("output", "expected"),
     [
@@ -111,3 +119,8 @@ def test_backoff_strategy_compute_wait_uses_deterministic_jitter(
     result = strategy.compute_wait(attempt=attempt, reset_seconds=reset_seconds)
 
     assert result == expected
+
+
+def test_backoff_strategy_rejects_empty_schedule() -> None:
+    with pytest.raises(ValueError, match="schedule must not be empty"):
+        BackoffStrategy(schedule=[])

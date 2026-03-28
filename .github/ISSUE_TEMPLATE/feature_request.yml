@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an improvement or new capability for orchcore.
+title: '[Feature]: '
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for product or API improvements. Please focus on the problem first, then
+        the proposed solution.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What workflow, limitation, or pain point are you trying to solve?
+      placeholder: Describe the use case and why the current behavior is insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What change would you like to see?
+      placeholder: Describe the API, behavior, or UX you would expect.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: Optional. Include workarounds or alternative designs you considered.
+    validations:
+      required: false
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      placeholder: Optional. Link related issues, ADRs, or examples.
+    validations:
+      required: false

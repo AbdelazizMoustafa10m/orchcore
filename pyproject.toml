@@ -7,9 +7,23 @@ name = "orchcore"
 dynamic = ["version"]
 description = "Reusable orchestration core for AI coding agent CLI pipelines"
 requires-python = ">=3.12"
+readme = "README.md"
 license = "MIT"
 authors = [
     { name = "Abdelaziz Abdelrasol" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Framework :: AsyncIO",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
 ]
 dependencies = [
     "pydantic>=2.10",
@@ -30,12 +44,21 @@ dev = [
     "commitizen>=3.29",
     "hypothesis>=6.100",
     "mypy>=1.13",
+    "pre-commit>=4.0",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
     "pyright>=1.1",
     "ruff>=0.8",
     "coverage>=7.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/AbdelazizMoustafa10m/orchcore"
+Repository = "https://github.com/AbdelazizMoustafa10m/orchcore"
+Documentation = "https://abdelazizmoustafa10m.github.io/orchcore"
+Issues = "https://github.com/AbdelazizMoustafa10m/orchcore/issues"
+Changelog = "https://github.com/AbdelazizMoustafa10m/orchcore/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 source = "vcs"
@@ -46,6 +69,19 @@ version-file = "src/orchcore/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orchcore"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".github/",
+    ".release-please-manifest.json",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "doc/",
+    "release-please-config.json",
+    "tests/",
+    "uv.lock",
+    "zensical.toml",
+]
 
 [tool.pyright]
 pythonVersion = "3.12"
@@ -94,6 +130,8 @@ update_changelog_on_bump = false  # release-please handles changelog
 
 [tool.coverage.run]
 source = ["orchcore"]
+relative_files = true
+omit = ["src/orchcore/_version.py"]
 
 [tool.coverage.report]
 show_missing = true

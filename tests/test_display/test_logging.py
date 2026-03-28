@@ -129,3 +129,79 @@ def test_format_tokens(
     expected: str,
 ) -> None:
     assert format_tokens(token_usage) == expected
+
+
+def test_timestamp_returns_hh_mm_ss() -> None:
+    timestamp = logging_module._timestamp()
+
+    assert len(timestamp) == 8
+    assert timestamp.count(":") == 2
+
+
+@pytest.mark.parametrize(
+    ("elapsed", "tool_count", "cost", "state", "expected_time"),
+    [
+        (5.2, 2, 1.5, "running", "5s"),
+        (125.0, 3, 2.0, "waiting", "2m05s"),
+    ],
+)
+def test_status_line_writes_expected_progress(
+    capsys: pytest.CaptureFixture[str],
+    elapsed: float,
+    tool_count: int,
+    cost: float,
+    state: str,
+    expected_time: str,
+) -> None:
+    logging_module.status_line(
+        elapsed=elapsed,
+        tool_count=tool_count,
+        cost=cost,
+        state=state,
+    )
+
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert captured.err == (
+        f"\r{logging_module.DIM}{logging_module.ICON_TIMER} {expected_time}{logging_module.NC}"
+        f" | {logging_module.CYAN}{tool_count} tools{logging_module.NC}"
+        f" | {logging_module.GREEN}{logging_module.ICON_COST}{cost:.2f}{logging_module.NC}"
+        f" | {logging_module.MAGENTA}{state}{logging_module.NC}"
+    )
+
+
+def test_clear_status_line_writes_erase_sequence(capsys: pytest.CaptureFixture[str]) -> None:
+    logging_module.clear_status_line()
+
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert captured.err == "\r" + (" " * 80) + "\r"
+
+
+def test_phase_header_renders_section_header(capsys: pytest.CaptureFixture[str]) -> None:
+    logging_module.phase_header("planning", index=1, total=3)
+
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert "Phase 2/3: planning" in captured.err
+    assert captured.err.count("=" * 60) == 2
+
+
+def test_summary_box_renders_key_value_rows(capsys: pytest.CaptureFixture[str]) -> None:
+    logging_module.summary_box(
+        "Run Summary",
+        {
+            "agents": "2",
+            "cost": "$0.25",
+        },
+    )
+
+    captured = capsys.readouterr()
+
+    assert captured.out == ""
+    assert "Run Summary" in captured.err
+    assert f"agents: {logging_module.CYAN}2{logging_module.NC}" in captured.err
+    assert f"cost: {logging_module.CYAN}$0.25{logging_module.NC}" in captured.err
