@@ -100,5 +100,6 @@ def test_resolve_template_path_logs_warning_for_missing_file(
         )
 
     assert resolved is None
-    assert "Template not found: 'templates/missing.md'" in caplog.text
+    expected_path = str(Path("templates/missing.md"))
+    assert f"Template not found: '{expected_path}'" in caplog.text
     assert "(configured for planner)" in caplog.text

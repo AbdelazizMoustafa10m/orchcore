@@ -6,6 +6,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 RUNNER_HARNESS = textwrap.dedent(
     """
     from __future__ import annotations
@@ -148,6 +150,7 @@ EXPECTED_STREAM_OBJECTS = [
 ]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="uses bash fixture script")
 def test_agent_runner_processes_claude_stream_end_to_end(tmp_path: Path) -> None:
     # Arrange
     fixture_path = Path(__file__).resolve().parents[1] / "fixtures" / "mock_claude.sh"
