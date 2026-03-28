@@ -8,7 +8,8 @@ cd orchcore
 uv pip install -e ".[dev]"
 ```
 
-This installs orchcore in editable mode with all development dependencies: mypy, pytest, pytest-asyncio, ruff, and coverage.
+This installs orchcore in editable mode with all development dependencies: mypy, pytest,
+pytest-asyncio, hypothesis, ruff, and coverage.
 
 ## Commands
 
@@ -32,6 +33,9 @@ make test
 # Single file
 pytest tests/test_stream/test_parser.py -v
 
+# Property-based parser coverage
+pytest tests/test_stream/test_parser_hypothesis.py -v
+
 # Single test
 pytest tests/test_stream/test_parser.py::test_claude_format_parser_handles_init -v
 
@@ -40,6 +44,7 @@ pytest -k "parser" -v
 ```
 
 Tests use `asyncio_mode = "auto"` — async test functions need no `@pytest.mark.asyncio` decorator.
+Property-based tests use Hypothesis and are part of the normal `pytest` run.
 
 ### Test Organization
 

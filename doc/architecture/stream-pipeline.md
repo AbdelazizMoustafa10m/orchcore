@@ -31,7 +31,7 @@ The filter operates on raw strings *before* `json.loads()` is called, using simp
 ```python
 from orchcore.stream import StreamFilter, StreamFormat
 
-filter = StreamFilter(format=StreamFormat.CLAUDE)
+filter = StreamFilter(stream_format=StreamFormat.CLAUDE)
 for line in raw_jsonl_lines:
     if filter.should_keep(line):
         # Worth parsing
@@ -42,7 +42,8 @@ for line in raw_jsonl_lines:
 
 **Purpose:** Format-specific JSONL parsing into normalized `StreamEvent` instances.
 
-Each agent CLI emits JSONL in a different schema. The parser contains format-specific logic for all 5 supported formats, producing a unified `StreamEvent` regardless of source.
+Each agent CLI emits JSONL in a different schema. The parser contains format-specific logic for
+all 5 supported formats, producing zero or more normalized `StreamEvent` objects per line.
 
 **Supported formats:** Claude, Codex, OpenCode, Gemini, Copilot
 
@@ -56,8 +57,8 @@ Each agent CLI emits JSONL in a different schema. The parser contains format-spe
 ```python
 from orchcore.stream import StreamParser, StreamFormat
 
-parser = StreamParser(format=StreamFormat.CLAUDE)
-event = parser.parse(json_line)  # Returns StreamEvent | None
+parser = StreamParser(stream_format=StreamFormat.CLAUDE)
+events = parser.parse_line(json_line)  # Returns list[StreamEvent]
 ```
 
 ## Stage 3: AgentMonitor
@@ -129,8 +130,8 @@ In production, the four stages are composed by `AgentRunner`, which wires them t
 
 ```python
 # Simplified internal flow in AgentRunner
-filter = StreamFilter(format=agent.stream_format)
-parser = StreamParser(format=agent.stream_format)
+filter = StreamFilter(stream_format=agent.stream_format)
+parser = StreamParser(stream_format=agent.stream_format)
 monitor = AgentMonitor(agent_name=agent.name)
 detector = StallDetector(
     stall_timeout=agent.stall_timeout,
@@ -140,12 +141,10 @@ detector = StallDetector(
 async for line in subprocess.stdout:
     if not filter.should_keep(line):
         continue
-    event = parser.parse(line)
-    if event is None:
-        continue
-    monitor.update(event)
-    detector.heartbeat()
-    callback.on_agent_event(event)
+    for event in parser.parse_line(line):
+        monitor.update(event)
+        detector.heartbeat()
+        callback.on_agent_event(event)
 ```
 
 ## Using Stages Independently

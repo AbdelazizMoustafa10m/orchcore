@@ -43,7 +43,8 @@ Rich event taxonomy covering the full agent lifecycle.
 
 ## StreamEvent
 
-The core normalized event model. Every JSONL line from any agent format is parsed into a `StreamEvent`.
+The core normalized event model. A JSONL line from any agent format may yield zero, one, or
+multiple `StreamEvent` instances depending on the parser branch taken.
 
 ```python
 from orchcore.stream import StreamEvent, StreamEventType

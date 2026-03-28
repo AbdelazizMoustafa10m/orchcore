@@ -27,7 +27,8 @@ cd orchcore
 uv pip install -e ".[dev]"
 ```
 
-This installs orchcore in editable mode with all development dependencies (mypy, pytest, ruff, coverage).
+This installs orchcore in editable mode with all development dependencies (mypy, pytest,
+pytest-asyncio, hypothesis, ruff, coverage).
 
 ## Optional Extras
 
@@ -37,7 +38,7 @@ orchcore keeps its core dependency footprint minimal. Optional extras add displa
 |-------|----------------|--------------|
 | `rich` | `uv pip install orchcore[rich]` | [Rich](https://rich.readthedocs.io/) >= 13.0 for styled terminal output |
 | `tui` | `uv pip install orchcore[tui]` | [Textual](https://textual.textualize.io/) >= 0.40 for TUI dashboards |
-| `dev` | `uv pip install orchcore[dev]` | mypy, pytest, pytest-asyncio, ruff, coverage |
+| `dev` | `uv pip install orchcore[dev]` | mypy, pytest, pytest-asyncio, hypothesis, ruff, coverage |
 
 ## Core Dependencies
 
