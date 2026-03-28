@@ -79,36 +79,28 @@ summary_box("Pipeline Complete", {
 
 ## Formatting Helpers
 
-The `formatting` submodule provides value formatters:
+The `formatting` submodule provides value formatters. These accept typed values, not raw primitives:
 
 ```python
-from orchcore.display import format_cost, format_duration, format_tokens
+from datetime import timedelta
+from decimal import Decimal
+from orchcore.display import format_cost, format_duration, format_tokens, format_file_size
 
-format_cost(1.2345)          # "$1.23"
-format_duration(272.5)       # "4m 32s"
-format_tokens(15234)         # "15.2k"
+format_duration(timedelta(minutes=4, seconds=32))   # "4m 32s"
+format_duration(timedelta(seconds=8))                # "8s"
+format_duration(None)                                # "—"
+
+format_cost(Decimal("1.2345"))                       # "$1.2345"
+format_cost(None)                                    # "N/A"
+
+format_tokens({"input_tokens": 15000, "output_tokens": 3200})  # "15,000/3,200"
+format_tokens(None)                                             # "—"
+
+format_file_size(2_500_000)                          # "2.4 MB"
+format_file_size(512)                                # "512 bytes"
 ```
 
-## ANSI Color Constants
-
-Available for custom formatting in consuming projects:
-
-| Constant | Color |
-|----------|-------|
-| `RED` | Red text |
-| `GREEN` | Green text |
-| `YELLOW` | Yellow text |
-| `CYAN` | Cyan text |
-| `MAGENTA` | Magenta text |
-| `DIM` | Dimmed/gray text |
-| `BOLD` | Bold text |
-| `NC` | Reset (no color) |
-
-```python
-from orchcore.display import CYAN, GREEN, NC
-
-print(f"{CYAN}Phase:{NC} planning | {GREEN}Status:{NC} complete")
-```
+**Note:** The ANSI color constants (`RED`, `CYAN`, `BOLD`, etc.) are defined in `orchcore.display.logging` but are not part of the public API exported by `orchcore.display`. If you need them, import from the submodule directly: `from orchcore.display.logging import CYAN, NC`.
 
 ## Design Notes
 

@@ -67,7 +67,7 @@ if loader.exists("review"):
 
 ## Frontmatter Stripping
 
-Templates can include YAML frontmatter (delimited by `---`) for metadata. It is automatically stripped before rendering:
+Templates can include YAML frontmatter (delimited by `---`) for metadata:
 
 ```markdown
 ---
@@ -80,7 +80,19 @@ author: team
 Analyze the codebase for {{ project_name }}...
 ```
 
-The rendered output starts at `# Planning Phase` — the frontmatter block is removed.
+**Important:** Frontmatter is stripped only by `TemplateLoader.load()` and the standalone `strip_frontmatter()` function. The `render_template()` and `render_string()` functions do **not** strip frontmatter — they render the template as-is. If you use `render_template` directly with a frontmatter-bearing file, strip it yourself first:
+
+```python
+from orchcore.prompt import render_template, strip_frontmatter
+from pathlib import Path
+
+# Option 1: Use TemplateLoader (strips automatically)
+content = loader.load("planning")
+
+# Option 2: Strip manually before rendering
+raw = Path("prompts/planning.md").read_text()
+clean = strip_frontmatter(raw)
+```
 
 ## Template Path Resolution
 

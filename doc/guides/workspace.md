@@ -23,14 +23,17 @@ ws = WorkspaceManager(
 ws.set_task_slug("implement user authentication")
 ws.ensure_dirs()
 
-# Write and read files in the workspace
-ws.write_file("planning/claude.md", "# Plan\n...")
-content = ws.read_file("planning/claude.md")
+# write_file writes directly under workspace_dir — it does NOT create
+# parent directories, so the name must be a flat filename.
+ws.write_file("plan.md", "# Plan\n...")
+content = ws.read_file("plan.md")
 
 # Archive when done
 archive_path = ws.archive()
 print(f"Archived to: {archive_path}")
 ```
+
+**Note:** `write_file` and `read_file` operate on flat filenames inside `workspace_dir`. The nested `outputs/<phase>/<agent>.md` directory structure is created by `PhaseRunner`, which calls `mkdir(parents=True)` before writing agent output. If you need subdirectories for manual writes, create them yourself first.
 
 ## Context Manager
 
@@ -49,22 +52,23 @@ with WorkspaceManager(project_root=Path(".")) as ws:
 
 ```
 project_root/
-├── .orchcore-workspace/        # Active workspace (created by ensure_dirs)
-│   ├── planning/
-│   │   └── claude.md
-│   ├── execution/
-│   │   ├── claude.md
-│   │   ├── claude.stream       # Raw JSONL stream
-│   │   └── claude.log          # stderr
-│   └── ...
-└── reports/runs/               # Archive root
+├── .orchcore-workspace/                 # Active workspace (created by ensure_dirs)
+│   └── outputs/                         # Created by PhaseRunner
+│       ├── planning/
+│       │   └── claude.md
+│       └── execution/
+│           ├── claude.md
+│           ├── claude.stream            # Raw JSONL stream
+│           └── claude.log               # stderr
+└── reports/runs/                        # Archive root
     ├── 2026-03-28_14-30-00_implement-user-auth/
-    │   ├── planning/
-    │   │   └── claude.md
-    │   └── execution/
-    │       ├── claude.md
-    │       ├── claude.stream.gz   # Compressed
-    │       └── claude.log
+    │   └── outputs/
+    │       ├── planning/
+    │       │   └── claude.md
+    │       └── execution/
+    │           ├── claude.md
+    │           ├── claude.stream.gz     # Compressed
+    │           └── claude.log
     └── latest -> 2026-03-28_14-30-00_implement-user-auth
 ```
 
@@ -101,8 +105,8 @@ ws.set_task_slug("Fix the login page CSS overflow issue")
 For use within async pipelines, async wrappers are provided:
 
 ```python
-content = await ws.aread_file("planning/claude.md")
-path = await ws.awrite_file("execution/claude.md", output)
+content = await ws.aread_file("plan.md")
+path = await ws.awrite_file("summary.md", output)
 archive_path = await ws.aarchive()
 ```
 

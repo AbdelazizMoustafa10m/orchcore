@@ -59,28 +59,28 @@ async def run_pipeline(signals: SignalManager) -> None:
 
 This two-tier design lets consumers decide how to handle graceful shutdown (save state, archive partial results, terminate subprocesses) before a forced exit occurs.
 
-## Integration with Pipeline Execution
+## Relationship to PhaseRunner
 
-In a typical orchcore pipeline, `SignalManager` is used at the top level. `PipelineRunner` and `PhaseRunner` check for shutdown between phases and before launching new agents:
+`PhaseRunner` installs its own SIGINT/SIGTERM handlers via `loop.add_signal_handler()` to terminate active subprocesses on the first signal and force-kill on the second. It does **not** use `SignalManager` — the two are independent implementations.
+
+`SignalManager` is designed for consuming projects that need signal handling outside the pipeline execution scope (e.g., wrapping the entire application lifecycle, coordinating shutdown across multiple subsystems, or running custom cleanup before the pipeline even starts):
 
 ```python
+import asyncio
 from orchcore.signals import SignalManager
-from orchcore.pipeline import PipelineRunner, PhaseRunner
-from orchcore.runner import AgentRunner
-from orchcore.registry import AgentRegistry
 
 async def main() -> None:
     async with SignalManager() as signals:
-        registry = AgentRegistry()
-        runner = AgentRunner()
-        phase_runner = PhaseRunner(runner, registry)
-        pipeline = PipelineRunner(phase_runner)
+        # Custom pre-pipeline setup that also needs graceful shutdown
+        await setup_resources()
 
-        result = await pipeline.run_pipeline(
-            phases=phases,
-            prompts=prompts,
-            ui_callback=callback,
-        )
+        if not signals.shutdown_requested:
+            await run_pipeline()
+
+        # Custom post-pipeline cleanup
+        await teardown_resources()
+
+asyncio.run(main())
 ```
 
 ## Error Handling

@@ -138,13 +138,13 @@ detector = StallDetector(
     deep_timeout=agent.deep_tool_timeout,
 )
 
-async for line in subprocess.stdout:
-    if not filter.should_keep(line):
-        continue
-    for event in parser.parse_line(line):
-        monitor.update(event)
-        detector.heartbeat()
-        callback.on_agent_event(event)
+# Stages compose as async iterators — each wraps the previous
+raw_lines = read_lines(proc.stdout)
+filtered = filter.filter_stream(raw_lines)
+parsed = parser.parse_stream(filtered)
+watched = detector.watch(parsed)          # injects STALL events on silence
+
+await monitor.consume(watched, on_event=callback.on_agent_event)
 ```
 
 ## Using Stages Independently
