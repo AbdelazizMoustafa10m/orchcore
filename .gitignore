@@ -50,6 +50,7 @@ yarn-error.log*
 .coverage
 .coverage.*
 htmlcov/
+.hypothesis/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
