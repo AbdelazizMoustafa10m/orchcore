@@ -111,8 +111,15 @@ class AgentRunner:
         prompt: str,
         output_path: Path,
         mode: AgentMode = AgentMode.PLAN,
+        dry_run: bool = False,
         on_event: Callable[[StreamEvent], None] | None = None,
+        on_snapshot: Callable[[AgentMonitorSnapshot], None] | None = None,
+        snapshot_interval: float | None = None,
+        stall_check_interval: float = 5.0,
+        on_process_start: Callable[[asyncio.subprocess.Process], None] | None = None,
+        on_process_end: Callable[[asyncio.subprocess.Process], None] | None = None,
         toolset: ToolSet | None = None,
+        on_stall: Callable[[str, float], None] | None = None,
     ) -> AgentResult: ...
 ```
 

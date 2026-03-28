@@ -126,41 +126,43 @@ asyncio.run(main())
 Replace `NullCallback` with your own implementation to get real-time feedback:
 
 ```python
+from collections.abc import Sequence
+from orchcore.pipeline import Phase, PhaseResult, PipelineResult
+from orchcore.stream import StreamEvent, StreamEventType, AgentResult
 from orchcore.ui import UICallback
-from orchcore.stream import StreamEvent, StreamEventType
 
 class SimpleUI:
-    def on_pipeline_start(self, phases):
+    def on_pipeline_start(self, phases: Sequence[Phase]) -> None:
         print(f"Starting {len(phases)} phases")
 
-    def on_phase_start(self, phase):
+    def on_phase_start(self, phase: Phase) -> None:
         print(f"\n--- Phase: {phase.name} ---")
 
-    def on_agent_start(self, agent_name, phase):
+    def on_agent_start(self, agent_name: str, phase: str) -> None:
         print(f"  Agent {agent_name} starting...")
 
-    def on_agent_event(self, event):
+    def on_agent_event(self, event: StreamEvent) -> None:
         if event.event_type == StreamEventType.TOOL_START:
             print(f"    Tool: {event.tool_name}")
 
-    def on_agent_complete(self, agent_name, result):
+    def on_agent_complete(self, agent_name: str, result: AgentResult) -> None:
         print(f"  Agent {agent_name} done (exit={result.exit_code})")
 
-    def on_phase_end(self, phase, result):
+    def on_phase_end(self, phase: Phase, result: PhaseResult) -> None:
         print(f"  Phase {phase.name}: {result.status}")
 
-    def on_pipeline_complete(self, result):
+    def on_pipeline_complete(self, result: PipelineResult) -> None:
         print(f"\nPipeline {'succeeded' if result.success else 'failed'}")
 
     # Remaining methods can be no-ops
-    def on_phase_skip(self, phase, reason): pass
-    def on_agent_error(self, agent_name, error): pass
-    def on_stall_detected(self, agent_name, duration): pass
-    def on_rate_limit(self, agent_name, message): pass
-    def on_rate_limit_wait(self, agent_name, wait_seconds): pass
-    def on_retry(self, agent_name, attempt, max_attempts): pass
-    def on_git_recovery(self, action, detail): pass
-    def on_shutdown(self, reason): pass
+    def on_phase_skip(self, phase: Phase, reason: str) -> None: pass
+    def on_agent_error(self, agent_name: str, error: str) -> None: pass
+    def on_stall_detected(self, agent_name: str, duration: float) -> None: pass
+    def on_rate_limit(self, agent_name: str, message: str) -> None: pass
+    def on_rate_limit_wait(self, agent_name: str, wait_seconds: float) -> None: pass
+    def on_retry(self, agent_name: str, attempt: int, max_attempts: int) -> None: pass
+    def on_git_recovery(self, action: str, detail: str) -> None: pass
+    def on_shutdown(self, reason: str) -> None: pass
 ```
 
 See the [Writing a UICallback](../guides/writing-a-uicallback.md) guide for a complete walkthrough.

@@ -118,8 +118,8 @@ The stall detector wraps the event stream and injects synthetic `STALL` events w
 from orchcore.stream import StallDetector
 
 detector = StallDetector(
-    stall_timeout=300.0,
-    deep_tool_timeout=600.0,
+    normal_timeout=300.0,
+    deep_timeout=600.0,
 )
 # Wraps an async event stream, injecting STALL events on timeout
 ```
@@ -134,8 +134,8 @@ filter = StreamFilter(stream_format=agent.stream_format)
 parser = StreamParser(stream_format=agent.stream_format)
 monitor = AgentMonitor(agent_name=agent.name)
 detector = StallDetector(
-    stall_timeout=agent.stall_timeout,
-    deep_tool_timeout=agent.deep_tool_timeout,
+    normal_timeout=agent.stall_timeout,
+    deep_timeout=agent.deep_tool_timeout,
 )
 
 async for line in subprocess.stdout:

@@ -50,6 +50,10 @@ orchcore has only three core dependencies:
 | [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) | >= 2.7 | Layered configuration with TOML support |
 | [Jinja2](https://jinja.palletsprojects.com/) | >= 3.1 | Prompt template rendering |
 
+## Type Hints (PEP 561)
+
+orchcore is PEP 561 compliant — the package includes a `py.typed` marker file. When you install orchcore, mypy and other type checkers automatically discover its inline type annotations. No stub packages are needed.
+
 ## Verify Installation
 
 ```bash

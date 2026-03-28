@@ -123,7 +123,7 @@ Documentation lives in `doc/` and is built with [Zensical](https://github.com/Ab
 
 ```bash
 # Install doc dependencies
-pip install -r doc/requirements.txt
+uv pip install -r doc/requirements.txt
 
 # Build docs
 zensical build

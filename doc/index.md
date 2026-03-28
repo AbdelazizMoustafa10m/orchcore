@@ -54,6 +54,11 @@ orchcore extracts the 60-70% of duplicated infrastructure from production AI orc
 | [Writing a UICallback](guides/writing-a-uicallback.md) | Implement custom display layers for your project |
 | [Agent Registry](guides/agent-registry.md) | Configure agents via TOML, add new agent support |
 | [Recovery & Retry](guides/recovery-and-retry.md) | Rate limits, backoff, git recovery, failure modes |
+| [Workspace Management](guides/workspace.md) | Artifact lifecycle, archival, and cleanup |
+| [Prompt Templating](guides/prompt-templating.md) | Jinja2 templates, frontmatter stripping, template loading |
+| [Signal Handling](guides/signal-handling.md) | Graceful SIGINT/SIGTERM shutdown and task cancellation |
+| [Observability](guides/observability.md) | Optional OpenTelemetry tracing integration |
+| [Display Utilities](guides/display.md) | ANSI colored logging and formatting helpers |
 
 ## Architecture Decision Records
 
