@@ -71,7 +71,7 @@ jobs:
           python-version: '3.12'
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       - name: Check formatting
         run: uv run ruff format --check --diff src/ tests/
@@ -92,7 +92,7 @@ jobs:
           python-version: '3.12'
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       - name: Run mypy
         run: uv run mypy src/orchcore/ --strict
@@ -110,7 +110,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install package
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       - name: Verify public API types
         run: uv run pyright --verifytypes orchcore --ignoreexternal
@@ -138,7 +138,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       - name: Run tests
         run: uv run pytest tests/ -v
@@ -159,7 +159,7 @@ jobs:
           python-version: '3.12'
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       - name: Run tests with coverage
         run: |
