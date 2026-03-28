@@ -2,6 +2,9 @@
 
 > Reusable orchestration core for AI coding agent CLI pipelines.
 
+[![CI](https://github.com/AbdelazizMoustafa10m/orchcore/actions/workflows/ci.yml/badge.svg)](https://github.com/AbdelazizMoustafa10m/orchcore/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/AbdelazizMoustafa10m/orchcore)](https://github.com/AbdelazizMoustafa10m/orchcore/releases)
+[![PyPI](https://img.shields.io/pypi/v/orchcore)](https://pypi.org/project/orchcore/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![mypy: strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy-lang.org/)
