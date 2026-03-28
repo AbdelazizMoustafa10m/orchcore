@@ -9,7 +9,7 @@ description = "Reusable orchestration core for AI coding agent CLI pipelines"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [
-    { name = "Abdelaziz Moustafa" },
+    { name = "Abdelaziz Abdelrasol" },
 ]
 dependencies = [
     "pydantic>=2.10",
