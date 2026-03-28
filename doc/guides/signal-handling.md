@@ -1,13 +1,13 @@
 # Signal Handling
 
-orchcore's `SignalManager` provides graceful SIGINT/SIGTERM shutdown with async task cancellation and subprocess cleanup.
+orchcore's `SignalManager` traps SIGINT/SIGTERM and exposes a cooperative shutdown flag. It does not cancel tasks or terminate subprocesses itself — consumers check the flag and act accordingly.
 
 ## Overview
 
-When orchestrating long-running agent subprocesses, clean shutdown matters — you don't want orphaned processes, corrupted output files, or lost progress. `SignalManager` handles:
+`SignalManager` handles:
 
-- **Graceful shutdown** — first signal requests cancellation, allowing cleanup
-- **Forced exit** — second SIGINT forces immediate exit via `KeyboardInterrupt`
+- **Shutdown flag** — first signal sets `shutdown_requested = True`; consumers poll it
+- **Forced exit** — second SIGINT raises `KeyboardInterrupt`
 - **SIGTERM support** — participates in graceful shutdown but never forces exit
 - **Signal restoration** — original handlers are restored on context exit
 
