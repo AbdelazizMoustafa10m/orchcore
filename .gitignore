@@ -13,6 +13,7 @@ Thumbs.db
 Desktop.ini
 
 # Python
+src/orchcore/_version.py
 __pycache__/
 *.py[cod]
 *$py.class

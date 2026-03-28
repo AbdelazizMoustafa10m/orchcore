@@ -363,7 +363,6 @@ wheels = [
 
 [[package]]
 name = "orchcore"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
@@ -403,7 +402,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.40" },
 ]
-provides-extras = ["rich", "tui", "dev"]
+provides-extras = ["dev", "rich", "tui"]
 
 [[package]]
 name = "packaging"
