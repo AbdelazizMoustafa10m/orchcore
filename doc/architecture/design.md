@@ -64,7 +64,7 @@ orchcore extracts the common orchestration infrastructure from four production A
 | **Workspace** | Active directories; timestamped archives; gzip compression; "latest" symlink |
 | **Configuration** | 7-level priority chain; named profiles; per-agent overrides; extensible via subclassing |
 | **Prompt Templating** | Jinja2 rendering; frontmatter stripping; configurable template directories |
-| **Signal Handling** | SIGINT/SIGTERM trap; subprocess cleanup; preserve state for resume |
+| **Signal Handling** | SIGINT/SIGTERM trap; cooperative `shutdown_requested` flag; PhaseRunner owns subprocess cleanup and 30s grace period |
 | **UI Protocol** | 15 callback methods; NullCallback and LoggingCallback built-in |
 
 ### Non-Functional Requirements

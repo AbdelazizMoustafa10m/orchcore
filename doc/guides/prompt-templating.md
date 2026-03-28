@@ -8,7 +8,7 @@ Agent prompts are often parameterized — they include project names, file lists
 
 - **Jinja2 rendering** — variable substitution, conditionals, loops
 - **Sandboxed execution** — templates cannot access arbitrary Python objects
-- **Frontmatter stripping** — YAML frontmatter is removed before rendering
+- **Frontmatter stripping** — `TemplateLoader.load()` removes YAML frontmatter when loading from disk (`render_template()` and `render_string()` do not strip frontmatter)
 - **Multi-directory search** — templates are resolved across configurable directories
 
 ## Rendering a Template File

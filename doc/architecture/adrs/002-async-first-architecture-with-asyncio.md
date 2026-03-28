@@ -193,7 +193,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 |---|---|---|
 | Parallel agent launch overhead | < 10ms scheduling overhead per agent | Benchmark test comparing sequential vs. parallel launch |
 | Stream processing does not block event loop | Each stream read completes in < 1ms | Profile with asyncio debug mode enabled |
-| Graceful shutdown completes | All subprocesses terminated within 5 seconds of SIGINT | Integration test with simulated signal |
+| Graceful shutdown completes | All subprocesses terminated within 30 seconds of SIGINT (PhaseRunner grace period) | Integration test with simulated signal |
 | No orphaned tasks after pipeline completion | Zero pending tasks after run_pipeline returns | Assertion in test teardown |
 
 **Review Schedule:**

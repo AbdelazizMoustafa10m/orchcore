@@ -15,7 +15,7 @@ orchcore extracts the 60-70% of duplicated infrastructure from production AI orc
 - **Layered configuration** — TOML files, environment variables, CLI overrides, and named profiles via pydantic-settings
 - **Protocol-based UI** — `UICallback` protocol decouples engine from presentation; plug in Rich, Textual, or headless output
 - **Registry-as-data** — add new agent support via TOML configuration alone, zero code changes
-- **Graceful shutdown** — SIGINT/SIGTERM handling with async task cancellation and subprocess cleanup
+- **Graceful shutdown** — SIGINT/SIGTERM handling with cooperative cancellation flag; PhaseRunner owns subprocess termination with 30s grace period
 - **Git dirty-tree recovery** — auto-stash or auto-commit before retry to ensure clean working state
 - **Optional observability** — OpenTelemetry integration via `OrchcoreTelemetry`
 
@@ -43,7 +43,7 @@ orchcore extracts the 60-70% of duplicated infrastructure from production AI orc
 | `workspace/` | Manages `.orchcore-workspace/outputs/<phase>/<agent>.md` artifact lifecycle |
 | `prompt/` | Jinja2 template rendering with frontmatter stripping |
 | `ui/` | `UICallback` protocol — consuming projects implement their own display layer |
-| `signals/` | Graceful SIGINT/SIGTERM shutdown with async task cancellation |
+| `signals/` | Cooperative SIGINT/SIGTERM shutdown flag (`shutdown_requested`) with `check_shutdown()` |
 | `display/` | Colored stderr logging via ANSI codes (no Rich dependency in core) |
 | `observability/` | Optional OpenTelemetry integration |
 
@@ -56,7 +56,7 @@ orchcore extracts the 60-70% of duplicated infrastructure from production AI orc
 | [Recovery & Retry](guides/recovery-and-retry.md) | Rate limits, backoff, git recovery, failure modes |
 | [Workspace Management](guides/workspace.md) | Artifact lifecycle, archival, and cleanup |
 | [Prompt Templating](guides/prompt-templating.md) | Jinja2 templates, frontmatter stripping, template loading |
-| [Signal Handling](guides/signal-handling.md) | Graceful SIGINT/SIGTERM shutdown and task cancellation |
+| [Signal Handling](guides/signal-handling.md) | Cooperative SIGINT/SIGTERM shutdown flag and graceful exit |
 | [Observability](guides/observability.md) | Optional OpenTelemetry tracing integration |
 | [Display Utilities](guides/display.md) | ANSI colored logging and formatting helpers |
 

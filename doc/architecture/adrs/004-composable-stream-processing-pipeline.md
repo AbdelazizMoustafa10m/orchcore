@@ -143,7 +143,7 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 - StreamFilter uses a `dict[StreamFormat, list[str]]` of skip patterns. A line is dropped if it contains any skip pattern for the current format. No regex — pure `in` string matching for speed.
 - StreamParser dispatches to `_parse_claude()`, `_parse_codex()`, `_parse_opencode()`, `_parse_gemini()`, or `_parse_copilot()` based on the StreamFormat enum. Each branch returns `list[StreamEvent]`, allowing a single line to emit zero, one, or multiple events.
 - AgentMonitor maintains an `AgentState` enum and a list of `ToolExecution` instances. State transitions are explicit: `_TRANSITIONS: dict[tuple[AgentState, StreamEventType], AgentState]`.
-- StallDetector runs as an `asyncio.Task` that sleeps for the timeout duration, checking `last_activity_time` on wake. Deep tool patterns (Exa, Tavily) trigger the higher `deep_tool_timeout`.
+- StallDetector exposes a `watch(events: AsyncIterator[StreamEvent]) -> AsyncIterator[StreamEvent]` method that wraps the event stream. It uses `asyncio.wait_for()` with a `check_interval` to poll for new events, yielding a synthetic `STALL` event when idle time exceeds the configured timeout. Deep tool patterns (Exa, Tavily) trigger the higher `deep_timeout`.
 - All four stages are instantiated per agent — no shared state across agents.
 
 ### When to Revisit This Decision
