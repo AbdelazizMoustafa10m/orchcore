@@ -1,4 +1,4 @@
-.PHONY: install lint typecheck test check clean
+.PHONY: install lint typecheck test check clean verifytypes
 
 install:
 	uv pip install -e ".[dev]"
@@ -19,6 +19,9 @@ test:
 
 check: lint typecheck test
 	@echo "All checks passed."
+
+verifytypes:
+	uv run pyright --verifytypes orchcore --ignoreexternal
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

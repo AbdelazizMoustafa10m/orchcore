@@ -25,12 +25,16 @@ dev = [
     "mypy>=1.13",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "pyright>=1.1",
     "ruff>=0.8",
     "coverage>=7.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orchcore"]
+
+[tool.pyright]
+pythonVersion = "3.12"
 
 [tool.mypy]
 strict = true
