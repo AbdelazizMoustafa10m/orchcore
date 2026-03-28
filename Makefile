@@ -1,7 +1,7 @@
 .PHONY: install lint typecheck test check clean
 
 install:
-	pip install -e ".[dev]"
+	uv pip install -e ".[dev]"
 
 lint:
 	ruff check src/ tests/
