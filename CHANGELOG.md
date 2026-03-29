@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v0.1.0...v0.2.0) (2026-03-29)
+
+
+### Features
+
+* add Zensical docs site with GitHub Pages deployment ([832d5f4](https://github.com/AbdelazizMoustafa10m/orchcore/commit/832d5f474d89d73367fc40e8cf3f88a14f0064d6))
+
 ## [0.1.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v0.0.1...v0.1.0) (2026-03-28)
 
 
