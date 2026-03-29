@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v0.2.0...v0.2.1) (2026-03-29)
+
+
+### Documentation
+
+* add architecture diagram to README ([169f582](https://github.com/AbdelazizMoustafa10m/orchcore/commit/169f582ab5f8f218e41dbfd760cbb8d793a8aa98))
+
 ## [0.2.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v0.1.0...v0.2.0) (2026-03-29)
 
 
