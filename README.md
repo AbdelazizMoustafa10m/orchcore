@@ -16,6 +16,10 @@
 
 orchcore is an async-first Python 3.12+ library that provides unified infrastructure for launching, monitoring, and managing multiple AI coding agent CLIs (Claude, Codex, Gemini, Copilot, OpenCode) as subprocesses through phase-based pipelines. It was extracted from four production orchestration systems — Planora, Articles, Finvault, and Raven — eliminating 60-70% of duplicated infrastructure so consuming projects only implement domain-specific logic.
 
+<p align="center">
+  <img src="assets/orchcore-architecture.png" alt="orchcore Architecture" width="700">
+</p>
+
 ## Features
 
 - **Multi-agent subprocess orchestration** — async launch, stream capture, concurrency control
