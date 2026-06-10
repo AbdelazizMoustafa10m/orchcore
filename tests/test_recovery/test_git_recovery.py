@@ -131,10 +131,36 @@ async def test_auto_commit_runs_git_add_then_commit_with_mocked_subprocess(
             "commit",
             "-m",
             "orchcore: worker-f checkpoint",
-            "--no-verify",
         ),
     ]
     assert all(call[1]["cwd"] == working_dir for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_auto_commit_adds_no_verify_only_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run_git(*args: str) -> tuple[int, str, str]:
+        calls.append(args)
+        return 0, "", ""
+
+    recovery = GitRecovery()
+    monkeypatch.setattr(recovery, "_run_git", fake_run_git)
+
+    result = await recovery.auto_commit(no_verify=True)
+
+    assert result is True
+    assert calls == [
+        ("add", "-A"),
+        (
+            "commit",
+            "-m",
+            "orchcore: auto-commit before retry",
+            "--no-verify",
+        ),
+    ]
 
 
 @pytest.mark.asyncio
@@ -183,7 +209,6 @@ async def test_auto_commit_returns_false_when_git_commit_fails(
             "commit",
             "-m",
             "orchcore: auto-commit before retry",
-            "--no-verify",
         ),
     ]
     assert "git commit failed: nothing to commit" in caplog.text

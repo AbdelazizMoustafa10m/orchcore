@@ -23,9 +23,8 @@ ws = WorkspaceManager(
 ws.set_task_slug("implement user authentication")
 ws.ensure_dirs()
 
-# write_file writes directly under workspace_dir — it does NOT create
-# parent directories, so the name must be a flat filename.
 ws.write_file("plan.md", "# Plan\n...")
+ws.write_file("notes/review.md", "# Review\n...")
 content = ws.read_file("plan.md")
 
 # Archive when done
@@ -33,7 +32,7 @@ archive_path = ws.archive()
 print(f"Archived to: {archive_path}")
 ```
 
-**Note:** `write_file` and `read_file` operate on flat filenames inside `workspace_dir`. The nested `outputs/<phase>/<agent>.md` directory structure is created by `PhaseRunner`, which calls `mkdir(parents=True)` before writing agent output. If you need subdirectories for manual writes, create them yourself first.
+**Path safety:** `workspace_name`, `write_file()`, and `read_file()` are containment-checked. Empty, absolute, drive-qualified, or parent-escaping names raise `ValueError`; `cleanup()` can never target `project_root`. Nested names such as `notes/review.md` are allowed and parent directories are created automatically.
 
 ## Context Manager
 
@@ -70,6 +69,7 @@ project_root/
     │           ├── claude.stream.gz     # Compressed
     │           └── claude.log
     └── latest -> 2026-03-28_14-30-00_implement-user-auth
+    # or latest.txt containing the archive directory name when symlinks are unavailable
 ```
 
 ## Constructor Parameters
@@ -96,9 +96,13 @@ ws.set_task_slug("Fix the login page CSS overflow issue")
 
 - `.stream` files are compressed with gzip (stored as `.stream.gz`)
 - All other files are copied uncompressed
-- A `latest` symlink is created pointing to the newest archive
+- A `latest` symlink is created pointing to the newest archive when the platform allows it
+- If symlink creation fails, `latest.txt` stores the newest archive directory name instead
 - `.stream` files are removed from the active workspace after archival
 - Collision-safe: appends `-1`, `-2`, etc. if the archive directory already exists
+
+Use `latest_path()` to resolve the newest archive portably; it handles both the
+symlink and `latest.txt` forms.
 
 ## Async Variants
 

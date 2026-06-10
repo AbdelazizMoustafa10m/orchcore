@@ -87,6 +87,11 @@ asyncio.run(main())
 
 If no event loop is running when `SignalManager.__aenter__` is called (e.g., during testing), signal handlers are not installed and the context manager becomes a no-op. This avoids `RuntimeError` in non-async contexts.
 
+On Windows and other event loops that do not implement `loop.add_signal_handler()`,
+`SignalManager` falls back to classic `signal.signal()` handlers and restores the
+original handlers on exit. SIGINT works through this path; SIGTERM can be
+registered but is not generally delivered by Windows process signaling.
+
 ## Related
 
 - [Architecture Overview](../architecture/overview.md) — how signal handling fits into the broader system

@@ -47,6 +47,10 @@ log_level = "info"
 
 [agents.claude]
 stall_timeout = 600
+max_runtime = 1800
+kill_on_stall = true
+env_policy = "filtered"
+env_passlist = ["ANTHROPIC_API_KEY"]
 model = "claude-sonnet-4-20250514"
 
 [agents.codex]
@@ -154,6 +158,10 @@ The `agents` dict in settings allows per-agent customization:
 [agents.claude]
 stall_timeout = 600
 deep_tool_timeout = 1200
+max_runtime = 1800
+kill_on_stall = true
+env_policy = "filtered"
+env_passlist = ["ANTHROPIC_API_KEY"]
 
 [agents.codex]
 stall_timeout = 120

@@ -4,6 +4,7 @@ import datetime
 import logging
 import random
 import re
+from collections.abc import Sequence
 from datetime import timezone
 from typing import ClassVar
 
@@ -158,7 +159,7 @@ class ResetTimeParser:
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
         target_timezone: timezone | ZoneInfo = datetime.UTC
-        timezone_name = match.group("tz")
+        timezone_name = match.group("tz") or _timezone_token_after_match(output, match.end())
         if timezone_name:
             try:
                 target_timezone = ZoneInfo(timezone_name)
@@ -182,13 +183,24 @@ class ResetTimeParser:
         return max(int((target - now).total_seconds()), 0)
 
 
+def _timezone_token_after_match(output: str, match_end: int) -> str | None:
+    """Return a timezone-like token immediately following an absolute reset time."""
+    remainder = output[match_end:].lstrip()
+    if not remainder:
+        return None
+    match = re.match(r"(?P<tz>[A-Za-z][A-Za-z0-9_+/\-]*)", remainder)
+    if match is None:
+        return None
+    return match.group("tz")
+
+
 class BackoffStrategy:
     DEFAULT_SCHEDULE: ClassVar[list[int]] = [120, 300, 900, 1800]
     DEFAULT_JITTER_RANGE: ClassVar[tuple[int, int]] = (0, 30)
 
     def __init__(
         self,
-        schedule: list[int] | None = None,
+        schedule: Sequence[int] | None = None,
         jitter_range: tuple[int, int] | None = None,
         max_wait: int = 21600,
     ) -> None:

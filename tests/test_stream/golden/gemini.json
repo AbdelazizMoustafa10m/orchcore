@@ -1,0 +1,655 @@
+{
+  "sessions": [
+    {
+      "name": "canonical",
+      "lines": [
+        {
+          "functionCall": {
+            "name": "web_search_exa",
+            "args": {
+              "query": "orchcore"
+            }
+          }
+        },
+        {
+          "functionResponse": {
+            "name": "web_search_exa",
+            "response": {
+              "ok": true
+            }
+          }
+        },
+        {
+          "functionCall": {
+            "name": "agent_tool",
+            "args": {
+              "description": "sub"
+            }
+          }
+        },
+        {
+          "functionResponse": {
+            "name": "agent_tool"
+          }
+        },
+        {
+          "tool_calls": [
+            {
+              "name": "Read",
+              "args": {
+                "file_path": "a.py"
+              }
+            },
+            {
+              "name": "Grep",
+              "args": {
+                "pattern": "x"
+              }
+            }
+          ]
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "Gemini answer"
+                  }
+                ]
+              },
+              "finishReason": "STOP"
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 5
+          }
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "partial"
+                  }
+                ]
+              },
+              "finishReason": "MAX_TOKENS"
+            }
+          ]
+        },
+        {
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "quota"
+          },
+          "retry_after_ms": 60000
+        },
+        {
+          "error": {
+            "code": 500,
+            "status": "INTERNAL",
+            "message": "server"
+          }
+        }
+      ],
+      "events": [
+        {
+          "event_type": "tool_start",
+          "tool_id": "gemini-tool-1",
+          "tool_name": "web_search_exa",
+          "tool_detail": "Web \"orchcore\"",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "functionCall": {
+              "name": "web_search_exa",
+              "args": {
+                "query": "orchcore"
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "gemini-tool-1",
+          "tool_name": "web_search_exa",
+          "tool_detail": null,
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "functionResponse": {
+              "name": "web_search_exa",
+              "response": {
+                "ok": true
+              }
+            }
+          }
+        },
+        {
+          "event_type": "state",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "writing",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "functionResponse": {
+              "name": "web_search_exa",
+              "response": {
+                "ok": true
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "gemini-tool-2",
+          "tool_name": "agent_tool",
+          "tool_detail": null,
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "functionCall": {
+              "name": "agent_tool",
+              "args": {
+                "description": "sub"
+              }
+            }
+          }
+        },
+        {
+          "event_type": "subagent",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Subagent: sub",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "functionCall": {
+              "name": "agent_tool",
+              "args": {
+                "description": "sub"
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "gemini-tool-2",
+          "tool_name": "agent_tool",
+          "tool_detail": null,
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "functionResponse": {
+              "name": "agent_tool"
+            }
+          }
+        },
+        {
+          "event_type": "state",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "writing",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "functionResponse": {
+              "name": "agent_tool"
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "gemini-tool-3",
+          "tool_name": "Read",
+          "tool_detail": "a.py",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "tool_calls": [
+              {
+                "name": "Read",
+                "args": {
+                  "file_path": "a.py"
+                }
+              },
+              {
+                "name": "Grep",
+                "args": {
+                  "pattern": "x"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "gemini-tool-4",
+          "tool_name": "Grep",
+          "tool_detail": "x",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "tool_calls": [
+              {
+                "name": "Read",
+                "args": {
+                  "file_path": "a.py"
+                }
+              },
+              {
+                "name": "Grep",
+                "args": {
+                  "pattern": "x"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "event_type": "state",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "writing",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Gemini answer"
+                    }
+                  ]
+                },
+                "finishReason": "STOP"
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 5
+            }
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Gemini answer",
+          "text_full": "Gemini answer",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Gemini answer"
+                    }
+                  ]
+                },
+                "finishReason": "STOP"
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 5
+            }
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Gemini answer"
+                    }
+                  ]
+                },
+                "finishReason": "STOP"
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 5
+            }
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "partial",
+          "text_full": "partial",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "partial"
+                    }
+                  ]
+                },
+                "finishReason": "MAX_TOKENS"
+              }
+            ]
+          }
+        },
+        {
+          "event_type": "rate_limit",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": 60000,
+          "error_category": "rate_limit",
+          "idle_seconds": null,
+          "raw": {
+            "error": {
+              "code": 429,
+              "status": "RESOURCE_EXHAUSTED",
+              "message": "quota"
+            },
+            "retry_after_ms": 60000
+          }
+        }
+      ]
+    },
+    {
+      "name": "fallback-init-heartbeat",
+      "lines": [
+        {
+          "blob": 0
+        },
+        {
+          "blob": 1
+        },
+        {
+          "blob": 2
+        },
+        {
+          "blob": 3
+        },
+        {
+          "blob": 4
+        },
+        {
+          "blob": 5
+        },
+        {
+          "blob": 6
+        },
+        {
+          "blob": 7
+        },
+        {
+          "blob": 8
+        },
+        {
+          "blob": 9
+        },
+        {
+          "blob": 10
+        }
+      ],
+      "events": [
+        {
+          "event_type": "init",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "blob": 0
+          }
+        },
+        {
+          "event_type": "heartbeat",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Gemini processing (line 10)",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "blob": 9
+          }
+        }
+      ]
+    }
+  ]
+}
