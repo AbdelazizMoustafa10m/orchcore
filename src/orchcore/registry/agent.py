@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,9 +53,13 @@ class AgentConfig(BaseModel):
     flags: dict[AgentMode, list[str]]
     stream_format: StreamFormat
     env_vars: dict[str, str] = Field(default_factory=dict)
+    env_policy: Literal["inherit", "filtered", "clean"] = "filtered"
+    env_passlist: list[str] = Field(default_factory=list)
     output_extraction: OutputExtraction
     stall_timeout: float = 300.0
     deep_tool_timeout: float = 600.0
+    max_runtime: float | None = None
+    kill_on_stall: bool = False
 
 
 class ToolSet(BaseModel):

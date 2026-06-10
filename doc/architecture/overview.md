@@ -136,6 +136,7 @@ orchcore uses a two-level execution model:
 
 1. **PipelineRunner** — coordinates multiple phases in dependency order. Handles resume, skip, and only-phase options.
 2. **PhaseRunner** — executes a single phase. Launches agents sequentially or in parallel via `AgentRunner`, enforces concurrency limits, and aggregates results.
+3. **AgentRunner** — launches each subprocess with an explicit command, filtered environment, optional working directory, stream parser, and process-tree shutdown policy.
 
 ```mermaid
 sequenceDiagram
@@ -150,15 +151,15 @@ sequenceDiagram
         PR->>PhR: run_phase(phase, prompt, callback)
         alt parallel phase
             par for each agent
-                PhR->>AR: run(agent, prompt, output_path)
-                AR->>A: subprocess launch
+                PhR->>AR: run(agent, prompt, output_path, cwd)
+                AR->>A: subprocess launch with filtered env + cwd
                 A-->>AR: JSONL stream
                 AR-->>PhR: AgentResult
             end
         else sequential phase
             loop for each agent
-                PhR->>AR: run(agent, prompt, output_path)
-                AR->>A: subprocess launch
+                PhR->>AR: run(agent, prompt, output_path, cwd)
+                AR->>A: subprocess launch with filtered env + cwd
                 A-->>AR: JSONL stream
                 AR-->>PhR: AgentResult
             end

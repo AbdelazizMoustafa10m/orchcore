@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path  # noqa: TC003 — required by Pydantic runtime validation
 from typing import Literal
 
 from pydantic import BaseModel
@@ -33,6 +34,9 @@ class RetryPolicy(BaseModel):
     max_wait: int = 21600  # 6 hours
     failure_mode: FailureMode = FailureMode.FAIL_FAST
     min_count: int = 1  # For REQUIRE_MINIMUM mode
+    git_recovery: Literal["off", "auto_commit", "stash"] = "off"
+    git_recovery_cwd: Path | None = None
+    git_recovery_no_verify: bool = False
 
     def should_retry(self, attempt: int) -> bool:
         """Check if another retry attempt is allowed.

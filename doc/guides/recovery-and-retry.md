@@ -62,6 +62,9 @@ policy = RetryPolicy(
 | `max_wait` | `int` | `21600` | Maximum total wait time (6 hours) |
 | `failure_mode` | `FailureMode` | `FAIL_FAST` | How to handle failures in multi-agent phases |
 | `min_count` | `int` | `1` | Minimum successful agents for `REQUIRE_MINIMUM` mode |
+| `git_recovery` | `"off" \| "auto_commit" \| "stash"` | `"off"` | Optional dirty-tree recovery before rate-limit retries |
+| `git_recovery_cwd` | `Path \| None` | `None` | Directory where git commands run; defaults to the agent cwd when available |
+| `git_recovery_no_verify` | `bool` | `False` | Add `--no-verify` to recovery commits only when explicitly requested |
 
 ### Backoff Schedule
 
@@ -128,17 +131,36 @@ phase = Phase(
 )
 ```
 
-## Git Dirty-Tree Recovery
+## Git Recovery Policy
 
-Before retrying a failed agent, orchcore checks if the git working tree is dirty (the agent may have written partial changes). The `GitRecovery` module handles this automatically:
+Git recovery is disabled by default. orchcore never runs `git` or mutates the consumer's repository unless the phase opts in through `RetryPolicy.git_recovery`.
 
-| Situation | Action |
-|-----------|--------|
-| Untracked files only | Auto-commit with descriptive message |
-| Modified tracked files | Auto-stash, retry, then restore |
-| Clean tree | Proceed with retry |
+```python
+from orchcore.recovery import RetryPolicy
 
-This ensures each retry attempt starts from a clean working state.
+policy = RetryPolicy(git_recovery="auto_commit")
+```
+
+Available modes:
+
+| Mode | Behavior |
+|------|----------|
+| `"off"` | No git subprocesses are started |
+| `"auto_commit"` | If the tree is dirty, stage and commit before retrying; hooks run unless `git_recovery_no_verify=True` |
+| `"stash"` | Stash before the retry wait and restore the stash before the next attempt |
+
+Git commands run in `git_recovery_cwd` when set, otherwise the explicit agent working directory. If neither exists, recovery is skipped with a warning and an `on_git_recovery("skipped_no_cwd", ...)` callback.
+
+## Stall and Runtime Enforcement
+
+`stall_timeout` and `deep_tool_timeout` detect silence and emit `STALL` events. Enforcement is separate:
+
+| AgentConfig field | Default | Behavior |
+|-------------------|---------|----------|
+| `kill_on_stall` | `False` | When true, a detected stall terminates the process tree and returns an `AgentResult.error` like `stalled for 300s (kill_on_stall)` |
+| `max_runtime` | `None` | When set, caps the stream-consume phase and returns an error like `max_runtime exceeded after 1800s` |
+
+Timeout and stall kills may leave partial output artifacts; `output_empty` reports whether anything useful was written.
 
 ## Per-Phase Retry Configuration
 

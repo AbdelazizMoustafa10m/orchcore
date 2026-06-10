@@ -170,6 +170,25 @@ async def test_run_pipeline_runs_single_phase(ui_callback: NullCallback) -> None
 
 
 @pytest.mark.asyncio
+async def test_run_pipeline_required_failed_phase_marks_pipeline_failed(
+    ui_callback: NullCallback,
+) -> None:
+    phase = _phase("planning")
+    phase_result = _phase_result("planning", PhaseStatus.FAILED, error="structured failure")
+    phase_runner = StubPhaseRunner({"planning": phase_result})
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    result = await pipeline_runner.run_pipeline(
+        phases=[phase],
+        prompts={"planning": "Draft the plan"},
+        ui_callback=ui_callback,
+    )
+
+    assert result.phases == [phase_result]
+    assert result.success is False
+
+
+@pytest.mark.asyncio
 async def test_run_pipeline_rejects_empty_phase_list(ui_callback: NullCallback) -> None:
     pipeline_runner = PipelineRunner(phase_runner=StubPhaseRunner({}))
 

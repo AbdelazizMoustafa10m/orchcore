@@ -93,10 +93,14 @@ python_version = "3.12"
 plugins = ["pydantic.mypy"]
 warn_return_any = true
 warn_unused_configs = true
+files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "error",
+]
 
 [tool.ruff]
 target-version = "py312"
@@ -139,4 +143,4 @@ omit = ["src/orchcore/_version.py"]
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 90
+fail_under = 93

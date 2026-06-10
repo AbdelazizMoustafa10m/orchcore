@@ -7,10 +7,12 @@ import contextlib
 import logging
 import os
 import re
+import signal
+import subprocess
 import warnings
 from datetime import UTC, datetime, timedelta
 from pathlib import Path  # noqa: TC003 — used at runtime in path operations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from orchcore.registry.agent import (
     CODEX_PERMISSION_VALUES,
@@ -47,6 +49,51 @@ _REQUIRED_STREAM_FLAG_CHECKS: dict[StreamFormat, tuple[RequiredFlagCheck, ...]] 
     StreamFormat.OPENCODE: (("--format json", ("--format", "json")),),
 }
 
+_DEFAULT_EXCLUDED_ENV_PATTERNS: tuple[str, ...] = (
+    r"ANTHROPIC_.*",
+    r"OPENAI_.*",
+    r"GEMINI_.*",
+    r"GOOGLE_.*",
+    r"COPILOT_.*",
+    r"GH_.*",
+    r"GITHUB_.*",
+    r"OTEL_.*",
+    r"AWS_.*",
+    r"CLAUDE_.*",
+    r"CODEX_.*",
+    r"OPENCODE_.*",
+    r"AZURE_.*",
+    r"HTTP_PROXY",
+    r"HTTPS_PROXY",
+    r"ALL_PROXY",
+)
+
+_CLEAN_KEEP_KEYS: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USERPROFILE",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "LANG",
+        "LC_ALL",
+        # Windows essentials: without these, many child EXEs fail to start.
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "COMSPEC",
+        "PATHEXT",
+        "WINDIR",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "NUMBER_OF_PROCESSORS",
+        "OS",
+    }
+)
+
+_EXCLUDED_ENV_RE = re.compile("|".join(_DEFAULT_EXCLUDED_ENV_PATTERNS), re.IGNORECASE)
+
 
 async def _read_lines(stream: asyncio.StreamReader) -> AsyncIterator[str]:
     """Yield decoded lines from an asyncio StreamReader."""
@@ -55,6 +102,41 @@ async def _read_lines(stream: asyncio.StreamReader) -> AsyncIterator[str]:
         if not line_bytes:
             break
         yield line_bytes.decode("utf-8", errors="replace")
+
+
+def build_agent_env(agent: AgentConfig) -> dict[str, str]:
+    """Build the exact environment used for an agent subprocess."""
+    source = dict(os.environ)
+    if agent.env_policy == "inherit":
+        base = source
+    elif agent.env_policy == "clean":
+        if os.name == "nt":
+            # Windows environment names are case-insensitive; preserve mixed-case essentials.
+            base = {key: value for key, value in source.items() if key.upper() in _CLEAN_KEEP_KEYS}
+        else:
+            # POSIX environment names are case-sensitive; lowercase path/home must not leak.
+            base = {key: value for key, value in source.items() if key in _CLEAN_KEEP_KEYS}
+    else:
+        allowed = (
+            re.compile("|".join(agent.env_passlist), re.IGNORECASE) if agent.env_passlist else None
+        )
+        base = {
+            key: value
+            for key, value in source.items()
+            if not _EXCLUDED_ENV_RE.fullmatch(key)
+            or (allowed is not None and allowed.fullmatch(key) is not None)
+        }
+        removed_names = sorted(set(source) - set(base))
+        if removed_names:
+            logger.debug(
+                "Filtered %d environment variable(s) for agent %s: %s%s",
+                len(removed_names),
+                agent.name,
+                ", ".join(removed_names[:10]),
+                "..." if len(removed_names) > 10 else "",
+            )
+
+    return {**base, **agent.env_vars}
 
 
 class AgentRunner:
@@ -75,15 +157,16 @@ class AgentRunner:
         on_process_end: Callable[[asyncio.subprocess.Process], None] | None = None,
         toolset: ToolSet | None = None,
         on_stall: Callable[[str, float], None] | None = None,
+        cwd: Path | None = None,
     ) -> AgentResult:
         """Run the agent subprocess and return a fully-populated AgentResult."""
         cmd = self._build_command(agent, prompt, output_path, mode, toolset)
         _warn_if_missing_required_stream_flags(agent, cmd)
 
-        env = {**os.environ, **agent.env_vars}
+        env = build_agent_env(agent)
 
         if dry_run:
-            logger.info("dry_run=True, skipping subprocess. Command: %s", cmd)
+            logger.info("dry_run=True, skipping subprocess. Command: %s (cwd=%s)", cmd, cwd)
             return AgentResult(
                 agent_name=agent.name,
                 output_path=output_path,
@@ -96,12 +179,25 @@ class AgentRunner:
 
         started_at = datetime.now(UTC)
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
+        logger.debug("Launching agent command: %s (cwd=%s)", cmd, cwd)
+        if os.name != "nt":
+            # POSIX agents run in a new session so shutdown can signal the whole tree.
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                cwd=cwd,
+                start_new_session=True,
+            )
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                cwd=cwd,
+            )
         if on_process_start is not None:
             on_process_start(proc)
 
@@ -118,24 +214,51 @@ class AgentRunner:
         monitor = AgentMonitor(agent.name)
 
         text_chunks: list[str] = []
+        stream_error: str | None = None
+        stall_idle_seconds: float | None = None
+        stall_abort = asyncio.Event()
         # Prefer the explicit on_stall parameter; fall back to introspecting
         # the on_event callback for a bound on_stall_detected method to
         # maintain backward compatibility with existing consumers.
         stall_callback = on_stall if on_stall is not None else _resolve_stall_callback(on_event)
 
         def _collecting_on_event(event: StreamEvent) -> None:
+            nonlocal stall_idle_seconds, stream_error
             if event.event_type == StreamEventType.TEXT:
                 full = event.text_full or event.text_preview
                 if full is not None:
                     text_chunks.append(full)
             if on_event is not None:
                 on_event(event)
+            if event.event_type == StreamEventType.RESULT:
+                if event.error:
+                    stream_error = event.error
+                elif event.exit_code is not None and event.exit_code != 0:
+                    stream_error = f"stream reported exit code {event.exit_code}"
+                else:
+                    stream_error = None
+            elif event.event_type == StreamEventType.ERROR:
+                stream_error = event.error or event.text_preview or "agent reported an error event"
+            elif event.event_type == StreamEventType.RATE_LIMIT:
+                stream_error = (
+                    event.error
+                    or event.text_preview
+                    or (
+                        f"agent reported a rate limit ({event.error_category})"
+                        if event.error_category
+                        else None
+                    )
+                    or "agent reported a rate limit"
+                )
             if (
                 event.event_type == StreamEventType.STALL
                 and event.idle_seconds is not None
                 and stall_callback is not None
             ):
                 stall_callback(agent.name, event.idle_seconds)
+            if event.event_type == StreamEventType.STALL and agent.kill_on_stall:
+                stall_idle_seconds = event.idle_seconds
+                stall_abort.set()
 
         if proc.stdout is None or proc.stderr is None:  # pragma: no cover - PIPE guarantees both.
             raise RuntimeError("subprocess pipes not connected despite PIPE flags")
@@ -178,7 +301,40 @@ class AgentRunner:
             parsed = stream_parser.parse_stream(filtered)
             watched = stall_detector.watch(parsed)
 
-            await monitor.consume(watched, on_event=_collecting_on_event)
+            timed_out = False
+            stalled_out = False
+
+            async def _consume_events() -> None:
+                await monitor.consume(watched, on_event=_collecting_on_event)
+
+            consume_task = asyncio.create_task(_consume_events())
+            abort_task = asyncio.create_task(stall_abort.wait()) if agent.kill_on_stall else None
+            timeout_cm = (
+                asyncio.timeout(agent.max_runtime)
+                if agent.max_runtime is not None
+                else contextlib.nullcontext()
+            )
+            try:
+                async with timeout_cm:
+                    if abort_task is None:
+                        await consume_task
+                    else:
+                        done, _pending = await asyncio.wait(
+                            {consume_task, abort_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if abort_task in done and proc.returncode is None:
+                            stalled_out = True
+                        else:
+                            await consume_task
+            except TimeoutError:
+                timed_out = True
+            finally:
+                if timed_out or stalled_out:
+                    await _shutdown_process(proc)
+                    await _cancel_task(consume_task)
+                if abort_task is not None:
+                    await _cancel_task(abort_task)
 
             await secondary_task
 
@@ -213,6 +369,17 @@ class AgentRunner:
             )
 
             snap = monitor.snapshot()
+            result_error = _result_error(
+                exit_code=exit_code,
+                stderr_chunks=stderr_chunks,
+                stdout_chunks=stdout_chunks,
+                stream_error=stream_error,
+                snap_state=snap.state,
+                timed_out=timed_out,
+                max_runtime=agent.max_runtime,
+                stalled_out=stalled_out,
+                stall_idle_seconds=stall_idle_seconds,
+            )
             if on_snapshot is not None:
                 on_snapshot(snap)
 
@@ -230,11 +397,7 @@ class AgentRunner:
                 num_turns=snap.num_turns,
                 session_id=snap.session_id,
                 output_empty=output_empty,
-                error=(
-                    _derive_error(exit_code, stderr_chunks, stdout_chunks)
-                    if exit_code != 0
-                    else None
-                ),
+                error=result_error,
             )
             run_completed = True
             return result
@@ -502,32 +665,118 @@ def _resolve_stall_callback(
     return _invoke_stall
 
 
-async def _cancel_task(task: asyncio.Task[None] | None) -> None:
+async def _cancel_task(task: asyncio.Task[Any] | None) -> None:
     """Cancel and await a background task, ignoring normal cancellation noise."""
-    if task is None or task.done():
+    if task is None:
         return
 
-    task.cancel()
+    if not task.done():
+        task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
 
 
+def _kill_tree_windows(pid: int) -> subprocess.CompletedProcess[bytes]:
+    """Force-kill a Windows process tree with taskkill."""
+    return subprocess.run(  # noqa: S603 - fixed argv, no shell interpolation.
+        ["taskkill.exe", "/F", "/T", "/PID", str(pid)],  # noqa: S607
+        check=False,
+        capture_output=True,
+    )
+
+
+def _signal_posix_process_group(proc: asyncio.subprocess.Process, sig: int) -> None:
+    """Signal the POSIX process group created for an agent subprocess."""
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(os.getpgid(proc.pid), sig)
+
+
+def terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
+    """Send the graceful shutdown signal for an agent process tree."""
+    if proc.returncode is not None:
+        return
+    if os.name == "nt":
+        # Windows has no POSIX-style process groups for asyncio children; taskkill
+        # with /T is the reliable tree operation available on stock systems.
+        outcome = _kill_tree_windows(proc.pid)
+        if outcome.returncode == 0:
+            logger.debug("taskkill tree-kill ok for pid %d", proc.pid)
+        else:
+            logger.warning(
+                "taskkill failed for pid %d (rc=%d): %s",
+                proc.pid,
+                outcome.returncode,
+                outcome.stderr.decode(errors="replace").strip(),
+            )
+        return
+
+    _signal_posix_process_group(proc, signal.SIGTERM)
+
+
+def kill_process_tree(proc: asyncio.subprocess.Process) -> None:
+    """Force-kill an agent process tree."""
+    if proc.returncode is not None:
+        return
+    if os.name == "nt":
+        outcome = _kill_tree_windows(proc.pid)
+        if outcome.returncode != 0:
+            logger.warning(
+                "taskkill force kill failed for pid %d (rc=%d): %s",
+                proc.pid,
+                outcome.returncode,
+                outcome.stderr.decode(errors="replace").strip(),
+            )
+        return
+
+    _signal_posix_process_group(proc, signal.SIGKILL)
+
+
 async def _shutdown_process(proc: asyncio.subprocess.Process) -> None:
-    """Terminate a live subprocess and wait for it to exit."""
+    """Terminate a live subprocess tree and wait for it to exit."""
     if proc.returncode is not None:
         return
 
-    proc.terminate()
+    terminate_process_tree(proc)
     try:
         await asyncio.wait_for(proc.wait(), timeout=5.0)
     except TimeoutError:
-        proc.kill()
+        kill_process_tree(proc)
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
         await proc.wait()
 
 
 def _check_output_empty(path: Path) -> bool:
     """Return True when path is absent or has zero bytes (blocking; run in thread pool)."""
     return not path.exists() or path.stat().st_size == 0
+
+
+def _result_error(
+    *,
+    exit_code: int,
+    stderr_chunks: list[str],
+    stdout_chunks: list[str],
+    stream_error: str | None,
+    snap_state: AgentState,
+    timed_out: bool,
+    max_runtime: float | None,
+    stalled_out: bool,
+    stall_idle_seconds: float | None,
+) -> str | None:
+    """Resolve the final AgentResult.error value from process and stream state."""
+    if timed_out:
+        runtime = "unknown" if max_runtime is None else f"{max_runtime:g}s"
+        return f"max_runtime exceeded after {runtime}"
+    if stalled_out:
+        idle = "unknown" if stall_idle_seconds is None else f"{stall_idle_seconds:g}s"
+        return f"stalled for {idle} (kill_on_stall)"
+    if exit_code != 0:
+        return _derive_error(exit_code, stderr_chunks, stdout_chunks)
+    if stream_error is not None:
+        return stream_error
+    if snap_state in {AgentState.FAILED, AgentState.RATE_LIMITED}:
+        return f"stream reported terminal state {snap_state.value} without a message"
+    return None
 
 
 def _derive_error(

@@ -36,7 +36,7 @@ class GitRecovery:
         exit_code, stdout, _ = await self._run_git("status", "--porcelain")
         return exit_code == 0 and len(stdout) > 0
 
-    async def auto_commit(self, message: str | None = None) -> bool:
+    async def auto_commit(self, message: str | None = None, *, no_verify: bool = False) -> bool:
         """Stage all changes and commit with the given message."""
         commit_msg = message or "orchcore: auto-commit before retry"
 
@@ -45,12 +45,11 @@ class GitRecovery:
             logger.warning("git add failed: %s", stderr)
             return False
 
-        exit_code, _, stderr = await self._run_git(
-            "commit",
-            "-m",
-            commit_msg,
-            "--no-verify",
-        )
+        commit_args = ["commit", "-m", commit_msg]
+        if no_verify:
+            commit_args.append("--no-verify")
+
+        exit_code, _, stderr = await self._run_git(*commit_args)
         if exit_code != 0:
             logger.warning("git commit failed: %s", stderr)
             return False

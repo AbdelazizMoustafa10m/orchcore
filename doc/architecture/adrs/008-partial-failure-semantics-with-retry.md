@@ -51,7 +51,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 | Rate-limit detection across multiple agent CLIs | Critical | Each agent has different rate-limit messages; orchcore must detect all known patterns |
 | Configurable retry with exponential backoff | Critical | Rate limits require waiting; the wait time must respect the provider's reset schedule |
 | Partial failure semantics per phase | Critical | Different phases need different failure tolerance (strict vs. lenient) |
-| Git dirty tree recovery | High | Agents write files; failed retries on dirty trees cause cascading failures |
+| Git dirty tree recovery | High | Agents write files; failed retries on dirty trees cause cascading failures, but repository mutation must be explicit |
 | Timezone-aware reset time parsing | High | Claude provides absolute reset times in user's timezone; orchcore must parse these correctly |
 | Maximum wait time cap | High | Prevents infinite waits when reset times are far in the future |
 | Consuming project configurability | High | Each project should set its own retry limits, backoff schedule, and failure mode |
@@ -70,7 +70,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 3. **BackoffStrategy**: Exponential backoff schedule [120, 300, 900, 1800] seconds with random jitter [0-30s]. Respects parsed reset time if available (uses the longer of backoff or reset time). Configurable max wait (default 6 hours).
 
-4. **GitRecovery**: Detects dirty git trees before retry. Auto-commits with message extracted from agent output (or fallback to diff-based message). Alternatively stashes and restores.
+4. **GitRecovery**: Optional dirty-tree handling before retry. Consumers opt in to `auto_commit` or `stash`; the default is `off` so orchcore never mutates the consumer's repository unless asked.
 
 5. **RetryPolicy**: Pydantic model configuring max_retries, backoff_schedule, max_wait, and partial_failure_mode (FAIL_FAST, CONTINUE, REQUIRE_MINIMUM with min_count).
 
@@ -81,13 +81,13 @@ Every source system has independently solved rate-limit recovery, but with diffe
 - Timezone-aware reset parsing handles the hardest edge case (Claude's absolute times)
 - Exponential backoff with jitter prevents thundering herd when multiple agents hit limits simultaneously
 - Max wait cap prevents infinite waits (6 hours is a reasonable upper bound for any AI provider)
-- Git recovery prevents cascading failures during retry (learned from Finvault production incident)
+- Opt-in git recovery can prevent cascading failures during retry without silently mutating a consumer repository
 
 **Cons:**
 - Rate-limit regex patterns are fragile — agent CLI output format changes break detection
 - Timezone parsing introduces dependency on Python's `zoneinfo` module (stdlib since 3.9, but needs tzdata on some platforms)
 - Three partial failure modes add configuration complexity
-- Git auto-commit during recovery might create unwanted commits (mitigated by commit message extraction)
+- Git auto-commit during recovery might create unwanted commits (mitigated by default-off policy, explicit cwd, and hook bypass being separately opt-in)
 
 **Risk Assessment:**
 
@@ -164,14 +164,14 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 ## Decision
 
-**We have decided to implement configurable retry policies with three partial failure modes (FAIL_FAST, CONTINUE, REQUIRE_MINIMUM), rate-limit detection via regex patterns, exponential backoff with timezone-aware reset time parsing, and git dirty tree recovery.**
+**We have decided to implement configurable retry policies with three partial failure modes (FAIL_FAST, CONTINUE, REQUIRE_MINIMUM), rate-limit detection via regex patterns, exponential backoff with timezone-aware reset time parsing, and explicit opt-in git dirty-tree recovery.**
 
 ### Implementation Details
 
 - **RateLimitDetector patterns** are defined as `ClassVar` dicts mapping agent type to compiled regex patterns. Patterns are checked in order; first match wins.
 - **ResetTimeParser** uses `zoneinfo.ZoneInfo` for timezone conversion and `re` for extracting time strings. Supports both absolute ("7pm Europe/Berlin") and relative ("5 days 27 minutes") formats.
 - **BackoffStrategy schedule** [120, 300, 900, 1800] seconds was derived from empirical observation across the four source systems. Jitter range [0-30] seconds prevents synchronized retries when multiple agents hit limits simultaneously.
-- **GitRecovery auto-commit** extracts a commit message from the agent's output using a heuristic (last assistant message or diff summary). Falls back to "orchcore: auto-commit before retry" if extraction fails.
+- **GitRecovery policy** defaults to `"off"`. `RetryPolicy(git_recovery="auto_commit")` stages and commits dirty trees before retrying; `git_recovery_no_verify=True` is required to bypass hooks. `RetryPolicy(git_recovery="stash")` stashes before the retry wait and restores before the next attempt. Both modes run in `git_recovery_cwd` or the explicit agent cwd.
 - **RetryPolicy** is configured per phase (not globally) to allow different failure semantics:
   - `FAIL_FAST`: First agent failure fails the entire phase (for critical phases like audit)
   - `CONTINUE`: All agents run to completion; failures recorded but phase continues (for review phases)
@@ -184,7 +184,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 - If AI providers standardize rate-limit error formats (could simplify detection)
 - If AI providers provide programmatic rate-limit APIs (could replace regex parsing with API calls)
 - If the backoff schedule proves suboptimal for new providers (adjust defaults, keep configurability)
-- If git auto-commit during recovery causes problems in consuming projects (make it opt-in rather than automatic)
+- If opt-in git recovery still causes problems in consuming projects (tighten policy or add safer modes)
 - If more than 3 partial failure modes are needed (currently 3 covers all observed use cases)
 
 ## Consequences
@@ -195,14 +195,14 @@ Every source system has independently solved rate-limit recovery, but with diffe
 - Timezone-aware reset time parsing handles the hardest edge case correctly
 - Exponential backoff with jitter prevents thundering herd effects
 - Three partial failure modes cover strict (audit), lenient (review), and consensus (voting) phase types
-- Git dirty tree recovery prevents cascading failures during retry
+- Opt-in git dirty tree recovery prevents cascading failures during retry when consumers choose it
 - RetryPolicy as a Pydantic model enables per-phase configuration via TOML
 - Max wait cap prevents infinite waits
 
 ### Negative
 
 - Rate-limit regex patterns are fragile and may break when agent CLIs change their output format
-- Git auto-commit during recovery may create unwanted commits (mitigated by extractable commit messages and opt-in configuration)
+- Git auto-commit during recovery may create unwanted commits (mitigated by default-off policy, explicit opt-in, and hook bypass opt-in)
 - Three failure modes add configuration complexity that simple projects may not need (mitigated by sensible defaults)
 - zoneinfo requires tzdata package on some platforms (Windows, some minimal Linux containers)
 

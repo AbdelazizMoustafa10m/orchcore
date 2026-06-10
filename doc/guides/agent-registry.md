@@ -18,6 +18,10 @@ subcommand = "-p"
 stream_format = "claude"
 stall_timeout = 300.0
 deep_tool_timeout = 600.0
+max_runtime = 1800.0
+kill_on_stall = false
+env_policy = "filtered"
+env_passlist = ["ANTHROPIC_API_KEY"]
 
 [agents.claude.flags]
 plan = ["--think", "--verbose"]
@@ -43,6 +47,10 @@ jq_expression = ".content[0].text"
 | `stream_format` | `str` | Yes | JSONL format: `claude`, `codex`, `opencode`, `gemini`, `copilot` |
 | `stall_timeout` | `float` | No | Seconds before stall detection (default: 300) |
 | `deep_tool_timeout` | `float` | No | Timeout for deep tools like Exa/Tavily (default: 600) |
+| `max_runtime` | `float \| None` | No | Hard wall-clock cap for the subprocess; `None` disables enforcement |
+| `kill_on_stall` | `bool` | No | Terminate the process tree when a stall event is detected |
+| `env_policy` | `"filtered" \| "inherit" \| "clean"` | No | Environment source policy for the subprocess (default: `filtered`) |
+| `env_passlist` | `list[str]` | No | Case-insensitive regex allowlist that re-admits filtered environment names |
 | `flags.<mode>` | `list[str]` | No | Mode-specific CLI flags (modes: `plan`, `fix`, `audit`, `review`) |
 | `env_vars` | `dict` | No | Environment variables to set for the subprocess |
 | `output_extraction.strategy` | `str` | Yes | How to extract output: `jq_filter`, `direct_file`, `stdout_capture` |
@@ -66,6 +74,26 @@ Each agent supports four execution modes with mode-specific CLI flags:
 | `jq_filter` | Extract text from JSONL using the `jq_expression`. Parsed natively — no `jq` binary required. |
 | `direct_file` | Agent writes output to a file; orchcore reads it. |
 | `stdout_capture` | Capture the full stdout as output. |
+
+### Environment Policy
+
+Agent subprocesses default to `env_policy = "filtered"`. This keeps normal process basics like `PATH` and `HOME`, but strips common credential and agent configuration families such as `ANTHROPIC_*`, `OPENAI_*`, `GITHUB_*`, `AWS_*`, proxy variables, and telemetry variables. Values in `env_vars` are always applied last.
+
+Use one of these migration paths when an agent genuinely needs an ambient variable:
+
+```toml
+# Keep the old full-inheritance behavior for this agent.
+env_policy = "inherit"
+
+# Or keep the filtered default and re-admit specific names.
+env_passlist = ["ANTHROPIC_API_KEY"]
+
+# Or pass explicit literal values from your own config layer.
+[agents.claude.env_vars]
+ANTHROPIC_API_KEY = "..."
+```
+
+`env_policy = "clean"` starts from a minimal platform environment. It is useful for reproducibility checks, but it is not a full hermetic home-directory sandbox.
 
 ## Multi-Agent TOML
 

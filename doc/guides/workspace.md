@@ -23,9 +23,8 @@ ws = WorkspaceManager(
 ws.set_task_slug("implement user authentication")
 ws.ensure_dirs()
 
-# write_file writes directly under workspace_dir — it does NOT create
-# parent directories, so the name must be a flat filename.
 ws.write_file("plan.md", "# Plan\n...")
+ws.write_file("notes/review.md", "# Review\n...")
 content = ws.read_file("plan.md")
 
 # Archive when done
@@ -33,7 +32,7 @@ archive_path = ws.archive()
 print(f"Archived to: {archive_path}")
 ```
 
-**Note:** `write_file` and `read_file` operate on flat filenames inside `workspace_dir`. The nested `outputs/<phase>/<agent>.md` directory structure is created by `PhaseRunner`, which calls `mkdir(parents=True)` before writing agent output. If you need subdirectories for manual writes, create them yourself first.
+**Path safety:** `workspace_name`, `write_file()`, and `read_file()` are containment-checked. Empty, absolute, drive-qualified, or parent-escaping names raise `ValueError`; `cleanup()` can never target `project_root`. Nested names such as `notes/review.md` are allowed and parent directories are created automatically.
 
 ## Context Manager
 

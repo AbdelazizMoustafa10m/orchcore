@@ -170,6 +170,8 @@ Return type of `AgentRunner.run()`. Captures all outputs from a single agent exe
 | `output_empty` | `bool` | `False` | Whether output file was empty |
 | `error` | `str \| None` | `None` | Error message if failed |
 
+`AgentResult.error` is populated from the terminal stream state as well as the process exit code. A subprocess that exits `0` but emits a `result` with `error`, an `error` event, or an unrecovered `rate_limit` event returns an error-carrying result and is treated as failed by phase aggregation.
+
 ## Related
 
 - [Stream Pipeline architecture](../architecture/stream-pipeline.md) — how the 4-stage pipeline works

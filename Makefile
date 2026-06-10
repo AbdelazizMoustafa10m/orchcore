@@ -12,7 +12,7 @@ format:
 	ruff check --fix src/ tests/
 
 typecheck:
-	mypy src/orchcore/ --strict
+	mypy src/ tests/ --strict
 
 test:
 	pytest tests/ -v

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import pytest
 
 from orchcore.stream.events import AgentState, StreamEvent, StreamEventType
 from orchcore.stream.monitor import AgentMonitor, _friendly_name
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 def test_friendly_name_maps_known_tools() -> None:
@@ -275,7 +279,7 @@ async def test_monitor_consume_updates_state_and_emits_callback() -> None:
     ]
     seen: list[StreamEventType] = []
 
-    async def raw_events():
+    async def raw_events() -> AsyncIterator[StreamEvent]:
         for event in events:
             yield event
 

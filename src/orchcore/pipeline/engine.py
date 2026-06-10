@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import re
 import signal
 from datetime import UTC, datetime, timedelta
@@ -20,6 +21,7 @@ from orchcore.recovery import (
     ResetTimeParser,
     RetryPolicy,
 )
+from orchcore.runner.subprocess import kill_process_tree, terminate_process_tree
 from orchcore.stream.events import AgentResult
 
 if TYPE_CHECKING:
@@ -34,6 +36,8 @@ _DEFAULT_WORKSPACE_NAME = ".orchcore-workspace"
 _OUTPUTS_DIRNAME = "outputs"
 _OUTPUT_EXTENSION = ".md"
 _PATH_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class TelemetryProtocol(Protocol):
@@ -69,6 +73,7 @@ class PhaseRunner:
         snapshot_interval: float | None = None,
         stall_check_interval: float = 5.0,
         telemetry: TelemetryProtocol | None = None,
+        agent_cwd: Path | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError(f"max_concurrency must be at least 1, got {max_concurrency}")
@@ -87,6 +92,7 @@ class PhaseRunner:
         self._snapshot_interval = snapshot_interval
         self._stall_check_interval = stall_check_interval
         self._telemetry = telemetry
+        self._agent_cwd = agent_cwd
         self._fallback_workspace_dir = Path.cwd() / _DEFAULT_WORKSPACE_NAME
         self._workspace_ready = False
         self._ui_callback: UICallback | None = None
@@ -134,7 +140,7 @@ class PhaseRunner:
             if proc.returncode is not None:
                 continue
             with contextlib.suppress(ProcessLookupError):
-                proc.kill()
+                kill_process_tree(proc)
 
     def _check_phase_preconditions(
         self,
@@ -481,7 +487,7 @@ class PhaseRunner:
                 schedule=policy.backoff_schedule,
                 max_wait=policy.max_wait,
             )
-            git_recovery = GitRecovery()
+            effective_cwd = self._resolve_agent_cwd()
             attempt = 1
 
             while True:
@@ -506,6 +512,7 @@ class PhaseRunner:
                             on_process_end=self._unregister_process,
                             toolset=toolset,
                             on_stall=ui_callback.on_stall_detected,
+                            cwd=effective_cwd,
                         )
                 except FileNotFoundError as exc:
                     return _synthetic_agent_result(
@@ -525,7 +532,7 @@ class PhaseRunner:
                         error=(f"Agent {agent.name!r} failed in phase {phase_name!r}: {exc}"),
                     )
 
-                if result.exit_code == 0:
+                if result.exit_code == 0 and result.error is None:
                     return result
 
                 error_output = result.error or ""
@@ -545,16 +552,20 @@ class PhaseRunner:
                 )
                 ui_callback.on_rate_limit_wait(agent.name, wait_seconds)
 
-                if await git_recovery.is_tree_dirty() and await git_recovery.auto_commit():
-                    ui_callback.on_git_recovery(
-                        "auto_commit",
-                        "cleaned dirty tree before retry",
-                    )
+                recovery = await self._apply_git_recovery(
+                    policy=policy,
+                    effective_cwd=effective_cwd,
+                    ui_callback=ui_callback,
+                )
 
                 ui_callback.on_retry(agent.name, attempt, policy.max_retries)
                 if self._shutting_down:
+                    if recovery is not None:
+                        await _restore_git_stash_if_needed(recovery, ui_callback)
                     return result
                 await asyncio.sleep(wait_seconds)
+                if recovery is not None:
+                    await _restore_git_stash_if_needed(recovery, ui_callback)
                 attempt += 1
 
     def terminate_active_processes(self) -> None:
@@ -563,7 +574,7 @@ class PhaseRunner:
             if proc.returncode is not None:
                 continue
             with contextlib.suppress(ProcessLookupError):
-                proc.terminate()
+                terminate_process_tree(proc)
 
     def _register_process(self, proc: asyncio.subprocess.Process) -> None:
         """Track a live subprocess so signal handlers can terminate it."""
@@ -610,6 +621,54 @@ class PhaseRunner:
         output_dir = workspace_dir / _OUTPUTS_DIRNAME / _path_component(phase_name)
         await asyncio.to_thread(output_dir.mkdir, parents=True, exist_ok=True)
         return output_dir / f"{_path_component(agent_name)}{_OUTPUT_EXTENSION}"
+
+    def _resolve_agent_cwd(self) -> Path | None:
+        """Return the cwd used for agent subprocesses and git recovery."""
+        if self._agent_cwd is not None:
+            return self._agent_cwd
+        if self._workspace is not None:
+            return self._workspace.project_root
+        return None
+
+    async def _apply_git_recovery(
+        self,
+        *,
+        policy: RetryPolicy,
+        effective_cwd: Path | None,
+        ui_callback: UICallback,
+    ) -> GitRecovery | None:
+        """Run opt-in git recovery and return a stash recovery to restore, if any."""
+        if policy.git_recovery == "off":
+            return None
+
+        recovery_cwd = policy.git_recovery_cwd or effective_cwd
+        if recovery_cwd is None:
+            logger.warning(
+                "Skipping git recovery mode %r because no git_recovery_cwd or agent cwd is set",
+                policy.git_recovery,
+            )
+            ui_callback.on_git_recovery(
+                "skipped_no_cwd",
+                "git recovery skipped because no cwd was resolved",
+            )
+            return None
+
+        git_recovery = GitRecovery(working_dir=str(recovery_cwd))
+        if policy.git_recovery == "auto_commit":
+            if await git_recovery.is_tree_dirty() and await git_recovery.auto_commit(
+                no_verify=policy.git_recovery_no_verify
+            ):
+                ui_callback.on_git_recovery(
+                    "auto_commit",
+                    "cleaned dirty tree before retry",
+                )
+            return None
+
+        if await git_recovery.stash_dirty_tree():
+            ui_callback.on_git_recovery("stash", "stashed dirty tree before retry")
+            return git_recovery
+
+        return None
 
     async def _workspace_root(self) -> Path:
         """Return the active workspace directory, creating it if needed."""
@@ -664,6 +723,22 @@ def _agent_span(
     if telemetry is None:
         return contextlib.nullcontext()
     return telemetry.agent_span(phase, agent)
+
+
+async def _restore_git_stash_if_needed(
+    git_recovery: GitRecovery,
+    ui_callback: UICallback,
+) -> None:
+    """Restore a retry stash without raising into the retry loop."""
+    if await git_recovery.restore_stash():
+        ui_callback.on_git_recovery("stash_restore", "restored dirty tree after retry wait")
+        return
+
+    logger.warning("Git stash restore failed after retry wait")
+    ui_callback.on_git_recovery(
+        "stash_restore_failed",
+        "git stash restore failed after retry wait",
+    )
 
 
 def _build_phase_result(
@@ -727,10 +802,10 @@ def _synthetic_agent_result(
 
 def _agent_error_message(result: AgentResult) -> str | None:
     """Return a context-rich failure message when an agent did not succeed."""
-    if result.exit_code == 0 and not result.output_empty:
-        return None
     if result.error:
         return result.error
+    if result.exit_code == 0 and not result.output_empty:
+        return None
     if result.output_empty:
         return f"Agent {result.agent_name!r} completed without producing output"
     return f"Agent {result.agent_name!r} exited with code {result.exit_code}"

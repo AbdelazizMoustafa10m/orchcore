@@ -1,17 +1,32 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import signal
 import sys
 import textwrap
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import pytest
 
-from orchcore.pipeline.engine import PhaseRunner, _failed_phase, _skipped_phase
+from orchcore.pipeline.engine import (
+    PhaseRunner,
+    _agent_error_message,
+    _agent_span,
+    _build_phase_result,
+    _exception_message,
+    _failed_phase,
+    _path_component,
+    _phase_span,
+    _restore_git_stash_if_needed,
+    _skipped_phase,
+    _synthetic_agent_result,
+)
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus
-from orchcore.recovery import FailureMode, RetryPolicy
+from orchcore.recovery import FailureMode, GitRecovery, RetryPolicy
 from orchcore.registry.agent import AgentConfig, AgentMode, ToolSet
 from orchcore.registry.registry import AgentRegistry
 from orchcore.runner.subprocess import AgentRunner
@@ -26,9 +41,30 @@ if TYPE_CHECKING:
 class FakeLoop:
     def __init__(self) -> None:
         self.scheduled_callbacks: list[tuple[float, Callable[[], None]]] = []
+        self.added_signal_handlers: list[tuple[signal.Signals, Callable[[], None]]] = []
 
     def call_later(self, delay: float, callback: Callable[[], None]) -> None:
         self.scheduled_callbacks.append((delay, callback))
+
+    def add_signal_handler(self, sig: signal.Signals, callback: Callable[[], None]) -> None:
+        self.added_signal_handlers.append((sig, callback))
+
+
+class FakeProcess:
+    def __init__(self, *, returncode: int | None = None, raise_on_kill: bool = False) -> None:
+        self.returncode = returncode
+        self.raise_on_kill = raise_on_kill
+        self.kill_calls = 0
+        self.terminate_calls = 0
+        self.pid = 12345
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        if self.raise_on_kill:
+            raise ProcessLookupError
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
 
 
 class _RecordingCallback(NullCallback):
@@ -38,6 +74,7 @@ class _RecordingCallback(NullCallback):
         self.retries: list[tuple[str, int, int]] = []
         self.git_recoveries: list[tuple[str, str]] = []
         self.stalls: list[tuple[str, float]] = []
+        self.agent_errors: list[tuple[str, str]] = []
 
     def on_rate_limit(self, agent_name: str, message: str) -> None:
         self.rate_limits.append((agent_name, message))
@@ -53,6 +90,18 @@ class _RecordingCallback(NullCallback):
 
     def on_stall_detected(self, agent_name: str, duration: float) -> None:
         self.stalls.append((agent_name, duration))
+
+    def on_agent_error(self, agent_name: str, error: str) -> None:
+        self.agent_errors.append((agent_name, error))
+
+
+class _ShutdownRecordingCallback(_RecordingCallback):
+    def __init__(self) -> None:
+        super().__init__()
+        self.shutdowns: list[str] = []
+
+    def on_shutdown(self, reason: str) -> None:
+        self.shutdowns.append(reason)
 
 
 def _build_agent_result(
@@ -151,6 +200,65 @@ def test_phase_runner_constructor_accepts_required_parameters() -> None:
     assert phase_runner._workspace is None
 
 
+def test_phase_runner_constructor_rejects_invalid_limits() -> None:
+    runner = AgentRunner()
+    registry = AgentRegistry()
+
+    with pytest.raises(ValueError, match="max_concurrency"):
+        PhaseRunner(runner=runner, registry=registry, max_concurrency=0)
+
+    with pytest.raises(ValueError, match="stall_check_interval"):
+        PhaseRunner(runner=runner, registry=registry, stall_check_interval=0)
+
+
+def test_install_signal_handlers_noops_without_running_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+
+    def raise_no_loop() -> FakeLoop:
+        raise RuntimeError("no running loop")
+
+    monkeypatch.setattr(asyncio, "get_running_loop", raise_no_loop)
+
+    phase_runner._install_signal_handlers()
+
+    assert phase_runner._signal_handlers_installed is False
+
+
+def test_install_signal_handlers_ignores_unsupported_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnsupportedLoop(FakeLoop):
+        def add_signal_handler(self, sig: signal.Signals, callback: Callable[[], None]) -> None:
+            del sig, callback
+            raise NotImplementedError
+
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: UnsupportedLoop())
+
+    phase_runner._install_signal_handlers()
+
+    assert phase_runner._signal_handlers_installed is False
+
+
+def test_install_signal_handlers_registers_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_loop = FakeLoop()
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: fake_loop)
+
+    phase_runner._install_signal_handlers()
+    phase_runner._install_signal_handlers()
+
+    assert phase_runner._signal_handlers_installed is True
+    assert [sig for sig, _callback in fake_loop.added_signal_handlers] == [
+        signal.SIGINT,
+        signal.SIGTERM,
+    ]
+
+
 def test_initiate_shutdown_schedules_forced_kill_after_thirty_seconds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -179,6 +287,182 @@ def test_initiate_shutdown_schedules_forced_kill_after_thirty_seconds(
     assert delay == 30.0
     assert getattr(callback, "__self__", None) is phase_runner
     assert getattr(callback, "__func__", None) is PhaseRunner._force_kill_all
+
+
+def test_initiate_shutdown_second_call_forces_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+    phase_runner._shutting_down = True
+    force_calls: list[str] = []
+    monkeypatch.setattr(phase_runner, "_force_kill_all", lambda: force_calls.append("forced"))
+
+    phase_runner._initiate_shutdown()
+
+    assert force_calls == ["forced"]
+
+
+def test_initiate_shutdown_emits_callback_before_missing_loop_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+    callback = _ShutdownRecordingCallback()
+    phase_runner._ui_callback = callback
+
+    def raise_no_loop() -> FakeLoop:
+        raise RuntimeError("no running loop")
+
+    monkeypatch.setattr(asyncio, "get_running_loop", raise_no_loop)
+
+    phase_runner._initiate_shutdown()
+
+    assert callback.shutdowns == ["Signal received"]
+
+
+def test_force_kill_all_skips_exited_processes_and_suppresses_lookup_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+    live = FakeProcess()
+    exited = FakeProcess(returncode=0)
+    missing = FakeProcess(raise_on_kill=True)
+    phase_runner._active_processes = [live, exited, missing]  # type: ignore[list-item]
+    killed: list[int] = []
+
+    def fake_kill_process_tree(proc: FakeProcess) -> None:
+        proc.kill()
+        killed.append(proc.pid)
+
+    monkeypatch.setattr("orchcore.pipeline.engine.kill_process_tree", fake_kill_process_tree)
+
+    phase_runner._force_kill_all()
+
+    assert live.kill_calls == 1
+    assert exited.kill_calls == 0
+    assert missing.kill_calls == 1
+    assert killed == [live.pid]
+
+
+def test_terminate_active_processes_uses_tree_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+    live = FakeProcess()
+    exited = FakeProcess(returncode=0)
+    phase_runner._active_processes = [live, exited]  # type: ignore[list-item]
+    terminated: list[int] = []
+
+    def fake_terminate_process_tree(proc: FakeProcess) -> None:
+        proc.terminate()
+        terminated.append(proc.pid)
+
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.terminate_process_tree",
+        fake_terminate_process_tree,
+    )
+
+    phase_runner.terminate_active_processes()
+
+    assert live.terminate_calls == 1
+    assert exited.terminate_calls == 0
+    assert terminated == [live.pid]
+
+
+@pytest.mark.asyncio
+async def test_run_phase_short_circuits_when_shutdown_or_no_agents() -> None:
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+    callback = NullCallback()
+    phase_runner._shutting_down = True
+
+    shutdown_result = await phase_runner.run_phase(
+        phase=Phase(name="analysis", agents=["codex"]),
+        prompt="run",
+        ui_callback=callback,
+        mode=AgentMode.PLAN,
+    )
+
+    phase_runner._shutting_down = False
+    empty_result = await phase_runner.run_phase(
+        phase=Phase(name="notes", agents=[]),
+        prompt="run",
+        ui_callback=callback,
+        mode=AgentMode.PLAN,
+    )
+
+    assert shutdown_result.status is PhaseStatus.FAILED
+    assert shutdown_result.error == "Shutdown in progress"
+    assert empty_result.status is PhaseStatus.SKIPPED
+    assert empty_result.error == "Phase 'notes' has no configured agents"
+
+
+@pytest.mark.asyncio
+async def test_run_phase_reports_unknown_agent_and_output_path_errors(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unknown_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+
+    unknown_result = await unknown_runner.run_phase(
+        phase=Phase(name="analysis", agents=["missing"]),
+        prompt="run",
+        ui_callback=NullCallback(),
+        mode=AgentMode.PLAN,
+    )
+
+    registry = AgentRegistry({"codex": sample_agent_config.model_copy(update={"name": "codex"})})
+    path_runner = PhaseRunner(runner=AgentRunner(), registry=registry)
+
+    async def raise_os_error(phase_name: str, agent_name: str) -> Path:
+        del phase_name, agent_name
+        raise OSError("disk full")
+
+    monkeypatch.setattr(path_runner, "_resolve_output_path", raise_os_error)
+    path_result = await path_runner.run_phase(
+        phase=Phase(name="analysis", agents=["codex"]),
+        prompt="run",
+        ui_callback=NullCallback(),
+        mode=AgentMode.PLAN,
+    )
+
+    assert unknown_result.status is PhaseStatus.FAILED
+    assert "references unknown agent 'missing'" in (unknown_result.error or "")
+    assert path_result.status is PhaseStatus.FAILED
+    assert "Failed to prepare output paths" in (path_result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_run_parallel_reports_unknown_agent_and_output_path_errors(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unknown_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+
+    unknown_result = await unknown_runner.run_parallel(
+        phase=Phase(name="analysis", agents=["missing"], parallel=True),
+        prompt="run",
+        ui_callback=NullCallback(),
+        mode=AgentMode.PLAN,
+    )
+
+    registry = AgentRegistry({"codex": sample_agent_config.model_copy(update={"name": "codex"})})
+    path_runner = PhaseRunner(runner=AgentRunner(), registry=registry)
+
+    async def raise_os_error(phase_name: str, agent_name: str) -> Path:
+        del phase_name, agent_name
+        raise OSError("disk full")
+
+    monkeypatch.setattr(path_runner, "_resolve_output_path", raise_os_error)
+    path_result = await path_runner.run_parallel(
+        phase=Phase(name="analysis", agents=["codex"], parallel=True),
+        prompt="run",
+        ui_callback=NullCallback(),
+        mode=AgentMode.PLAN,
+    )
+
+    assert unknown_result.status is PhaseStatus.FAILED
+    assert "references unknown agent 'missing'" in (unknown_result.error or "")
+    assert path_result.status is PhaseStatus.FAILED
+    assert "Failed to prepare output paths" in (path_result.error or "")
 
 
 @pytest.mark.parametrize(
@@ -243,6 +527,160 @@ def test_resolve_toolset_applies_priority_order(
 
 
 @pytest.mark.asyncio
+async def test_resolve_output_path_creates_and_reuses_fallback_workspace(
+    tmp_path: Path,
+) -> None:
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+    phase_runner._fallback_workspace_dir = tmp_path / ".orchcore-workspace"
+
+    output_path = await phase_runner._resolve_output_path(
+        phase_name="analysis / ../phase",
+        agent_name="../codex ??",
+    )
+    cached_root = await phase_runner._workspace_root()
+
+    assert output_path == (
+        tmp_path / ".orchcore-workspace" / "outputs" / "analysis-..-phase" / "codex.md"
+    )
+    assert output_path.parent.is_dir()
+    assert cached_root == tmp_path / ".orchcore-workspace"
+
+
+@pytest.mark.asyncio
+async def test_workspace_root_uses_injected_workspace_and_caches_result(
+    tmp_path: Path,
+) -> None:
+    from orchcore.workspace.manager import WorkspaceManager
+
+    workspace = WorkspaceManager(project_root=tmp_path)
+    phase_runner = PhaseRunner(
+        runner=AgentRunner(),
+        registry=AgentRegistry(),
+        workspace=workspace,
+    )
+
+    root = await phase_runner._workspace_root()
+    cached_root = await phase_runner._workspace_root()
+
+    assert root == workspace.workspace_dir
+    assert cached_root == workspace.workspace_dir
+    assert workspace.workspace_dir.is_dir()
+
+
+def test_resolve_agent_cwd_prefers_explicit_cwd(tmp_path: Path) -> None:
+    phase_runner = PhaseRunner(
+        runner=AgentRunner(),
+        registry=AgentRegistry(),
+        agent_cwd=tmp_path,
+    )
+
+    assert phase_runner._resolve_agent_cwd() == tmp_path
+
+
+def test_telemetry_span_helpers_delegate_when_telemetry_is_present() -> None:
+    class FakeTelemetry:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str | None]] = []
+
+        def phase_span(
+            self,
+            phase: str,
+            agent: str | None = None,
+        ) -> contextlib.AbstractContextManager[object]:
+            self.calls.append(("phase", phase, agent))
+            return contextlib.nullcontext("phase-span")
+
+        def agent_span(
+            self,
+            phase: str,
+            agent: str,
+        ) -> contextlib.AbstractContextManager[object]:
+            self.calls.append(("agent", phase, agent))
+            return contextlib.nullcontext("agent-span")
+
+    telemetry = FakeTelemetry()
+
+    with _phase_span(telemetry, "analysis", agent="codex") as phase_value:
+        assert phase_value == "phase-span"
+    with _agent_span(telemetry, "analysis", "codex") as agent_value:
+        assert agent_value == "agent-span"
+
+    assert telemetry.calls == [
+        ("phase", "analysis", "codex"),
+        ("agent", "analysis", "codex"),
+    ]
+
+
+def test_phase_result_aggregation_and_helper_fallbacks(tmp_path: Path) -> None:
+    success = AgentResult(
+        agent_name="alpha",
+        output_path=tmp_path / "alpha.md",
+        exit_code=0,
+        duration=timedelta(0),
+        output_empty=False,
+        cost_usd=Decimal("0.20"),
+    )
+    empty_success = AgentResult(
+        agent_name="empty",
+        output_path=tmp_path / "empty.md",
+        exit_code=0,
+        duration=timedelta(0),
+        output_empty=True,
+    )
+    exit_failure = AgentResult(
+        agent_name="beta",
+        output_path=tmp_path / "beta.md",
+        exit_code=2,
+        duration=timedelta(0),
+        output_empty=False,
+        cost_usd=Decimal("0.30"),
+    )
+    synthetic = _synthetic_agent_result(
+        agent_name="gamma",
+        output_path=tmp_path / "gamma.md",
+        phase_name="analysis",
+        error="launch failed",
+    )
+
+    partial = _build_phase_result(
+        phase_name="analysis",
+        started_at=datetime.now(UTC),
+        agent_results=[success, exit_failure],
+        allow_partial=True,
+    )
+
+    assert partial.status is PhaseStatus.PARTIAL
+    assert partial.output_files == [tmp_path / "alpha.md", tmp_path / "beta.md"]
+    assert partial.error == "Agent 'beta' exited with code 2"
+    assert partial.cost_usd == Decimal("0.50")
+    assert _agent_error_message(success) is None
+    assert _agent_error_message(empty_success) == "Agent 'empty' completed without producing output"
+    assert _agent_error_message(exit_failure) == "Agent 'beta' exited with code 2"
+    assert synthetic.error == "launch failed (phase='analysis', agent='gamma')"
+    assert _exception_message(RuntimeError()) == "RuntimeError"
+    assert _path_component(" !!! ") == "unnamed"
+
+
+@pytest.mark.asyncio
+async def test_restore_git_stash_failure_reports_callback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FailingRestoreGitRecovery(GitRecovery):
+        async def restore_stash(self) -> bool:
+            return False
+
+    callback = _RecordingCallback()
+
+    with caplog.at_level("WARNING", logger="orchcore.pipeline.engine"):
+        await _restore_git_stash_if_needed(FailingRestoreGitRecovery(), callback)
+
+    assert "Git stash restore failed after retry wait" in caplog.text
+    assert callback.git_recoveries == [
+        ("stash_restore_failed", "git stash restore failed after retry wait")
+    ]
+
+
+@pytest.mark.asyncio
 async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
     retry_test_setup: _RetryTestSetup,
     monkeypatch: pytest.MonkeyPatch,
@@ -275,8 +713,8 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
         del self
         return False
 
-    async def fake_auto_commit(self: object) -> bool:
-        del self
+    async def fake_auto_commit(self: object, *, no_verify: bool = False) -> bool:
+        del self, no_verify
         return False
 
     def fake_compute_wait(self: object, attempt: int, reset_seconds: int | None = None) -> float:
@@ -320,6 +758,146 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
     assert setup.ui_callback.rate_limit_waits == [("codex", 0.25)]
     assert setup.ui_callback.retries == [("codex", 1, 2)]
     assert setup.ui_callback.git_recoveries == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raised_error", "expected_message"),
+    [
+        pytest.param(FileNotFoundError("missing binary"), "binary", id="missing-binary"),
+        pytest.param(OSError("permission denied"), "failed in phase", id="os-error"),
+    ],
+)
+async def test_run_with_semaphore_returns_synthetic_launch_errors(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    raised_error: OSError,
+    expected_message: str,
+) -> None:
+    setup = retry_test_setup
+
+    async def fake_run(**_: object) -> AgentResult:
+        raise raised_error
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="run",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+    )
+
+    assert result.exit_code == 1
+    assert result.output_empty is True
+    assert result.error is not None
+    assert expected_message in result.error
+    assert "phase='analysis', agent='codex'" in result.error
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_returns_immediately_when_retry_policy_disallows_retry(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = retry_test_setup
+    attempts = 0
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=1,
+            output_empty=True,
+            error="429 rate limit exceeded",
+        )
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="run",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(max_retries=0, failure_mode=FailureMode.FAIL_FAST),
+    )
+
+    assert attempts == 1
+    assert result.error == "429 rate limit exceeded"
+    assert setup.ui_callback.rate_limits == []
+    assert setup.ui_callback.retries == []
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_uses_fallback_rate_limit_message(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = retry_test_setup
+    attempts = 0
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _build_agent_result(
+                agent_name="codex",
+                output_path=setup.output_path,
+                exit_code=1,
+                output_empty=True,
+                error="   ",
+            )
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    def fake_is_rate_limited(self: object, text: str) -> bool:
+        del self, text
+        return True
+
+    def fake_extract_message(self: object, text: str) -> str | None:
+        del self, text
+        return None
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.RateLimitDetector.is_rate_limited",
+        fake_is_rate_limited,
+    )
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.RateLimitDetector.extract_message",
+        fake_extract_message,
+    )
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        lambda *_args, **_kwargs: 0.0,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", _async_noop)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="run",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(max_retries=1, failure_mode=FailureMode.FAIL_FAST),
+    )
+
+    assert result.exit_code == 0
+    assert setup.ui_callback.rate_limits == [("codex", "Agent 'codex' hit a rate limit")]
 
 
 @pytest.mark.asyncio
@@ -482,8 +1060,8 @@ async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
         del self
         return True
 
-    async def fake_auto_commit(self: object) -> bool:
-        del self
+    async def fake_auto_commit(self: object, *, no_verify: bool = False) -> bool:
+        del self, no_verify
         return True
 
     def fake_compute_wait(self: object, attempt: int, reset_seconds: int | None = None) -> float:
@@ -511,13 +1089,514 @@ async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
         ui_callback=setup.ui_callback,
         mode=AgentMode.PLAN,
         phase_failure_mode=FailureMode.FAIL_FAST,
-        retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
+        retry_policy=RetryPolicy(
+            max_retries=2,
+            failure_mode=FailureMode.FAIL_FAST,
+            git_recovery="auto_commit",
+            git_recovery_cwd=setup.output_path.parent,
+        ),
     )
 
     # Assert
     assert attempts == 2
     assert result.exit_code == 0
     assert setup.ui_callback.git_recoveries == [("auto_commit", "cleaned dirty tree before retry")]
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_default_git_recovery_runs_no_git_commands(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = retry_test_setup
+    attempts = 0
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _build_agent_result(
+                agent_name="codex",
+                output_path=setup.output_path,
+                exit_code=1,
+                output_empty=True,
+                error="rate limit exceeded",
+            )
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    class FailingGitRecovery:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("GitRecovery must not be constructed by default")
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery", FailingGitRecovery)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        lambda *_args, **_kwargs: 0.0,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", _async_noop)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="retry",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
+    )
+
+    assert attempts == 2
+    assert result.exit_code == 0
+    assert setup.ui_callback.git_recoveries == []
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_retries_exit_zero_stream_rate_limit(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = retry_test_setup
+    attempts = 0
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _build_agent_result(
+                agent_name="codex",
+                output_path=setup.output_path,
+                exit_code=0,
+                output_empty=False,
+                error="agent reported a rate limit",
+            )
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        lambda *_args, **_kwargs: 0.0,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", _async_noop)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="retry",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
+    )
+
+    assert attempts == 2
+    assert result.error is None
+    assert setup.ui_callback.rate_limits == [("codex", "agent reported a rate limit")]
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_passes_workspace_project_root_as_cwd(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from orchcore.workspace.manager import WorkspaceManager
+
+    captured_cwd: Path | None = None
+    runner = AgentRunner()
+    phase_runner = PhaseRunner(
+        runner=runner,
+        registry=AgentRegistry(),
+        workspace=WorkspaceManager(project_root=tmp_path),
+    )
+
+    async def fake_run(**kwargs: object) -> AgentResult:
+        nonlocal captured_cwd
+        captured_cwd = kwargs["cwd"]  # type: ignore[assignment]
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=tmp_path / "codex.md",
+            exit_code=0,
+            output_empty=False,
+        )
+
+    monkeypatch.setattr(runner, "run", fake_run)
+
+    await phase_runner._run_with_semaphore(
+        agent=sample_agent_config.model_copy(update={"name": "codex"}),
+        prompt="run",
+        output_path=tmp_path / "codex.md",
+        phase_name="analysis",
+        ui_callback=_RecordingCallback(),
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+    )
+
+    assert captured_cwd == tmp_path
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_leaves_cwd_none_without_workspace_or_override(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = retry_test_setup
+    captured_cwd: object = "unset"
+
+    async def fake_run(**kwargs: object) -> AgentResult:
+        nonlocal captured_cwd
+        captured_cwd = kwargs["cwd"]
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+
+    await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="run",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+    )
+
+    assert captured_cwd is None
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_uses_policy_git_recovery_cwd(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    setup = retry_test_setup
+    attempts = 0
+    constructed_working_dirs: list[str | None] = []
+    no_verify_values: list[bool] = []
+    recovery_cwd = tmp_path / "repo"
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _build_agent_result(
+                agent_name="codex",
+                output_path=setup.output_path,
+                exit_code=1,
+                output_empty=True,
+                error="rate limit exceeded",
+            )
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    class FakeGitRecovery:
+        def __init__(self, working_dir: str | None = None) -> None:
+            constructed_working_dirs.append(working_dir)
+
+        async def is_tree_dirty(self) -> bool:
+            return True
+
+        async def auto_commit(self, message: str | None = None, *, no_verify: bool = False) -> bool:
+            del message
+            no_verify_values.append(no_verify)
+            return True
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery", FakeGitRecovery)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        lambda *_args, **_kwargs: 0.0,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", _async_noop)
+
+    await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="retry",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(
+            max_retries=2,
+            failure_mode=FailureMode.FAIL_FAST,
+            git_recovery="auto_commit",
+            git_recovery_cwd=recovery_cwd,
+            git_recovery_no_verify=True,
+        ),
+    )
+
+    assert constructed_working_dirs == [str(recovery_cwd)]
+    assert no_verify_values == [True]
+    assert setup.ui_callback.git_recoveries == [("auto_commit", "cleaned dirty tree before retry")]
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_stashes_and_restores_before_retry(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    setup = retry_test_setup
+    attempts = 0
+    calls: list[str] = []
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _build_agent_result(
+                agent_name="codex",
+                output_path=setup.output_path,
+                exit_code=1,
+                output_empty=True,
+                error="rate limit exceeded",
+            )
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    class FakeGitRecovery:
+        def __init__(self, working_dir: str | None = None) -> None:
+            calls.append(f"cwd:{working_dir}")
+
+        async def stash_dirty_tree(self) -> bool:
+            calls.append("stash")
+            return True
+
+        async def restore_stash(self) -> bool:
+            calls.append("restore")
+            return True
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery", FakeGitRecovery)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        lambda *_args, **_kwargs: 0.0,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", _async_noop)
+
+    await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="retry",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(
+            max_retries=2,
+            failure_mode=FailureMode.FAIL_FAST,
+            git_recovery="stash",
+            git_recovery_cwd=tmp_path,
+        ),
+    )
+
+    assert calls == [f"cwd:{tmp_path}", "stash", "restore"]
+    assert setup.ui_callback.git_recoveries == [
+        ("stash", "stashed dirty tree before retry"),
+        ("stash_restore", "restored dirty tree after retry wait"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_restores_stash_when_shutdown_happens_before_sleep(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    setup = retry_test_setup
+    calls: list[str] = []
+
+    async def fake_run(**_: object) -> AgentResult:
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=1,
+            output_empty=True,
+            error="rate limit exceeded",
+        )
+
+    class FakeGitRecovery:
+        def __init__(self, working_dir: str | None = None) -> None:
+            calls.append(f"cwd:{working_dir}")
+
+        async def stash_dirty_tree(self) -> bool:
+            calls.append("stash")
+            return True
+
+        async def restore_stash(self) -> bool:
+            calls.append("restore")
+            return True
+
+    def fake_compute_wait(self: object, attempt: int, reset_seconds: int | None = None) -> float:
+        del self, attempt, reset_seconds
+        setup.phase_runner._shutting_down = True
+        return 0.0
+
+    async def fail_sleep(delay: float) -> None:
+        del delay
+        raise AssertionError("shutdown should skip retry sleep")
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery", FakeGitRecovery)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        fake_compute_wait,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", fail_sleep)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="retry",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(
+            max_retries=2,
+            failure_mode=FailureMode.FAIL_FAST,
+            git_recovery="stash",
+            git_recovery_cwd=tmp_path,
+        ),
+    )
+
+    assert result.error == "rate limit exceeded"
+    assert calls == [f"cwd:{tmp_path}", "stash", "restore"]
+    assert setup.ui_callback.git_recoveries == [
+        ("stash", "stashed dirty tree before retry"),
+        ("stash_restore", "restored dirty tree after retry wait"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_skips_git_recovery_without_cwd(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    setup = retry_test_setup
+    attempts = 0
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _build_agent_result(
+                agent_name="codex",
+                output_path=setup.output_path,
+                exit_code=1,
+                output_empty=True,
+                error="rate limit exceeded",
+            )
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    class FailingGitRecovery:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("GitRecovery must not be constructed without a cwd")
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery", FailingGitRecovery)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        lambda *_args, **_kwargs: 0.0,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", _async_noop)
+
+    with caplog.at_level("WARNING", logger="orchcore.pipeline.engine"):
+        await setup.phase_runner._run_with_semaphore(
+            agent=setup.agent,
+            prompt="retry",
+            output_path=setup.output_path,
+            phase_name="analysis",
+            ui_callback=setup.ui_callback,
+            mode=AgentMode.PLAN,
+            phase_failure_mode=FailureMode.FAIL_FAST,
+            retry_policy=RetryPolicy(
+                max_retries=2,
+                failure_mode=FailureMode.FAIL_FAST,
+                git_recovery="auto_commit",
+            ),
+        )
+
+    assert "Skipping git recovery mode" in caplog.text
+    assert setup.ui_callback.git_recoveries == [
+        ("skipped_no_cwd", "git recovery skipped because no cwd was resolved")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_phase_treats_exit_zero_agent_error_as_failed_phase(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry = AgentRegistry()
+    registry.register(sample_agent_config.model_copy(update={"name": "codex"}))
+    runner = AgentRunner()
+    phase_runner = PhaseRunner(runner=runner, registry=registry)
+    ui_callback = _RecordingCallback()
+
+    async def fake_run(**kwargs: object) -> AgentResult:
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=kwargs["output_path"],  # type: ignore[arg-type]
+            exit_code=0,
+            output_empty=False,
+            error="structured failure",
+        )
+
+    async def fake_resolve_output_path(phase_name: str, agent_name: str) -> Path:
+        del phase_name
+        return tmp_path / f"{agent_name}.md"
+
+    monkeypatch.setattr(runner, "run", fake_run)
+    monkeypatch.setattr(phase_runner, "_resolve_output_path", fake_resolve_output_path)
+
+    result = await phase_runner.run_phase(
+        phase=Phase(name="analysis", agents=["codex"]),
+        prompt="run",
+        ui_callback=ui_callback,
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.status is PhaseStatus.FAILED
+    assert result.error == "structured failure"
+    assert ui_callback.agent_errors == [("codex", "structured failure")]
+
+
+async def _async_noop(_delay: float) -> None:
+    return None
 
 
 @pytest.mark.asyncio
@@ -757,8 +1836,8 @@ async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
         del self
         return False
 
-    async def fake_auto_commit(self: object) -> bool:
-        del self
+    async def fake_auto_commit(self: object, *, no_verify: bool = False) -> bool:
+        del self, no_verify
         return False
 
     def fake_compute_wait(self: object, attempt: int, reset_seconds: int | None = None) -> float:

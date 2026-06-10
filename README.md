@@ -30,6 +30,7 @@ orchcore is an async-first Python 3.12+ library that provides unified infrastruc
 - **Protocol-based UI** — `UICallback` decouples engine from display (Rich, Textual, headless)
 - **Registry-as-data** — new agent support via TOML config alone, zero code changes
 - **Graceful shutdown** — SIGINT/SIGTERM with subprocess cleanup and state preservation
+- **Safe subprocess boundaries** — filtered agent environments by default, explicit cwd support, and opt-in git recovery
 
 ## Installation
 
@@ -101,6 +102,8 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+By default, agent subprocesses receive a filtered environment: common API keys and provider-specific variables are not inherited unless you set `env_policy = "inherit"`, pass `env_passlist`, or provide explicit `env_vars` in your agent config.
 
 ## Modules
 

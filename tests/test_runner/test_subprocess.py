@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import subprocess
 import sys
 import textwrap
+import time
 from typing import TYPE_CHECKING
 
 import pytest
 
 from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
-from orchcore.runner.subprocess import AgentRunner, _strip_preamble_text, _translate_toolset
+from orchcore.runner.subprocess import (
+    AgentRunner,
+    _shutdown_process,
+    _strip_preamble_text,
+    _translate_toolset,
+    build_agent_env,
+)
 from orchcore.stream.events import (
     AgentMonitorSnapshot,
     AgentState,
@@ -75,6 +84,90 @@ def test_build_command_appends_direct_file_output_flag(
     )
 
     assert command[-2:] == ["-o", str(tmp_path / "output.md")]
+
+
+def test_build_agent_env_filters_sensitive_defaults_and_overlays_env_vars(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "orchcore.runner.subprocess.os.environ",
+        {
+            "PATH": "/bin",
+            "HOME": "/home/test",
+            "ANTHROPIC_API_KEY": "ambient-anthropic",
+            "OPENAI_API_KEY": "ambient-openai",
+            "GITHUB_TOKEN": "ambient-github",
+            "CUSTOM": "kept",
+        },
+    )
+    agent = sample_agent_config.model_copy(
+        update={"env_vars": {"OPENAI_API_KEY": "explicit-openai", "EXTRA": "1"}}
+    )
+
+    env = build_agent_env(agent)
+
+    assert env == {
+        "PATH": "/bin",
+        "HOME": "/home/test",
+        "CUSTOM": "kept",
+        "OPENAI_API_KEY": "explicit-openai",
+        "EXTRA": "1",
+    }
+
+
+def test_build_agent_env_passlist_readds_filtered_names(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "orchcore.runner.subprocess.os.environ",
+        {"PATH": "/bin", "ANTHROPIC_API_KEY": "ambient-anthropic"},
+    )
+    agent = sample_agent_config.model_copy(update={"env_passlist": ["ANTHROPIC_API_KEY"]})
+
+    env = build_agent_env(agent)
+
+    assert env == {"PATH": "/bin", "ANTHROPIC_API_KEY": "ambient-anthropic"}
+
+
+def test_build_agent_env_inherit_keeps_everything(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_env = {"PATH": "/bin", "ANTHROPIC_API_KEY": "ambient-anthropic"}
+    monkeypatch.setattr("orchcore.runner.subprocess.os.environ", source_env)
+    agent = sample_agent_config.model_copy(update={"env_policy": "inherit"})
+
+    assert build_agent_env(agent) == source_env
+
+
+def test_build_agent_env_clean_uses_exact_case_on_posix(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("orchcore.runner.subprocess.os.name", "posix")
+    monkeypatch.setattr(
+        "orchcore.runner.subprocess.os.environ",
+        {"PATH": "/bin", "path": "/bad", "HOME": "/home/test", "home": "/bad"},
+    )
+    agent = sample_agent_config.model_copy(update={"env_policy": "clean"})
+
+    assert build_agent_env(agent) == {"PATH": "/bin", "HOME": "/home/test"}
+
+
+def test_build_agent_env_clean_matches_case_insensitively_on_windows(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("orchcore.runner.subprocess.os.name", "nt")
+    monkeypatch.setattr(
+        "orchcore.runner.subprocess.os.environ",
+        {"Path": r"C:\Windows", "SystemRoot": r"C:\Windows", "lowercase_custom": "drop"},
+    )
+    agent = sample_agent_config.model_copy(update={"env_policy": "clean"})
+
+    assert build_agent_env(agent) == {"Path": r"C:\Windows", "SystemRoot": r"C:\Windows"}
 
 
 @pytest.mark.parametrize(
@@ -390,6 +483,270 @@ async def test_run_emits_stall_callback_from_bound_ui_handler(
     assert len(stall_events) == 1
     assert stall_events[0].idle_seconds == idle_seconds
     assert callback.stalls == [(agent.name, idle_seconds)]
+
+
+@pytest.mark.asyncio
+async def test_run_captures_exit_zero_stream_result_error(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    script = textwrap.dedent(
+        """
+        import json
+
+        print(json.dumps({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "partial output"}]},
+        }), flush=True)
+        print(json.dumps({
+            "type": "result",
+            "exit_code": 0,
+            "error": "structured failure",
+        }), flush=True)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.exit_code == 0
+    assert result.error == "structured failure"
+    assert not result.output_empty
+
+
+@pytest.mark.asyncio
+async def test_run_lets_last_successful_result_clear_prior_rate_limit(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    script = textwrap.dedent(
+        """
+        import json
+
+        print(json.dumps({"type": "system", "subtype": "rate_limit"}), flush=True)
+        print(json.dumps({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "recovered"}]},
+        }), flush=True)
+        print(json.dumps({"type": "result", "exit_code": 0}), flush=True)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.exit_code == 0
+    assert result.error is None
+    assert (tmp_path / "output.md").read_text(encoding="utf-8") == "recovered"
+
+
+@pytest.mark.asyncio
+async def test_run_filters_sensitive_environment_by_default(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ambient-secret")
+    script = textwrap.dedent(
+        """
+        import json
+        import os
+
+        text = os.environ.get("ANTHROPIC_API_KEY", "missing")
+        print(json.dumps({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": text}]},
+        }), flush=True)
+        print(json.dumps({"type": "result", "exit_code": 0}), flush=True)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.error is None
+    assert (tmp_path / "output.md").read_text(encoding="utf-8") == "missing"
+
+
+@pytest.mark.asyncio
+async def test_run_passes_explicit_cwd_to_subprocess(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "repo"
+    workdir.mkdir()
+    script = textwrap.dedent(
+        """
+        import json
+        import os
+
+        print(json.dumps({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": os.getcwd()}]},
+        }), flush=True)
+        print(json.dumps({"type": "result", "exit_code": 0}), flush=True)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+        cwd=workdir,
+    )
+
+    assert result.error is None
+    assert (tmp_path / "output.md").read_text(encoding="utf-8") == str(workdir)
+
+
+@pytest.mark.asyncio
+async def test_run_kills_process_on_stall_when_configured(
+    sample_agent_config: AgentConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    idle_seconds = 3.25
+
+    async def fake_watch(
+        self: object,
+        events: AsyncIterator[StreamEvent],
+    ) -> AsyncIterator[StreamEvent]:
+        del self
+        async for event in events:
+            yield event
+            yield StreamEvent(event_type=StreamEventType.STALL, idle_seconds=idle_seconds)
+            return
+
+    script = textwrap.dedent(
+        """
+        import json
+        import time
+
+        print(json.dumps({"type": "system", "subtype": "init", "session_id": "sess-1"}), flush=True)
+        time.sleep(10)
+        """
+    ).strip()
+    monkeypatch.setattr("orchcore.runner.subprocess.StallDetector.watch", fake_watch)
+    agent = sample_agent_config.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": "-c",
+            "flags": {AgentMode.PLAN: []},
+            "kill_on_stall": True,
+        }
+    )
+    callback = _RecordingUICallback()
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+        on_event=callback.on_agent_event,
+        on_stall=callback.on_stall_detected,
+    )
+
+    assert result.error == f"stalled for {idle_seconds:g}s (kill_on_stall)"
+    assert callback.stalls == [(agent.name, idle_seconds)]
+
+
+@pytest.mark.asyncio
+async def test_run_enforces_max_runtime(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    script = "import time; time.sleep(10)"
+    agent = sample_agent_config.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": "-c",
+            "flags": {AgentMode.PLAN: []},
+            "max_runtime": 0.05,
+        }
+    )
+
+    started = time.monotonic()
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert time.monotonic() - started < 2.0
+    assert result.error == "max_runtime exceeded after 0.05s"
+
+
+@pytest.mark.asyncio
+async def test_shutdown_process_falls_back_when_taskkill_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FakeProcess:
+        pid = 12345
+        returncode: int | None = None
+        kill_calls = 0
+
+        async def wait(self) -> int:
+            if self.kill_calls:
+                self.returncode = -9
+                return -9
+            await asyncio.Event().wait()
+            return 0
+
+        def kill(self) -> None:
+            self.kill_calls += 1
+
+    fake_proc = FakeProcess()
+
+    def fake_taskkill(pid: int) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            args=["taskkill", str(pid)],
+            returncode=1,
+            stderr=b"taskkill unavailable",
+        )
+
+    async def fake_wait_for(awaitable: object, timeout: float) -> object:
+        del timeout
+        close = getattr(awaitable, "close", None)
+        if callable(close):
+            close()
+        raise TimeoutError
+
+    monkeypatch.setattr("orchcore.runner.subprocess.os.name", "nt")
+    monkeypatch.setattr("orchcore.runner.subprocess._kill_tree_windows", fake_taskkill)
+    monkeypatch.setattr("orchcore.runner.subprocess.asyncio.wait_for", fake_wait_for)
+
+    with caplog.at_level(logging.WARNING, logger="orchcore.runner.subprocess"):
+        await _shutdown_process(fake_proc)  # type: ignore[arg-type]
+
+    assert fake_proc.kill_calls == 1
+    assert "taskkill failed for pid 12345" in caplog.text
 
 
 @pytest.mark.asyncio

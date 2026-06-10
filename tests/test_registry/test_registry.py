@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from pydantic import ValidationError
 
 from orchcore.registry import AgentRegistry
-from orchcore.registry.agent import AgentMode
+from orchcore.registry.agent import AgentConfig, AgentMode
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_empty_registry_raises_key_error() -> None:
@@ -14,20 +19,23 @@ def test_empty_registry_raises_key_error() -> None:
         registry.get("missing")
 
 
-def test_register_and_get_round_trip(sample_agent_config) -> None:
+def test_register_and_get_round_trip(sample_agent_config: AgentConfig) -> None:
     registry = AgentRegistry()
     registry.register(sample_agent_config)
 
     assert registry.get(sample_agent_config.name) == sample_agent_config
 
 
-def test_list_agents_returns_registered_names(sample_agent_config) -> None:
+def test_list_agents_returns_registered_names(sample_agent_config: AgentConfig) -> None:
     registry = AgentRegistry({"first": sample_agent_config})
 
     assert registry.list_agents() == ["first"]
 
 
-def test_available_filters_by_binary_on_path(monkeypatch, sample_agent_config) -> None:
+def test_available_filters_by_binary_on_path(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_agent_config: AgentConfig,
+) -> None:
     registry = AgentRegistry(
         {
             sample_agent_config.name: sample_agent_config,
@@ -45,7 +53,10 @@ def test_available_filters_by_binary_on_path(monkeypatch, sample_agent_config) -
     assert registry.available() == [sample_agent_config.name]
 
 
-def test_validate_returns_missing_agent_names(monkeypatch, sample_agent_config) -> None:
+def test_validate_returns_missing_agent_names(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_agent_config: AgentConfig,
+) -> None:
     registry = AgentRegistry(
         {
             sample_agent_config.name: sample_agent_config,
@@ -66,7 +77,9 @@ def test_validate_returns_missing_agent_names(monkeypatch, sample_agent_config) 
     }
 
 
-def test_with_overrides_returns_new_registry_with_patched_configs(sample_agent_config) -> None:
+def test_with_overrides_returns_new_registry_with_patched_configs(
+    sample_agent_config: AgentConfig,
+) -> None:
     registry = AgentRegistry(
         {
             sample_agent_config.name: sample_agent_config.model_copy(
@@ -90,14 +103,14 @@ def test_with_overrides_returns_new_registry_with_patched_configs(sample_agent_c
     assert registry.get(sample_agent_config.name).model == "test-model"
 
 
-def test_with_overrides_rejects_invalid_field_types(sample_agent_config) -> None:
+def test_with_overrides_rejects_invalid_field_types(sample_agent_config: AgentConfig) -> None:
     registry = AgentRegistry({sample_agent_config.name: sample_agent_config})
 
     with pytest.raises(ValidationError):
         registry.with_overrides({sample_agent_config.name: {"stall_timeout": "not-a-number"}})
 
 
-def test_load_from_toml_reads_nested_models(tmp_path) -> None:
+def test_load_from_toml_reads_nested_models(tmp_path: Path) -> None:
     path = tmp_path / "agents.toml"
     path.write_text(
         """

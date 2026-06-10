@@ -8,6 +8,9 @@ import pytest
 
 from orchcore.workspace import WorkspaceManager
 
+ABSOLUTE_ESCAPE_FILE = f"{Path.cwd().anchor}orchcore-escaped.txt"
+ABSOLUTE_ESCAPE_DIR = f"{Path.cwd().anchor}orchcore-abs"
+
 
 @pytest.fixture
 def workspace(tmp_path: Path) -> WorkspaceManager:
@@ -30,6 +33,31 @@ def test_write_and_read_file_round_trip(workspace: WorkspaceManager) -> None:
 
     assert path == workspace.workspace_dir / "notes.md"
     assert workspace.read_file("notes.md") == "hello world"
+
+
+def test_write_file_allows_nested_names_inside_workspace(workspace: WorkspaceManager) -> None:
+    path = workspace.write_file("nested/dir/notes.md", "hello nested")
+
+    assert path == workspace.workspace_dir / "nested" / "dir" / "notes.md"
+    assert workspace.read_file("nested/dir/notes.md") == "hello nested"
+
+
+@pytest.mark.parametrize("name", ["../escaped.txt", ABSOLUTE_ESCAPE_FILE, r"C:\escaped.txt"])
+def test_write_file_rejects_paths_outside_workspace(
+    workspace: WorkspaceManager,
+    name: str,
+) -> None:
+    with pytest.raises(ValueError):
+        workspace.write_file(name, "escape")
+
+
+@pytest.mark.parametrize("name", ["../escaped.txt", ABSOLUTE_ESCAPE_FILE, r"C:\escaped.txt"])
+def test_read_file_rejects_paths_outside_workspace(
+    workspace: WorkspaceManager,
+    name: str,
+) -> None:
+    with pytest.raises(ValueError):
+        workspace.read_file(name)
 
 
 def test_read_file_returns_none_for_missing_file(workspace: WorkspaceManager) -> None:
@@ -172,3 +200,15 @@ def test_workspace_name_parameter_is_configurable(tmp_path: Path) -> None:
     manager = WorkspaceManager(tmp_path, workspace_name=".custom-workspace")
 
     assert manager.workspace_dir == tmp_path / ".custom-workspace"
+
+
+@pytest.mark.parametrize(
+    "workspace_name",
+    ["", ".", "..", ABSOLUTE_ESCAPE_DIR, r"C:\abs", "a/../.."],
+)
+def test_workspace_name_must_be_strictly_inside_project_root(
+    tmp_path: Path,
+    workspace_name: str,
+) -> None:
+    with pytest.raises(ValueError, match="workspace_name"):
+        WorkspaceManager(tmp_path, workspace_name=workspace_name)

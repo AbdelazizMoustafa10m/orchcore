@@ -5,7 +5,7 @@ import importlib
 import types
 from contextvars import ContextVar
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
 
@@ -73,7 +73,7 @@ class _FakeTracer:
         self,
         name: str,
         attributes: dict[str, object] | None = None,
-    ) -> object:
+    ) -> AbstractContextManager[_FakeSpan]:
         span = _FakeSpan(name, attributes)
         self.current_spans.append(span)
         trace_module = self._trace_module
@@ -83,7 +83,12 @@ class _FakeTracer:
                 self_nonlocal._token = trace_module._current_span.set(span)
                 return span
 
-            def __exit__(self_nonlocal, exc_type, exc, tb) -> bool:
+            def __exit__(
+                self_nonlocal,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: object,
+            ) -> Literal[False]:
                 del exc_type, exc, tb
                 trace_module._current_span.reset(self_nonlocal._token)
                 return False
@@ -123,13 +128,13 @@ def _install_fake_opentelemetry(
 ) -> _FakeTraceModule:
     trace_module = _FakeTraceModule()
     exporter_module = types.ModuleType("opentelemetry.exporter.otlp.proto.grpc.trace_exporter")
-    exporter_module.OTLPSpanExporter = _FakeOTLPSpanExporter
+    exporter_module.OTLPSpanExporter = _FakeOTLPSpanExporter  # type: ignore[attr-defined]  # fake module API for importlib test.
     export_module = types.ModuleType("opentelemetry.sdk.trace.export")
-    export_module.BatchSpanProcessor = _FakeBatchSpanProcessor
+    export_module.BatchSpanProcessor = _FakeBatchSpanProcessor  # type: ignore[attr-defined]  # fake module API for importlib test.
     resource_module = types.ModuleType("opentelemetry.sdk.resources")
-    resource_module.Resource = _FakeResource
+    resource_module.Resource = _FakeResource  # type: ignore[attr-defined]  # fake module API for importlib test.
     sdk_trace_module = types.ModuleType("opentelemetry.sdk.trace")
-    sdk_trace_module.TracerProvider = _FakeTracerProvider
+    sdk_trace_module.TracerProvider = _FakeTracerProvider  # type: ignore[attr-defined]  # fake module API for importlib test.
 
     modules: dict[str, types.ModuleType] = {
         "opentelemetry.trace": trace_module,
@@ -228,6 +233,7 @@ def test_telemetry_builds_spans_when_fake_otel_is_available(
     assert trace_module.provider.resource == {"service.name": "orchcore-tests"}
     assert len(trace_module.provider.processors) == 1
     assert phase_span is not None
+    phase_span = cast("_FakeSpan", phase_span)
     assert phase_span.attributes == {
         "orchcore.phase": "implementation",
         "orchcore.agent": "worker-g",
@@ -244,6 +250,7 @@ def test_record_cost_accumulates_within_pipeline_span(
     with telemetry.pipeline_span("delivery", "task-123") as span:
         telemetry.record_cost("alpha", Decimal("1.25"))
         assert span is not None
+        span = cast("_FakeSpan", span)
         assert span.attributes["orchcore.cost.total"] == 1.25
 
         telemetry.record_cost("beta", Decimal("2.75"))
@@ -264,6 +271,8 @@ def test_record_cost_resets_between_pipeline_spans(
 
     assert first_span is not None
     assert second_span is not None
+    first_span = cast("_FakeSpan", first_span)
+    second_span = cast("_FakeSpan", second_span)
     assert first_span.attributes["orchcore.cost.total"] == 2.0
     assert second_span.attributes["orchcore.cost.total"] == 3.0
 
@@ -286,11 +295,14 @@ async def test_record_cost_isolates_concurrent_pipeline_spans(
     ) -> float:
         with telemetry.pipeline_span(name, f"{name}-task") as span:
             assert span is not None
+            span = cast("_FakeSpan", span)
             telemetry.record_cost(f"{name}-first", first_cost)
             ready.set()
             await release.wait()
             telemetry.record_cost(f"{name}-second", second_cost)
-            return span.attributes["orchcore.cost.total"]
+            total = span.attributes["orchcore.cost.total"]
+            assert isinstance(total, float)
+            return total
 
     first_task = asyncio.create_task(
         record_pipeline("first", Decimal("1.00"), Decimal("2.00"), first_ready)

@@ -95,7 +95,7 @@ jobs:
         run: uv sync --frozen --extra dev
 
       - name: Run mypy
-        run: uv run mypy src/orchcore/ --strict
+        run: uv run mypy src/ tests/ --strict
 
   verifytypes:
     name: Type Completeness (pyright)

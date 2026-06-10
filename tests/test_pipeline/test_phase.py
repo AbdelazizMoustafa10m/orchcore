@@ -63,6 +63,9 @@ def test_phase_model_dump_serializes_retry_policy_and_failure_mode() -> None:
         "max_wait": 300,
         "failure_mode": "require_minimum",
         "min_count": 2,
+        "git_recovery": "off",
+        "git_recovery_cwd": None,
+        "git_recovery_no_verify": False,
     }
     assert dumped["failure_mode"] == "continue"
     assert restored == phase

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+from pydantic_settings import SettingsError
+
 from orchcore.config import BaseSettings as PackageBaseSettings
+from orchcore.config import settings as settings_module
 from orchcore.config.settings import (
     BaseSettings as ModuleBaseSettings,
 )
@@ -13,8 +17,6 @@ from orchcore.config.settings import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def test_base_settings_alias_is_exported_from_module_and_package(
@@ -151,3 +153,57 @@ def test_load_settings_with_profile_reads_profile_from_cwd_pyproject(
     assert settings.log_level == "warning"
     assert settings.workspace_dir == ".dev-workspace"
     assert settings.profile == "dev"
+
+
+def test_profile_source_get_field_value_reports_no_direct_field_value(
+    tmp_path: Path,
+) -> None:
+    source = settings_module._ProfileTomlSettingsSource(
+        OrchcoreSettings,
+        config_path=tmp_path / "missing.toml",
+        profile_name="dev",
+        table_path=("profiles",),
+    )
+
+    assert source.get_field_value(None, "concurrency") == (None, "concurrency", False)
+    assert source() == {}
+
+
+def test_load_settings_with_profile_rejects_non_table_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "orchcore.toml").write_text(
+        '[profiles]\ndev = "not-a-table"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SettingsError, match=r"Expected \[profiles.dev\]"):
+        load_settings_with_profile(profile="dev")
+
+
+def test_load_toml_file_wraps_decode_errors(tmp_path: Path) -> None:
+    config_path = tmp_path / "broken.toml"
+    config_path.write_text("[broken\n", encoding="utf-8")
+
+    with pytest.raises(SettingsError, match="Failed to parse TOML"):
+        settings_module._load_toml_file(config_path)
+
+
+def test_load_toml_table_rejects_non_table_parent(tmp_path: Path) -> None:
+    with pytest.raises(SettingsError, match=r"Expected \[profiles\]"):
+        settings_module._load_toml_table(
+            {"profiles": "not-a-table"},
+            table_path=("profiles", "dev"),
+            config_path=tmp_path / "orchcore.toml",
+        )
+
+
+def test_load_toml_table_rejects_non_table_leaf(tmp_path: Path) -> None:
+    with pytest.raises(SettingsError, match=r"Expected \[profiles.dev\]"):
+        settings_module._load_toml_table(
+            {"profiles": {"dev": "not-a-table"}},
+            table_path=("profiles", "dev"),
+            config_path=tmp_path / "orchcore.toml",
+        )
