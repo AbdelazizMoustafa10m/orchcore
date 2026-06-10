@@ -3,12 +3,20 @@ id: ADR-003
 title: Use Protocol-based UI decoupling via UICallback
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [ui, protocol, decoupling, observer, callback]
-related_decisions: [ADR-001, ADR-006]
+tags:
+  - ui
+  - protocol
+  - decoupling
+  - observer
+  - callback
+related_decisions:
+  - ADR-001
+  - ADR-006
 supersedes: []
 superseded_by: []
 ---

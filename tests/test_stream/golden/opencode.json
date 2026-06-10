@@ -1,0 +1,267 @@
+{
+  "sessions": [
+    {
+      "name": "canonical",
+      "lines": [
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "tool_use",
+          "id": "oc-1",
+          "tool": "bash",
+          "input": {
+            "command": "ls -la"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "oc-1",
+          "tool": "bash",
+          "input": {
+            "command": "ls -la"
+          },
+          "result": "ok"
+        },
+        {
+          "type": "tool_use",
+          "id": "oc-2",
+          "name": "read",
+          "input": {
+            "file_path": "x.py"
+          },
+          "result": null
+        },
+        {
+          "type": "text",
+          "part": {
+            "text": "OpenCode text"
+          }
+        },
+        {
+          "type": "text",
+          "part": {
+            "text": ""
+          }
+        },
+        {
+          "type": "step_finish",
+          "exit_code": 0
+        }
+      ],
+      "events": [
+        {
+          "event_type": "init",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "step_start"
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "oc-1",
+          "tool_name": "bash",
+          "tool_detail": "$ ls -la",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "tool_use",
+            "id": "oc-1",
+            "tool": "bash",
+            "input": {
+              "command": "ls -la"
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "oc-1",
+          "tool_name": "bash",
+          "tool_detail": "$ ls -la",
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "tool_use",
+            "id": "oc-1",
+            "tool": "bash",
+            "input": {
+              "command": "ls -la"
+            },
+            "result": "ok"
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "oc-2",
+          "tool_name": "read",
+          "tool_detail": "x.py",
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "tool_use",
+            "id": "oc-2",
+            "name": "read",
+            "input": {
+              "file_path": "x.py"
+            },
+            "result": null
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "OpenCode text",
+          "text_full": "OpenCode text",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "text",
+            "part": {
+              "text": "OpenCode text"
+            }
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": 0,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "step_finish",
+            "exit_code": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "errors-and-unknowns",
+      "lines": [
+        {
+          "type": "step_finish",
+          "error": "opencode failed"
+        },
+        {
+          "type": "mystery"
+        }
+      ],
+      "events": [
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "opencode failed",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "step_finish",
+            "error": "opencode failed"
+          }
+        }
+      ]
+    }
+  ]
+}

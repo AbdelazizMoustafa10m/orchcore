@@ -3,12 +3,22 @@ id: ADR-004
 title: Use composable stream processing pipeline
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [stream, pipeline, parsing, composable, state-machine]
-related_decisions: [ADR-001, ADR-002, ADR-003, ADR-007]
+tags:
+  - stream
+  - pipeline
+  - parsing
+  - composable
+  - state-machine
+related_decisions:
+  - ADR-001
+  - ADR-002
+  - ADR-003
+  - ADR-007
 supersedes: []
 superseded_by: []
 ---

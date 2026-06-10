@@ -18,6 +18,10 @@ subcommand = "-p"
 stream_format = "claude"
 stall_timeout = 300.0
 deep_tool_timeout = 600.0
+max_runtime = 1800.0
+kill_on_stall = false
+env_policy = "filtered"
+env_passlist = ["ANTHROPIC_API_KEY"]
 
 [agents.claude.flags]
 plan = ["--think", "--verbose"]
@@ -25,8 +29,8 @@ fix = ["--fix-mode"]
 audit = ["--think", "--verbose"]
 review = ["--think", "--verbose"]
 
-[agents.claude.env_vars]
-ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+# Optional: env_vars values are literal TOML strings. orchcore does not
+# expand ${VAR}; load secrets in your own config layer before passing them.
 
 [agents.claude.output_extraction]
 strategy = "jq_filter"
@@ -39,10 +43,19 @@ jq_expression = ".content[0].text"
 |-------|------|----------|-------------|
 | `binary` | `str` | Yes | Path or name of the agent CLI executable |
 | `model` | `str` | Yes | Model identifier passed to the agent |
-| `subcommand` | `str` | Yes | How to pass the prompt (e.g., `"-p"` for Claude, `""` for stdin) |
+| `subcommand` | `str` | Yes | Agent CLI argument used before the prompt (for example, `"-p"` for Claude or `"exec"` for Codex). An empty string is omitted from the command — it never becomes a literal `''` argument. |
 | `stream_format` | `str` | Yes | JSONL format: `claude`, `codex`, `opencode`, `gemini`, `copilot` |
+| `prompt_via` | `"argv" \| "stdin"` | No | How the prompt reaches the CLI (default: `argv`). `stdin` keeps the prompt out of argv and pipes it to the child's stdin. |
+| `stdin_sentinel` | `str \| None` | No | Argv placeholder appended instead of the prompt under `prompt_via = "stdin"` (for example, `"-"` for `codex exec -`). |
 | `stall_timeout` | `float` | No | Seconds before stall detection (default: 300) |
 | `deep_tool_timeout` | `float` | No | Timeout for deep tools like Exa/Tavily (default: 600) |
+| `max_runtime` | `float \| None` | No | Hard wall-clock cap for the subprocess; `None` disables enforcement |
+| `kill_on_stall` | `bool` | No | Terminate the process tree when a stall event is detected |
+| `env_policy` | `"filtered" \| "inherit" \| "clean"` | No | Environment source policy for the subprocess (default: `filtered`) |
+| `env_passlist` | `list[str]` | No | Case-insensitive regex allowlist that re-admits filtered environment names |
+| `version_command` | `list[str]` | No | Arguments that print the CLI version (default: `["--version"]`; `[]` disables the check) |
+| `compatible_versions` | `list[str]` | No | Version specifiers declared as known good (e.g. `[">=2.1.112,<3"]`) |
+| `incompatible_versions` | `list[table]` | No | Known-bad ranges, each `{ spec = "...", reason = "..." }` |
 | `flags.<mode>` | `list[str]` | No | Mode-specific CLI flags (modes: `plan`, `fix`, `audit`, `review`) |
 | `env_vars` | `dict` | No | Environment variables to set for the subprocess |
 | `output_extraction.strategy` | `str` | Yes | How to extract output: `jq_filter`, `direct_file`, `stdout_capture` |
@@ -67,6 +80,76 @@ Each agent supports four execution modes with mode-specific CLI flags:
 | `direct_file` | Agent writes output to a file; orchcore reads it. |
 | `stdout_capture` | Capture the full stdout as output. |
 
+### Environment Policy
+
+Agent subprocesses default to `env_policy = "filtered"`. This keeps normal process basics like `PATH` and `HOME`, but strips common credential and agent configuration families such as `ANTHROPIC_*`, `OPENAI_*`, `GITHUB_*`, `AWS_*`, proxy variables, and telemetry variables. Values in `env_vars` are always applied last.
+
+Use one of these migration paths when an agent genuinely needs an ambient variable:
+
+```toml
+# Keep the old full-inheritance behavior for this agent.
+env_policy = "inherit"
+
+# Or keep the filtered default and re-admit specific names.
+env_passlist = ["ANTHROPIC_API_KEY"]
+
+# Or pass explicit literal values from your own config layer.
+[agents.claude.env_vars]
+ANTHROPIC_API_KEY = "..."
+```
+
+`env_policy = "clean"` starts from a minimal platform environment. It is useful for reproducibility checks, but it is not a full hermetic home-directory sandbox.
+
+### Version Compatibility
+
+Agent CLIs release daily, and a stream-format change in a new CLI version otherwise surfaces only as inscrutable parse warnings. Version expectations are registry data:
+
+```toml
+[agents.claude]
+# ...
+version_command = ["--version"]            # default; [] disables checking
+compatible_versions = [">=2.1.112,<3"]
+
+[[agents.claude.incompatible_versions]]
+spec = "<=2.0.0"
+reason = "stream-json v1 format; https://github.com/anthropics/claude-code/issues/NNN"
+```
+
+Specifier grammar: comma-separated AND of `==`, `!=`, `>=`, `<=`, `>`, `<` clauses; `==`/`!=` accept a trailing `.*` wildcard (`"==2.1.*"`); list entries combine as OR. Known-incompatible ranges win over compatible ones.
+
+How the check behaves at runtime:
+
+- It runs **once per binary path per process** (cached, including failures) and is **advisory**: it never fails or delays the run beyond a hard 10-second timeout.
+- The version subprocess crosses the same explicit boundary as agent runs: filtered environment per the agent's `env_policy`, the run's explicit working directory, no stdin.
+- Logging is calibrated: known-compatible versions log at DEBUG, known-incompatible at WARNING (with the recorded reason), versions outside declared ranges at INFO, and undeclared setups at DEBUG.
+- The detected version lands on `AgentResult.agent_version` (`None` when detection is disabled or fails).
+
+Treat the ranges as maintained data: every `incompatible_versions` entry should carry a `reason` linking to the upstream issue or changelog entry that motivated it.
+
+### Prompt Transport (`prompt_via`)
+
+By default the prompt travels as a command-line argument (`prompt_via = "argv"`). For very large prompts this risks `ARG_MAX` (POSIX) / 32K `CreateProcess` (Windows) limits, and the prompt content is visible in local process listings. Setting `prompt_via = "stdin"` omits the prompt from argv, opens a stdin pipe, and writes the encoded prompt concurrently with stream consumption (avoiding pipe-buffer deadlocks), then closes stdin.
+
+Per-CLI stdin support:
+
+| CLI | Configuration | Notes |
+|-----|---------------|-------|
+| Claude Code | `subcommand = "-p"`, `prompt_via = "stdin"` | `-p` accepts the prompt from piped stdin; capped at 10 MB as of v2.1.128 — reference files in the prompt for larger contexts. |
+| Codex CLI | `subcommand = "exec"`, `prompt_via = "stdin"`, `stdin_sentinel = "-"` | `codex exec -` reads the full prompt from stdin; the `-` placeholder must be the prompt argument. |
+| Others | keep `prompt_via = "argv"` | Use argv until stdin support is verified for the specific CLI. |
+
+orchcore drives non-interactive CLI modes only: CLIs that expect stdin to stay open for interaction are out of scope — stdin is closed after the prompt is written.
+
+```toml
+[agents.codex]
+binary = "codex"
+model = "gpt-5.2-codex"
+subcommand = "exec"
+stream_format = "codex"
+prompt_via = "stdin"
+stdin_sentinel = "-"
+```
+
 ## Multi-Agent TOML
 
 Define multiple agents in one file:
@@ -89,7 +172,7 @@ jq_expression = ".content[0].text"
 [agents.codex]
 binary = "codex"
 model = "o3"
-subcommand = ""
+subcommand = "exec"
 stream_format = "codex"
 
 [agents.codex.flags]
@@ -102,7 +185,7 @@ strategy = "stdout_capture"
 [agents.gemini]
 binary = "gemini"
 model = "gemini-2.5-pro"
-subcommand = ""
+subcommand = "-p"
 stream_format = "gemini"
 
 [agents.gemini.flags]
@@ -129,6 +212,18 @@ claude = registry.get("claude")
 print(claude.binary)        # "claude"
 print(claude.stream_format) # StreamFormat.CLAUDE
 ```
+
+Loading is **atomic**: every entry is parsed and validated before any is
+registered. With the default `on_error="raise"`, a file containing invalid
+entries raises a single `ValueError` naming *all* offenders and leaves the
+registry untouched. Pass `on_error="skip"` to register the valid entries and
+log a warning per invalid one (the pre-1.0 lenience for non-table entries).
+
+TOML values are used **literally** — no `${VAR}` environment-variable
+interpolation is performed; a value like `"${ANTHROPIC_API_KEY}"` would reach
+the subprocess as that exact string. For ambient credentials use
+`env_policy`/`env_passlist` (see [Environment Policy](#environment-policy)),
+or resolve values in your own configuration layer before registering.
 
 ### Programmatic Registration
 

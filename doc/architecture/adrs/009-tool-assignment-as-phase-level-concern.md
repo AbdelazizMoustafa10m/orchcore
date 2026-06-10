@@ -3,12 +3,21 @@ id: ADR-009
 title: Tool assignment as a phase-level concern
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [tools, phases, security, mcp, configuration, toml]
-related_decisions: [ADR-001, ADR-007]
+tags:
+  - tools
+  - phases
+  - security
+  - mcp
+  - configuration
+  - toml
+related_decisions:
+  - ADR-001
+  - ADR-007
 supersedes: []
 superseded_by: []
 ---
@@ -256,7 +265,7 @@ This is a deliberate design boundary: orchcore orchestrates agent invocations an
 - Fine-grained tool control: each phase can specify exactly which internal tools and MCP servers are available
 - Security-enforceable: CLI flags are enforced by the agent runtime, preventing unauthorized tool use in read-only phases
 - TOML-configurable: pipeline authors define tool access in configuration files, not code
-- Backward-compatible: existing pipelines without ToolSet continue to work using AgentConfig.flags[mode]
+- Backward-compatible: existing pipelines without ToolSet continue to work using `AgentConfig.flags[mode]`
 - MCP-aware: external tool servers are first-class citizens in the tool configuration model
 - Per-agent flexibility: parallel phases can give different agents different tool access (e.g., Codex with workspace-write, Gemini with read-only)
 - Self-documenting: looking at a phase's TOML configuration shows exactly which tools are available
@@ -278,9 +287,9 @@ This is a deliberate design boundary: orchcore orchestrates agent invocations an
 
 | Success Metric | Target | How to Measure |
 |---|---|---|
-| Phase-level tool override | ToolSet in Phase.tools overrides AgentConfig.flags[mode] | Unit test: set Phase.tools, verify AgentRunner receives correct CLI flags |
+| Phase-level tool override | ToolSet in Phase.tools overrides `AgentConfig.flags[mode]` | Unit test: set Phase.tools, verify AgentRunner receives correct CLI flags |
 | Per-agent override | Phase.agent_tools overrides Phase.tools for specific agent | Unit test: set agent_tools for one agent, verify other agents use Phase.tools |
-| Backward compatibility | Pipelines without ToolSet use AgentConfig.flags[mode] | Unit test: run pipeline with no ToolSet, verify existing behavior |
+| Backward compatibility | Pipelines without ToolSet use `AgentConfig.flags[mode]` | Unit test: run pipeline with no ToolSet, verify existing behavior |
 | TOML loading | ToolSet loads correctly from TOML phase configuration | Unit test: parse TOML with phase tools, verify ToolSet fields |
 | Claude translation | ToolSet translates to --allowedTools and --max-turns | Unit test: verify command array for Claude with specific ToolSet |
 | Codex translation | ToolSet translates to --sandbox flag | Unit test: verify command array for Codex with permission levels |

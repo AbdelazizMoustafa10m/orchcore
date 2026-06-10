@@ -3,12 +3,24 @@ id: ADR-001
 title: Extract reusable orchestration core as standalone Python package
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [architecture, packaging, extraction, reuse]
-related_decisions: [ADR-002, ADR-003, ADR-004, ADR-005, ADR-006, ADR-007, ADR-008]
+tags:
+  - architecture
+  - packaging
+  - extraction
+  - reuse
+related_decisions:
+  - ADR-002
+  - ADR-003
+  - ADR-004
+  - ADR-005
+  - ADR-006
+  - ADR-007
+  - ADR-008
 supersedes: []
 superseded_by: []
 ---
@@ -131,7 +143,7 @@ The AI agent CLI ecosystem is expanding rapidly. Each new agent CLI means N impl
 - Build system: hatchling with `src/orchcore` layout
 - Distribution: PyPI via standard `pip install orchcore`
 - 10 components: registry, runner, stream, pipeline, recovery, workspace, config, prompt, display, signals, plus UICallback protocol
-- Core dependencies: pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1
+- Core dependencies: pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1, tzdata >= 2024.1
 - Optional dependencies: rich (CLI display), textual (TUI base), opentelemetry (tracing via `telemetry` extra)
 - Type checking: mypy strict mode
 

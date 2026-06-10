@@ -176,7 +176,8 @@ def _profiled_settings_class(
         (settings_class,),
         exec_body=exec_body,
     )
-    assert issubclass(profiled_settings_class, OrchcoreSettings)
+    if not issubclass(profiled_settings_class, OrchcoreSettings):
+        raise TypeError("profiled settings class must inherit from OrchcoreSettings")
     return profiled_settings_class
 
 

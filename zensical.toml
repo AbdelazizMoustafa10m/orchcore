@@ -24,6 +24,12 @@ nav = [
     { "Writing a UICallback" = "guides/writing-a-uicallback.md" },
     { "Agent Registry" = "guides/agent-registry.md" },
     { "Recovery & Retry" = "guides/recovery-and-retry.md" },
+    { "Flow Control" = "guides/flow-control.md" },
+    { "Workspace Management" = "guides/workspace.md" },
+    { "Prompt Templating" = "guides/prompt-templating.md" },
+    { "Signal Handling" = "guides/signal-handling.md" },
+    { "Observability" = "guides/observability.md" },
+    { "Display Utilities" = "guides/display.md" },
   ] },
   { "Development" = [
     { "Contributing" = "development/contributing.md" },
@@ -38,6 +44,7 @@ nav = [
     { "007 — Registry Pattern" = "architecture/adrs/007-registry-pattern-for-agent-management.md" },
     { "008 — Partial Failure & Retry" = "architecture/adrs/008-partial-failure-semantics-with-retry.md" },
     { "009 — Phase-Level Tools" = "architecture/adrs/009-tool-assignment-as-phase-level-concern.md" },
+    { "010 — Topological Ordering & Success" = "architecture/adrs/010-topological-phase-ordering-and-success-semantics.md" },
   ] },
 ]
 

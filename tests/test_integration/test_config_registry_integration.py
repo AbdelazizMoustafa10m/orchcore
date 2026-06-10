@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
     import pytest
 
+    from orchcore.registry.agent import AgentConfig
+
 
 def test_config_overrides_flow_to_registry(
     tmp_path: Path,
@@ -36,7 +38,7 @@ def test_config_overrides_flow_to_registry(
 def test_settings_agent_overrides_patch_registry_configs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    sample_agent_config,
+    sample_agent_config: AgentConfig,
 ) -> None:
     """Settings agent tables can be applied directly to registry overrides."""
     monkeypatch.chdir(tmp_path)
