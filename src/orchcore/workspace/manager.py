@@ -95,7 +95,7 @@ class WorkspaceManager:
         - Recursively walks the entire workspace tree
         - Compresses .stream files with gzip (anywhere in the tree)
         - All other files are stored uncompressed, preserving directory structure
-        - Creates 'latest' symlink
+        - Records the latest archive via 'latest' symlink or 'latest.txt' pointer file
         - Removes all .stream files from workspace after archival
         """
         archive = self._next_archive_dir()
@@ -115,17 +115,42 @@ class WorkspaceManager:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_file, dest)
 
-        # Create 'latest' symlink
-        latest = archive.parent / "latest"
-        if latest.is_symlink() or latest.exists():
-            latest.unlink()
-        latest.symlink_to(archive.name)
+        self._point_latest(archive)
 
         # Clean up all .stream files from the active workspace after archival
         for stream_file in self.workspace_dir.rglob("*.stream"):
             stream_file.unlink()
 
         return archive
+
+    def latest_path(self) -> Path | None:
+        """Resolve the most recent archive from the symlink or pointer file."""
+        base = self._reports_root / self._archive_subdir
+        latest = base / "latest"
+        if latest.is_symlink() or latest.is_dir():
+            return latest.resolve()
+
+        pointer = base / "latest.txt"
+        if pointer.exists():
+            candidate = base / pointer.read_text(encoding="utf-8").strip()
+            return candidate if candidate.exists() else None
+        return None
+
+    def _point_latest(self, archive: Path) -> None:
+        """Record the most recent archive as 'latest' or a portable pointer file."""
+        latest = archive.parent / "latest"
+        pointer = archive.parent / "latest.txt"
+        if latest.is_symlink() or latest.exists():
+            latest.unlink()
+        try:
+            latest.symlink_to(archive.name, target_is_directory=True)
+        except OSError:
+            # Stock Windows denies symlink creation without Developer Mode or
+            # SeCreateSymbolicLinkPrivilege; fall back to a pointer file.
+            pointer.write_text(archive.name, encoding="utf-8")
+            return
+        if pointer.exists():
+            pointer.unlink()
 
     def _next_archive_dir(self) -> Path:
         """Return the next unused archive directory for this run slug."""

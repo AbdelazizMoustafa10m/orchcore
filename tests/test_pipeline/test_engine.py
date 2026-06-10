@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+import textwrap
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -35,6 +37,7 @@ class _RecordingCallback(NullCallback):
         self.rate_limit_waits: list[tuple[str, float]] = []
         self.retries: list[tuple[str, int, int]] = []
         self.git_recoveries: list[tuple[str, str]] = []
+        self.stalls: list[tuple[str, float]] = []
 
     def on_rate_limit(self, agent_name: str, message: str) -> None:
         self.rate_limits.append((agent_name, message))
@@ -47,6 +50,9 @@ class _RecordingCallback(NullCallback):
 
     def on_git_recovery(self, action: str, detail: str) -> None:
         self.git_recoveries.append((action, detail))
+
+    def on_stall_detected(self, agent_name: str, duration: float) -> None:
+        self.stalls.append((agent_name, duration))
 
 
 def _build_agent_result(
@@ -314,6 +320,85 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
     assert setup.ui_callback.rate_limit_waits == [("codex", 0.25)]
     assert setup.ui_callback.retries == [("codex", 1, 2)]
     assert setup.ui_callback.git_recoveries == []
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_passes_explicit_stall_callback(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = retry_test_setup
+    captured_on_stall: object | None = None
+
+    async def fake_run(**kwargs: object) -> AgentResult:
+        nonlocal captured_on_stall
+        captured_on_stall = kwargs["on_stall"]
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+
+    await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="run",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+    )
+
+    assert callable(captured_on_stall)
+    assert getattr(captured_on_stall, "__self__", None) is setup.ui_callback
+    assert getattr(captured_on_stall, "__func__", None) is _RecordingCallback.on_stall_detected
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_avoids_legacy_stall_callback_resolution(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = retry_test_setup
+    script = textwrap.dedent(
+        """
+        import json
+
+        print(json.dumps({"type": "system", "subtype": "init", "session_id": "sess-1"}), flush=True)
+        print(json.dumps({"type": "result", "session_id": "sess-1"}), flush=True)
+        """
+    ).strip()
+    agent = setup.agent.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": "-c",
+            "flags": {AgentMode.PLAN: []},
+        }
+    )
+
+    def fail_legacy_resolution(on_event: object) -> None:
+        del on_event
+        raise AssertionError("legacy stall callback resolver should not run")
+
+    monkeypatch.setattr(
+        "orchcore.runner.subprocess._resolve_stall_callback",
+        fail_legacy_resolution,
+    )
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=agent,
+        prompt=script,
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+    )
+
+    assert result.exit_code == 0
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ import contextlib
 import logging
 import os
 import re
+import warnings
 from datetime import UTC, datetime, timedelta
 from pathlib import Path  # noqa: TC003 — used at runtime in path operations
 from typing import TYPE_CHECKING
@@ -136,8 +137,8 @@ class AgentRunner:
             ):
                 stall_callback(agent.name, event.idle_seconds)
 
-        assert proc.stdout is not None  # guaranteed by PIPE flag
-        assert proc.stderr is not None  # guaranteed by PIPE flag
+        if proc.stdout is None or proc.stderr is None:  # pragma: no cover - PIPE guarantees both.
+            raise RuntimeError("subprocess pipes not connected despite PIPE flags")
 
         primary_is_stderr = agent.output_extraction.stderr_as_stream
         if primary_is_stderr:
@@ -487,6 +488,13 @@ def _resolve_stall_callback(
     stall_callback = getattr(callback_owner, "on_stall_detected", None)
     if not callable(stall_callback):
         return None
+
+    warnings.warn(
+        "Implicit stall-callback discovery via on_event.__self__ is deprecated; "
+        "pass on_stall= explicitly. This shim is removed in 1.0.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
     def _invoke_stall(agent_name: str, duration: float) -> None:
         stall_callback(agent_name, duration)

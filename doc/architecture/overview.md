@@ -198,7 +198,7 @@ See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-a
 | **Reliability** | Graceful degradation, configurable partial failure semantics |
 | **Performance** | < 5ms per event, < 100ms subprocess launch |
 | **Type Safety** | mypy strict with Pydantic validation at boundaries |
-| **Async-First** | Pure stdlib asyncio, TaskGroup for structured concurrency |
+| **Async-First** | Pure stdlib asyncio with explicit task creation, fail-fast waits, and gather-based result collection |
 | **Protocol-Based DI** | UICallback is a Protocol, not a base class |
 | **Registry-as-Data** | Agents defined via TOML/dict, not hardcoded classes |
 
@@ -214,11 +214,11 @@ See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-a
 
 ## Constraints
 
-- **Python >= 3.12** — `TaskGroup`, `tomllib`, modern type syntax
+- **Python >= 3.12** — `tomllib`, modern type syntax, and current asyncio APIs
 - **asyncio only** — no trio, gevent, or threading
-- **Core deps** — pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1
+- **Core deps** — pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1, tzdata >= 2024.1
 - **No agent API keys** — agents manage their own authentication
-- **POSIX signals** — SIGINT/SIGTERM handling (Windows is not first-class in v1.0)
+- **Cross-platform signals** — event-loop handlers where available, classic signal fallback on Windows
 
 ## Related
 

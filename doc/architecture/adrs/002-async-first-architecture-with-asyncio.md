@@ -30,7 +30,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 ### Business Context
 
 - All I/O in orchcore is subprocess I/O (launching agents, reading streams) and file I/O (workspace, config) — no network requests or database queries
-- Python 3.12+ provides `asyncio.TaskGroup` for structured concurrency, `tomllib` in stdlib, and modern typing features
+- Python 3.12+ provides mature asyncio subprocess/task APIs, `tomllib` in stdlib, and modern typing features
 - Planora already uses asyncio — its patterns directly inform orchcore's design
 - The consuming projects that are Bash-based will be migrated to Python (or use orchcore via subprocess), so the concurrency model must be Python-native
 
@@ -43,19 +43,19 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 | Timeout support for stall detection | High | StallDetector needs efficient timer-based watchdog, not busy-waiting |
 | Graceful cancellation | High | SIGINT must cancel running tasks and clean up subprocesses |
 | Zero additional dependencies | High | stdlib asyncio avoids adding trio, gevent, or threading complexity |
-| Structured concurrency | Medium | TaskGroup (Python 3.12+) prevents orphaned tasks and ensures cleanup |
+| Coordinated task lifecycle | Medium | Explicit task creation, fail-fast waits, cancellation, and result draining prevent orphaned work |
 | Compatibility with consuming projects | Medium | Planora already uses asyncio; no impedance mismatch |
 
 ## Considered Options
 
 ### Option 1: asyncio (stdlib) — async/await throughout (CHOSEN)
 
-**Overview:** Use Python's built-in asyncio library for all concurrent operations. All subprocess launches, stream reads, timeouts, and signal handling use async/await patterns with TaskGroup for structured concurrency.
+**Overview:** Use Python's built-in asyncio library for all concurrent operations. All subprocess launches, stream reads, timeouts, and signal handling use async/await patterns with explicit task orchestration.
 
 **Pros:**
 - Zero additional dependencies (stdlib since Python 3.4, mature by 3.12)
 - `asyncio.create_subprocess_exec()` provides first-class subprocess support with stream readers
-- `asyncio.TaskGroup` (Python 3.12+) provides structured concurrency with automatic cleanup
+- `asyncio.create_task()`, `asyncio.wait()`, and `asyncio.gather()` provide explicit control over fail-fast and collect-all execution paths
 - `asyncio.Semaphore` provides clean concurrency limiting without thread pools
 - `asyncio.wait_for()` and `asyncio.timeout()` provide efficient timeout support
 - `asyncio.Event` and task cancellation enable clean signal handling
@@ -66,7 +66,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 - All code in the call chain must be async — sync functions cannot easily call async functions
 - Stack traces for async code are harder to read than synchronous code
 - Some consuming projects (if calling orchcore from sync code) need `asyncio.run()` at the boundary
-- Error handling in TaskGroup requires understanding of ExceptionGroup (Python 3.11+)
+- Error handling across concurrent tasks requires careful cancellation and result draining
 
 **Risk Assessment:**
 
@@ -108,7 +108,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 **Overview:** Use trio, an alternative async I/O library that provides structured concurrency with its nursery pattern, stricter timeout handling, and better error messages.
 
 **Pros:**
-- Nurseries enforce structured concurrency more strictly than asyncio TaskGroup
+- Nurseries enforce structured concurrency more strictly than explicit asyncio task management
 - Better error messages and debugging support
 - Cancel scopes provide cleaner timeout handling
 - trio-process provides subprocess support
@@ -121,7 +121,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 - trio's subprocess API is less mature than asyncio's
 
 **Why not chosen:**
-- Adding trio as a dependency contradicts the goal of minimal dependencies. asyncio's TaskGroup (added in Python 3.12) provides the structured concurrency that was trio's main advantage, closing the gap. Planora's existing asyncio codebase would require unnecessary migration.
+- Adding trio as a dependency contradicts the goal of minimal dependencies. asyncio's built-in task APIs provide the subprocess concurrency control orchcore needs, and Planora's existing asyncio codebase would require unnecessary migration.
 
 ---
 
@@ -145,17 +145,26 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 
 ## Decision
 
-**We have decided to use Python's stdlib asyncio as the concurrency foundation for all orchcore operations, requiring Python >= 3.12 for TaskGroup and modern async features.**
+**We have decided to use Python's stdlib asyncio as the concurrency foundation for all orchcore operations, requiring Python >= 3.12 for `tomllib`, modern typing, and current async features.**
 
 ### Implementation Details
 
 - All subprocess launches use `asyncio.create_subprocess_exec()` with `PIPE` for stdout and stderr
-- Parallel phase execution uses `asyncio.TaskGroup` with `asyncio.Semaphore` for concurrency limiting
+- Parallel phase execution uses `asyncio.create_task()` with `asyncio.wait(FIRST_COMPLETED)` for fail-fast mode, `asyncio.gather(return_exceptions=True)` for collect-all mode, and `asyncio.Semaphore` for concurrency limiting
 - Stall detection uses `asyncio.sleep()` in a concurrent watchdog task
 - Signal handling uses `loop.add_signal_handler()` for SIGINT/SIGTERM
 - Rate-limit waits use `asyncio.sleep()` for non-blocking backoff
 - Stream reading uses `asyncio.StreamReader` line-by-line iteration
 - The public API exposes `async def` methods; consuming projects call them from `asyncio.run()` or their own event loop
+
+### Errata: implementation does not use TaskGroup
+
+Earlier versions of this ADR said the implementation used `asyncio.TaskGroup`.
+The current implementation uses `asyncio.create_task()` plus
+`asyncio.wait(FIRST_COMPLETED)` for fail-fast execution and
+`asyncio.gather(return_exceptions=True)` for collect-all execution. TaskGroup
+remains a candidate for a future refactor if it improves the surrounding
+cancellation and partial-failure semantics.
 
 ### When to Revisit This Decision
 
@@ -170,7 +179,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 
 - Efficient parallel subprocess management with zero additional dependencies
 - Clean task cancellation via `task.cancel()` enables graceful SIGINT/SIGTERM handling
-- Structured concurrency via TaskGroup prevents orphaned tasks and ensures cleanup
+- Explicit task cancellation and result draining prevent orphaned tasks and ensure cleanup
 - Non-blocking stream reading allows monitoring multiple agents without dedicated threads
 - asyncio.Semaphore provides simple, correct concurrency limiting
 - Planora's existing asyncio patterns can be directly adopted (reducing implementation risk)
@@ -179,7 +188,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 
 - All orchcore code must be async — sync helper functions need explicit `async def` wrappers or must avoid I/O
 - Consuming projects calling orchcore from synchronous code must use `asyncio.run()` at the boundary
-- ExceptionGroup handling (from TaskGroup) requires Python 3.11+ understanding
+- Concurrent task error handling requires careful cancellation and result-draining tests
 - Async stack traces are more complex to read than synchronous ones
 
 ### Neutral
@@ -208,7 +217,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 ## References
 
 - [Python asyncio — Subprocesses](https://docs.python.org/3/library/asyncio-subprocess.html)
-- [Python asyncio — TaskGroup](https://docs.python.org/3/library/asyncio-task.html#asyncio.TaskGroup)
+- [Python asyncio — Coroutines and Tasks](https://docs.python.org/3/library/asyncio-task.html)
 - [PEP 654 — Exception Groups and except*](https://peps.python.org/pep-0654/)
 - [trio documentation](https://trio.readthedocs.io/) (rejected alternative)
 

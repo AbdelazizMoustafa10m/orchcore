@@ -505,6 +505,7 @@ class PhaseRunner:
                             on_process_start=self._register_process,
                             on_process_end=self._unregister_process,
                             toolset=toolset,
+                            on_stall=ui_callback.on_stall_detected,
                         )
                 except FileNotFoundError as exc:
                     return _synthetic_agent_result(

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from orchcore.pipeline import (
+    EmptyPipelineError,
     Phase,
     PhaseResult,
     PhaseRunner,
@@ -165,6 +166,118 @@ async def test_run_pipeline_runs_single_phase(ui_callback: NullCallback) -> None
             mode=AgentMode.PLAN,
             toolset=shared_tools,
         )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_rejects_empty_phase_list(ui_callback: NullCallback) -> None:
+    pipeline_runner = PipelineRunner(phase_runner=StubPhaseRunner({}))
+
+    with pytest.raises(EmptyPipelineError, match="Pipeline must contain at least one phase"):
+        await pipeline_runner.run_pipeline(
+            phases=[],
+            prompts={},
+            ui_callback=ui_callback,
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_rejects_missing_prompts_for_agent_phases(
+    ui_callback: NullCallback,
+) -> None:
+    phases = [_phase("planning"), _phase("implementation")]
+    pipeline_runner = PipelineRunner(phase_runner=StubPhaseRunner({}))
+
+    with pytest.raises(PipelineValidationError) as exc_info:
+        await pipeline_runner.run_pipeline(
+            phases=phases,
+            prompts={},
+            ui_callback=ui_callback,
+        )
+
+    assert str(exc_info.value) == (
+        "No prompt provided for phase(s): planning, implementation. "
+        "Pass allow_empty_prompts=True to permit promptless phases."
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_treats_empty_string_prompt_as_missing(
+    ui_callback: NullCallback,
+) -> None:
+    phase = _phase("planning")
+    pipeline_runner = PipelineRunner(phase_runner=StubPhaseRunner({}))
+
+    with pytest.raises(PipelineValidationError, match="planning"):
+        await pipeline_runner.run_pipeline(
+            phases=[phase],
+            prompts={"planning": ""},
+            ui_callback=ui_callback,
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_allow_empty_prompts_restores_promptless_runs(
+    ui_callback: NullCallback,
+) -> None:
+    phase = _phase("planning")
+    phase_result = _phase_result("planning", PhaseStatus.DONE)
+    phase_runner = StubPhaseRunner({"planning": phase_result})
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    result = await pipeline_runner.run_pipeline(
+        phases=[phase],
+        prompts={},
+        ui_callback=ui_callback,
+        allow_empty_prompts=True,
+    )
+
+    assert result.phases == [phase_result]
+    assert phase_runner.calls[0].prompt == ""
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_prompt_validation_matches_effective_execution_set(
+    ui_callback: NullCallback,
+) -> None:
+    phases = [
+        _phase("planning"),
+        _phase("implementation"),
+        _phase("review"),
+        Phase(name="notes", agents=[]),
+    ]
+    phase_runner = StubPhaseRunner(
+        {
+            "review": _phase_result("review", PhaseStatus.DONE),
+            "notes": _phase_result("notes", PhaseStatus.SKIPPED),
+        }
+    )
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    result = await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={"review": "Review the work"},
+        ui_callback=ui_callback,
+        resume_from="review",
+        skip_phases=["implementation"],
+    )
+
+    assert [phase_result.name for phase_result in result.phases[-2:]] == ["review", "notes"]
+    assert phase_runner.calls == [
+        PhaseCall(
+            method="run_phase",
+            phase_name="review",
+            prompt="Review the work",
+            mode=AgentMode.PLAN,
+            toolset=None,
+        ),
+        PhaseCall(
+            method="run_phase",
+            phase_name="notes",
+            prompt="",
+            mode=AgentMode.PLAN,
+            toolset=None,
+        ),
     ]
 
 

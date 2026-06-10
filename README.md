@@ -24,7 +24,7 @@ orchcore is an async-first Python 3.12+ library that provides unified infrastruc
 
 - **Multi-agent subprocess orchestration** — async launch, stream capture, concurrency control
 - **Unified stream processing** — 4-stage pipeline normalizes 5 JSONL formats into a single `StreamEvent` model
-- **DAG-based phase pipelines** — sequential/parallel execution with dependency ordering and resume
+- **Phase pipelines** — sequential/parallel execution with dependency checks and resume
 - **Rate-limit recovery** — automatic detection, timezone-aware reset parsing, exponential backoff
 - **Layered configuration** — TOML files, env vars, CLI overrides, named profiles
 - **Protocol-based UI** — `UICallback` decouples engine from display (Rich, Textual, headless)
@@ -107,8 +107,8 @@ asyncio.run(main())
 | Module | Purpose |
 |--------|---------|
 | `stream/` | 4-stage pipeline (Filter → Parse → Monitor → Stall Detect) for 5 agent formats |
-| `pipeline/` | DAG-based phase orchestration — sequential/parallel multi-agent execution |
-| `runner/` | Async subprocess management with stdin/stdout/stderr piping |
+| `pipeline/` | Phase orchestration — sequential/parallel multi-agent execution with dependency checks |
+| `runner/` | Async subprocess management with stdout/stderr streaming |
 | `registry/` | Agent configurations as data (TOML/dict) with runtime lookup |
 | `config/` | Layered configuration: TOML → env vars → CLI overrides → profiles |
 | `recovery/` | Rate-limit detection, exponential backoff, git dirty-tree recovery |

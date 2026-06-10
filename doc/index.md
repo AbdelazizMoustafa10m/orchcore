@@ -4,19 +4,19 @@
 
 ---
 
-orchcore extracts the 60-70% of duplicated infrastructure from production AI orchestration systems into a single, typed, async-first Python 3.12+ library. It handles launching agent CLIs as subprocesses, processing their JSONL output through a unified stream pipeline, orchestrating multi-phase DAG-based execution, and managing configuration, recovery, and graceful shutdown — so consuming projects only implement domain-specific logic.
+orchcore extracts the 60-70% of duplicated infrastructure from production AI orchestration systems into a single, typed, async-first Python 3.12+ library. It handles launching agent CLIs as subprocesses, processing their JSONL output through a unified stream pipeline, orchestrating multi-phase execution with dependency checks, and managing configuration, recovery, and graceful shutdown — so consuming projects only implement domain-specific logic.
 
 ## Features
 
 - **Multi-agent subprocess orchestration** — launch and manage Claude, Codex, Gemini, Copilot, and OpenCode CLIs as async subprocesses
 - **Unified stream processing** — 4-stage pipeline (Filter, Parse, Monitor, Stall Detect) normalizes 5 different JSONL formats into a single `StreamEvent` model
-- **DAG-based phase pipelines** — sequential and parallel phase execution with dependency ordering, partial failure semantics, and resume support
+- **Phase pipelines** — sequential and parallel phase execution with dependency checks, partial failure semantics, and resume support
 - **Rate-limit recovery** — automatic detection with timezone-aware reset parsing and exponential backoff
 - **Layered configuration** — TOML files, environment variables, CLI overrides, and named profiles via pydantic-settings
 - **Protocol-based UI** — `UICallback` protocol decouples engine from presentation; plug in Rich, Textual, or headless output
 - **Registry-as-data** — add new agent support via TOML configuration alone, zero code changes
 - **Graceful shutdown** — SIGINT/SIGTERM handling with cooperative cancellation flag; PhaseRunner owns subprocess termination with 30s grace period
-- **Git dirty-tree recovery** — auto-stash or auto-commit before retry to ensure clean working state
+- **Git dirty-tree recovery** — auto-commit before retry to ensure clean working state
 - **Optional observability** — OpenTelemetry integration via `OrchcoreTelemetry`
 
 ## Quick Links
@@ -35,8 +35,8 @@ orchcore extracts the 60-70% of duplicated infrastructure from production AI orc
 | Module | Purpose |
 |--------|---------|
 | `stream/` | 4-stage pipeline normalizing JSONL from 5 agent formats into unified `StreamEvent` models |
-| `pipeline/` | DAG-based phase orchestration engine for sequential/parallel multi-agent execution |
-| `runner/` | Async subprocess management — launches agent CLIs with stdin/stdout/stderr piping |
+| `pipeline/` | Phase orchestration engine for sequential/parallel multi-agent execution with dependency checks |
+| `runner/` | Async subprocess management — launches agent CLIs with stdout/stderr streaming |
 | `registry/` | Agent configurations as data (TOML/dict) with runtime lookup and tool resolution |
 | `config/` | Layered configuration: TOML → env vars (`ORCHCORE_*`) → CLI overrides → profiles |
 | `recovery/` | Rate-limit detection, retry with exponential backoff, git dirty-tree recovery |

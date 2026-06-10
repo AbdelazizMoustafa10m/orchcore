@@ -70,6 +70,7 @@ project_root/
     │           ├── claude.stream.gz     # Compressed
     │           └── claude.log
     └── latest -> 2026-03-28_14-30-00_implement-user-auth
+    # or latest.txt containing the archive directory name when symlinks are unavailable
 ```
 
 ## Constructor Parameters
@@ -96,9 +97,13 @@ ws.set_task_slug("Fix the login page CSS overflow issue")
 
 - `.stream` files are compressed with gzip (stored as `.stream.gz`)
 - All other files are copied uncompressed
-- A `latest` symlink is created pointing to the newest archive
+- A `latest` symlink is created pointing to the newest archive when the platform allows it
+- If symlink creation fails, `latest.txt` stores the newest archive directory name instead
 - `.stream` files are removed from the active workspace after archival
 - Collision-safe: appends `-1`, `-2`, etc. if the archive directory already exists
+
+Use `latest_path()` to resolve the newest archive portably; it handles both the
+symlink and `latest.txt` forms.
 
 ## Async Variants
 

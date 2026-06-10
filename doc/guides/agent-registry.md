@@ -25,8 +25,8 @@ fix = ["--fix-mode"]
 audit = ["--think", "--verbose"]
 review = ["--think", "--verbose"]
 
-[agents.claude.env_vars]
-ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+# Optional: env_vars values are literal TOML strings. orchcore does not
+# expand ${VAR}; load secrets in your own config layer before passing them.
 
 [agents.claude.output_extraction]
 strategy = "jq_filter"
@@ -39,7 +39,7 @@ jq_expression = ".content[0].text"
 |-------|------|----------|-------------|
 | `binary` | `str` | Yes | Path or name of the agent CLI executable |
 | `model` | `str` | Yes | Model identifier passed to the agent |
-| `subcommand` | `str` | Yes | How to pass the prompt (e.g., `"-p"` for Claude, `""` for stdin) |
+| `subcommand` | `str` | Yes | Agent CLI argument used before the prompt (for example, `"-p"` for Claude or `"exec"` for Codex) |
 | `stream_format` | `str` | Yes | JSONL format: `claude`, `codex`, `opencode`, `gemini`, `copilot` |
 | `stall_timeout` | `float` | No | Seconds before stall detection (default: 300) |
 | `deep_tool_timeout` | `float` | No | Timeout for deep tools like Exa/Tavily (default: 600) |
@@ -89,7 +89,7 @@ jq_expression = ".content[0].text"
 [agents.codex]
 binary = "codex"
 model = "o3"
-subcommand = ""
+subcommand = "exec"
 stream_format = "codex"
 
 [agents.codex.flags]
@@ -102,7 +102,7 @@ strategy = "stdout_capture"
 [agents.gemini]
 binary = "gemini"
 model = "gemini-2.5-pro"
-subcommand = ""
+subcommand = "-p"
 stream_format = "gemini"
 
 [agents.gemini.flags]

@@ -27,7 +27,8 @@ class GitRecovery:
         stdout_bytes, stderr_bytes = await proc.communicate()
         stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
-        assert proc.returncode is not None
+        if proc.returncode is None:  # pragma: no cover - communicate() sets returncode.
+            raise RuntimeError("git subprocess exited without a return code")
         return proc.returncode, stdout, stderr
 
     async def is_tree_dirty(self) -> bool:

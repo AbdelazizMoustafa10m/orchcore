@@ -45,16 +45,20 @@ class PipelineRunner:
         resume_from: str | None = None,
         skip_phases: list[str] | None = None,
         only_phase: str | None = None,
+        allow_empty_prompts: bool = False,
     ) -> PipelineResult:
         """Execute a pipeline of phases in order."""
+        skip_set = set(skip_phases or [])
         _validate_pipeline_request(
             phases=phases,
+            prompts=prompts,
             resume_from=resume_from,
             only_phase=only_phase,
+            skip_phases=skip_set,
+            allow_empty_prompts=allow_empty_prompts,
         )
 
         effective_mode = AgentMode.PLAN if mode is None else mode
-        skip_set = set(skip_phases or [])
         started_at = datetime.now(UTC)
         phase_results: list[PhaseResult] = []
         completed_phases = await self._load_state() if resume_from is not None else set()
@@ -200,10 +204,16 @@ class PipelineValidationError(PipelineError):
 def _validate_pipeline_request(
     *,
     phases: list[Phase],
+    prompts: dict[str, str],
     resume_from: str | None,
     only_phase: str | None,
+    skip_phases: set[str],
+    allow_empty_prompts: bool,
 ) -> None:
     """Validate public run_pipeline inputs before execution starts."""
+    if not phases:
+        raise EmptyPipelineError("Pipeline must contain at least one phase")
+
     phase_names: set[str] = set()
     duplicate_phase_names: set[str] = set()
 
@@ -239,6 +249,28 @@ def _validate_pipeline_request(
     cycle_path = _find_dependency_cycle(phases_by_name)
     if cycle_path is not None:
         raise PipelineValidationError(f"Dependency cycle detected: {' -> '.join(cycle_path)}")
+
+    if allow_empty_prompts:
+        return
+
+    start_index = 0
+    if resume_from is not None:
+        start_index = next(index for index, phase in enumerate(phases) if phase.name == resume_from)
+
+    missing_prompt_phases = [
+        phase.name
+        for phase in phases[start_index:]
+        if phase.agents
+        and phase.name not in skip_phases
+        and (only_phase is None or phase.name == only_phase)
+        and not prompts.get(phase.name)
+    ]
+    if missing_prompt_phases:
+        missing = ", ".join(missing_prompt_phases)
+        raise PipelineValidationError(
+            f"No prompt provided for phase(s): {missing}. "
+            "Pass allow_empty_prompts=True to permit promptless phases."
+        )
 
 
 def _collect_unknown_dependencies(phases_by_name: dict[str, Phase]) -> dict[str, list[str]]:

@@ -37,7 +37,7 @@ pytest tests/test_stream/test_parser.py -v
 pytest tests/test_stream/test_parser_hypothesis.py -v
 
 # Single test
-pytest tests/test_stream/test_parser.py::test_claude_format_parser_handles_init -v
+pytest tests/test_stream/test_parser.py::test_parse_line_returns_empty_for_malformed_json -v
 
 # Keyword match
 pytest -k "parser" -v
@@ -73,7 +73,7 @@ tests/
 
 Python 3.12+ is required. The codebase uses:
 
-- `asyncio.TaskGroup` for structured concurrency
+- `asyncio.create_task`, `asyncio.wait(FIRST_COMPLETED)`, and `asyncio.gather(return_exceptions=True)` for concurrent agent work
 - `tomllib` from stdlib for TOML parsing
 - Modern type syntax (`type` statement, `X | Y` union syntax)
 

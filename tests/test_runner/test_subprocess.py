@@ -374,14 +374,15 @@ async def test_run_emits_stall_callback_from_bound_ui_handler(
     callback = _RecordingUICallback()
 
     # Act
-    result = await AgentRunner().run(
-        agent,
-        script,
-        tmp_path / "output.md",
-        mode=AgentMode.PLAN,
-        on_event=callback.on_agent_event,
-        stall_check_interval=0.01,
-    )
+    with pytest.warns(DeprecationWarning, match="Implicit stall-callback discovery"):
+        result = await AgentRunner().run(
+            agent,
+            script,
+            tmp_path / "output.md",
+            mode=AgentMode.PLAN,
+            on_event=callback.on_agent_event,
+            stall_check_interval=0.01,
+        )
 
     # Assert
     assert result.exit_code == 0

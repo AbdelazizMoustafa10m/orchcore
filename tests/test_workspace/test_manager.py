@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import gzip
-from typing import TYPE_CHECKING
+import os
+from pathlib import Path
 
 import pytest
 
 from orchcore.workspace import WorkspaceManager
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 @pytest.fixture
@@ -53,8 +51,12 @@ def test_archive_compresses_stream_files_and_creates_latest_symlink(
         assert fh.read() == "line 1\nline 2\n"
 
     latest = archive.parent / "latest"
-    assert latest.is_symlink()
-    assert latest.resolve() == archive
+    if os.name == "nt" and not latest.is_symlink():
+        assert (archive.parent / "latest.txt").read_text(encoding="utf-8") == archive.name
+    else:
+        assert latest.is_symlink()
+        assert latest.resolve() == archive
+    assert workspace.latest_path() == archive
     assert not (workspace.workspace_dir / "run.stream").exists()
 
 
@@ -96,7 +98,57 @@ def test_archive_creates_unique_directories_for_repeated_calls(workspace: Worksp
     assert first_archive.parent == second_archive.parent
     assert (first_archive / "summary.md").read_text(encoding="utf-8") == "first archive"
     assert (second_archive / "summary.md").read_text(encoding="utf-8") == "second archive"
-    assert (first_archive.parent / "latest").resolve() == second_archive
+    assert workspace.latest_path() == second_archive
+
+
+def test_archive_falls_back_to_latest_pointer_when_symlink_unavailable(
+    workspace: WorkspaceManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace.set_task_slug("pointer fallback")
+    workspace.write_file("summary.md", "# Summary")
+
+    def fail_symlink(
+        self: Path,
+        target: str,
+        target_is_directory: bool = False,
+    ) -> None:
+        del self, target, target_is_directory
+        raise OSError("symlink privilege unavailable")
+
+    monkeypatch.setattr(Path, "symlink_to", fail_symlink)
+
+    archive = workspace.archive()
+
+    pointer = archive.parent / "latest.txt"
+    assert pointer.read_text(encoding="utf-8") == archive.name
+    assert workspace.latest_path() == archive
+
+
+def test_archive_removes_stale_pointer_when_symlink_succeeds(
+    workspace: WorkspaceManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace.set_task_slug("stale pointer")
+    workspace.write_file("summary.md", "# Summary")
+    archive_root = workspace.archive_dir.parent
+    archive_root.mkdir(parents=True)
+    pointer = archive_root / "latest.txt"
+    pointer.write_text("old-run", encoding="utf-8")
+
+    def fake_symlink(
+        self: Path,
+        target: str,
+        target_is_directory: bool = False,
+    ) -> None:
+        del target_is_directory
+        self.write_text(target, encoding="utf-8")
+
+    monkeypatch.setattr(Path, "symlink_to", fake_symlink)
+
+    workspace.archive()
+
+    assert not pointer.exists()
 
 
 def test_cleanup_removes_workspace_directory(workspace: WorkspaceManager) -> None:

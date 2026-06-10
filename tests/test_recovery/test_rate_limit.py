@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import pytest
 
 from orchcore.recovery.rate_limit import (
@@ -124,3 +128,17 @@ def test_backoff_strategy_compute_wait_uses_deterministic_jitter(
 def test_backoff_strategy_rejects_empty_schedule() -> None:
     with pytest.raises(ValueError, match="schedule must not be empty"):
         BackoffStrategy(schedule=[])
+
+
+def test_tzdata_dependency_present() -> None:
+    import tzdata  # noqa: F401
+
+
+def test_named_timezone_resolves_without_system_db() -> None:
+    env = {**os.environ, "PYTHONTZPATH": ""}
+
+    subprocess.run(  # noqa: S603
+        [sys.executable, "-c", "from zoneinfo import ZoneInfo; ZoneInfo('Europe/Berlin')"],
+        env=env,
+        check=True,
+    )

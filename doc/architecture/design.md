@@ -59,7 +59,7 @@ orchcore extracts the common orchestration infrastructure from four production A
 | **Subprocess Runner** | Async launch with stream capture; concurrency via Semaphore; structured `AgentResult` |
 | **Stream Processing** | Pre-parse filtering (~95% noise reduction); 5-format parsing; 9-state machine; stall detection |
 | **Tool Assignment** | Per-phase `ToolSet`; per-agent overrides; layered resolution order; permission levels |
-| **Pipeline Engine** | Sequential/parallel phases; dependency ordering; resume, skip, only-phase options |
+| **Pipeline Engine** | Sequential/parallel phases; dependency checks; resume, skip, only-phase options |
 | **Recovery** | Regex rate-limit detection; timezone-aware reset parsing; exponential backoff; git dirty-tree recovery |
 | **Workspace** | Active directories; timestamped archives; gzip compression; "latest" symlink |
 | **Configuration** | 7-level priority chain; named profiles; per-agent overrides; extensible via subclassing |

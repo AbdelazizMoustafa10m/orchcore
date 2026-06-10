@@ -29,6 +29,7 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "jinja2>=3.1",
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
@@ -117,7 +118,10 @@ select = [
     "S",     # flake8-bandit
     "RUF",   # ruff-specific rules
 ]
-ignore = ["S101"]  # allow assert in tests
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # allow assert in tests
 
 [tool.ruff.lint.isort]
 known-first-party = ["orchcore"]
