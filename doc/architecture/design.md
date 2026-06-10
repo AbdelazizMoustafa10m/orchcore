@@ -26,7 +26,7 @@ orchcore extracts the common orchestration infrastructure from four production A
 ## Goals
 
 - Provide a pip-installable Python package with 12 documented, tested components
-- Zero code changes to add new agent CLI support — TOML configuration only
+- Agent configurations are data: consumers register agents programmatically or load complete TOML entries; new CLIs using a supported stream format need no orchcore code changes
 - Sequential and parallel phase execution with configurable partial failure semantics
 - Process JSONL from 5 agent CLI formats into a unified `StreamEvent` model
 - Automatic rate-limit recovery with timezone-aware reset parsing and exponential backoff
@@ -37,16 +37,15 @@ orchcore extracts the common orchestration infrastructure from four production A
 
 - orchcore is **not** an AI agent — it does not make API calls or generate code
 - orchcore does **not** include a TUI framework — it provides hooks that a TUI implements
-- orchcore does **not** handle API keys — agent CLIs manage their own credentials
-- Windows is **not** a first-class platform in v1.0
+- orchcore does **not** handle API keys — agent CLIs manage their own credentials, while subprocess environment inheritance remains explicit and configurable
 
 ## Success Metrics
 
 | Metric | Current | Target |
 |--------|---------|--------|
 | Code duplication across systems | ~60-70% | < 5% |
-| Time to add new agent | 2-4 hours × 4 systems | < 30 minutes (one TOML entry) |
-| Test coverage | Varies (20-80%) | > 90% |
+| Time to add new agent using a supported stream format | 2-4 hours × 4 systems | < 30 minutes (one complete TOML entry or programmatic registration) |
+| Test coverage | Varies (20-80%) | 95% |
 | mypy strict compliance | Partial | 100% (zero errors) |
 
 ## Requirements
@@ -55,16 +54,16 @@ orchcore extracts the common orchestration infrastructure from four production A
 
 | Component | Key Requirements |
 |-----------|-----------------|
-| **Agent Registry** | Built-in configs for 5 agents; custom agents via TOML; mode-specific flags (PLAN, FIX, AUDIT, REVIEW) |
-| **Subprocess Runner** | Async launch with stream capture; concurrency via Semaphore; structured `AgentResult` |
+| **Agent Registry** | No hardcoded built-ins; programmatic registration or complete TOML entries; `with_overrides()` for per-agent runtime patches |
+| **Subprocess Runner** | Async launch with stream capture; concurrency via Semaphore; structured `AgentResult`; explicit `cwd`; filtered env by default |
 | **Stream Processing** | Pre-parse filtering (~95% noise reduction); 5-format parsing; 9-state machine; stall detection |
 | **Tool Assignment** | Per-phase `ToolSet`; per-agent overrides; layered resolution order; permission levels |
 | **Pipeline Engine** | Sequential/parallel phases; dependency checks; resume, skip, only-phase options |
 | **Recovery** | Regex rate-limit detection; timezone-aware reset parsing; exponential backoff; git dirty-tree recovery |
-| **Workspace** | Active directories; timestamped archives; gzip compression; "latest" symlink |
-| **Configuration** | 7-level priority chain; named profiles; per-agent overrides; extensible via subclassing |
+| **Workspace** | Active directories; timestamped archives; gzip compression; portable latest pointer via symlink or `latest.txt` resolved by `latest_path()` |
+| **Configuration** | 8-source priority chain; named profile overlays; per-agent overrides applied with `with_overrides()`; extensible via subclassing |
 | **Prompt Templating** | Jinja2 rendering; frontmatter stripping; configurable template directories |
-| **Signal Handling** | SIGINT/SIGTERM trap; cooperative `shutdown_requested` flag; PhaseRunner owns subprocess cleanup and 30s grace period |
+| **Signal Handling** | SIGINT/SIGTERM handling; Windows/classic signal fallback in `SignalManager`; PhaseRunner owns subprocess cleanup and 30s grace period |
 | **UI Protocol** | 15 callback methods; NullCallback and LoggingCallback built-in |
 
 ### Non-Functional Requirements
@@ -73,10 +72,23 @@ orchcore extracts the common orchestration infrastructure from four production A
 |----------|--------|
 | Performance | < 5ms per event, < 100ms subprocess launch |
 | Memory | < 50MB per concurrent agent (line-by-line streaming) |
-| Extensibility | New agent via TOML only |
+| Extensibility | New agent via complete TOML entry or programmatic registration when an existing stream parser applies |
 | Composability | Each component usable standalone |
 | Type Safety | mypy strict, zero errors |
-| Testing | > 90% line coverage |
+| Testing | 95% line coverage |
+
+### Configuration Resolution
+
+Settings sources are resolved from highest priority to lowest:
+
+1. Constructor kwargs / CLI overrides
+2. Environment variables (`ORCHCORE_*`)
+3. `.env` values
+4. Profile overlay, if active
+5. Project `orchcore.toml`
+6. User `~/.config/orchcore/config.toml`
+7. `pyproject.toml` `[tool.orchcore]`
+8. Built-in field defaults on `OrchcoreSettings`
 
 ## Key Interfaces
 
@@ -110,6 +122,7 @@ class AgentRunner:
         agent: AgentConfig,
         prompt: str,
         output_path: Path,
+        *,
         mode: AgentMode = AgentMode.PLAN,
         dry_run: bool = False,
         on_event: Callable[[StreamEvent], None] | None = None,
@@ -120,6 +133,7 @@ class AgentRunner:
         on_process_end: Callable[[asyncio.subprocess.Process], None] | None = None,
         toolset: ToolSet | None = None,
         on_stall: Callable[[str, float], None] | None = None,
+        cwd: Path | None = None,
     ) -> AgentResult: ...
 ```
 
@@ -134,6 +148,9 @@ class PipelineRunner:
         ui_callback: UICallback,
         mode: AgentMode | None = None,
         resume_from: str | None = None,
+        skip_phases: list[str] | None = None,
+        only_phase: str | None = None,
+        allow_empty_prompts: bool = False,
     ) -> PipelineResult: ...
 ```
 
@@ -149,6 +166,6 @@ class PipelineRunner:
 ## Related
 
 - [Architecture Overview](overview.md) — package layout and component diagrams
-- [Architecture Decision Records](adrs/) — all 9 ADRs
+- [Architecture Decision Records](adrs/) — all 10 ADRs
 - [Configuration Reference](../reference/configuration.md)
 - [Stream Events Reference](../reference/stream-events.md)

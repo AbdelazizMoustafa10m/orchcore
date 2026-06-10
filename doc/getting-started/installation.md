@@ -69,10 +69,10 @@ orchcore orchestrates external agent CLIs as subprocesses. You need at least one
 | Agent | Install | Docs |
 |-------|---------|------|
 | Claude Code | `npm install -g @anthropic-ai/claude-code` | [claude.ai/code](https://claude.ai/code) |
-| Codex | `npm install -g @openai/codex` | [OpenAI Codex](https://github.com/openai/codex) |
-| Gemini CLI | `npm install -g @anthropic-ai/gemini-cli` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) |
+| Codex | `npm install -g @openai/codex` | [OpenAI Codex](https://developers.openai.com/codex/cli) |
+| Gemini CLI | `npm install -g @google/gemini-cli` | [Gemini CLI](https://geminicli.com/docs/) |
 
-orchcore itself does not handle API keys — each agent CLI manages its own authentication via environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.).
+orchcore itself does not handle agent authentication — each agent CLI manages its own login or API-key flow. By default, orchcore launches agent subprocesses with a filtered environment, so inherited provider variables such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY` may be omitted unless you passlist them with `env_passlist`, use `env_policy = "inherit"`, or supply explicit values through `env_vars`.
 
 ## Next Steps
 

@@ -3,12 +3,22 @@ id: ADR-008
 title: Use partial failure semantics with configurable retry policies
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [reliability, retry, partial-failure, recovery, rate-limit, resilience]
-related_decisions: [ADR-001, ADR-002, ADR-004]
+tags:
+  - reliability
+  - retry
+  - partial-failure
+  - recovery
+  - rate-limit
+  - resilience
+related_decisions:
+  - ADR-001
+  - ADR-002
+  - ADR-004
 supersedes: []
 superseded_by: []
 ---
@@ -68,7 +78,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 2. **ResetTimeParser**: Parses reset time information from rate-limit messages. Handles absolute times with timezones ("resets 7pm Europe/Berlin") and relative durations ("5 days 27 minutes"). Returns seconds until reset.
 
-3. **BackoffStrategy**: Exponential backoff schedule [120, 300, 900, 1800] seconds with random jitter [0-30s]. Respects parsed reset time if available (uses the longer of backoff or reset time). Configurable max wait (default 6 hours).
+3. **BackoffStrategy**: Exponential backoff schedule `[120, 300, 900, 1800]` seconds with random jitter `[0-30s]`. Respects parsed reset time if available (uses the longer of backoff or reset time). Configurable max wait (default 6 hours).
 
 4. **GitRecovery**: Optional dirty-tree handling before retry. Consumers opt in to `auto_commit` or `stash`; the default is `off` so orchcore never mutates the consumer's repository unless asked.
 
@@ -170,13 +180,13 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 - **RateLimitDetector patterns** are defined as `ClassVar` dicts mapping agent type to compiled regex patterns. Patterns are checked in order; first match wins.
 - **ResetTimeParser** uses `zoneinfo.ZoneInfo` for timezone conversion and `re` for extracting time strings. Supports both absolute ("7pm Europe/Berlin") and relative ("5 days 27 minutes") formats.
-- **BackoffStrategy schedule** [120, 300, 900, 1800] seconds was derived from empirical observation across the four source systems. Jitter range [0-30] seconds prevents synchronized retries when multiple agents hit limits simultaneously.
+- **BackoffStrategy schedule** `[120, 300, 900, 1800]` seconds was derived from empirical observation across the four source systems. Jitter range `[0-30]` seconds prevents synchronized retries when multiple agents hit limits simultaneously.
 - **GitRecovery policy** defaults to `"off"`. `RetryPolicy(git_recovery="auto_commit")` stages and commits dirty trees before retrying; `git_recovery_no_verify=True` is required to bypass hooks. `RetryPolicy(git_recovery="stash")` stashes before the retry wait and restores before the next attempt. Both modes run in `git_recovery_cwd` or the explicit agent cwd.
 - **RetryPolicy** is configured per phase (not globally) to allow different failure semantics:
   - `FAIL_FAST`: First agent failure fails the entire phase (for critical phases like audit)
   - `CONTINUE`: All agents run to completion; failures recorded but phase continues (for review phases)
   - `REQUIRE_MINIMUM(min_count=N)`: At least N agents must succeed (for consensus phases)
-- Default RetryPolicy: max_retries=3, backoff_schedule=[120, 300, 900, 1800], max_wait=21600, partial_failure_mode="fail_fast"
+- Default RetryPolicy: `max_retries=3`, `backoff_schedule=[120, 300, 900, 1800]`, `max_wait=21600`, `partial_failure_mode="fail_fast"`
 - Consuming projects override via TOML or constructor arguments
 
 ### When to Revisit This Decision
@@ -208,7 +218,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 ### Neutral
 
-- Exponential backoff schedule [120, 300, 900, 1800] is a reasonable default that can be overridden
+- Exponential backoff schedule `[120, 300, 900, 1800]` is a reasonable default that can be overridden
 - Max wait of 6 hours (21600 seconds) prevents absurdly long waits while accommodating overnight rate-limit resets
 
 ## Validation and Monitoring

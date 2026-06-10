@@ -3,12 +3,19 @@ id: ADR-002
 title: Use async-first architecture with asyncio
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [concurrency, asyncio, subprocess, performance]
-related_decisions: [ADR-001, ADR-004]
+tags:
+  - concurrency
+  - asyncio
+  - subprocess
+  - performance
+related_decisions:
+  - ADR-001
+  - ADR-004
 supersedes: []
 superseded_by: []
 ---

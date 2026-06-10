@@ -3,12 +3,24 @@ id: ADR-001
 title: Extract reusable orchestration core as standalone Python package
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [architecture, packaging, extraction, reuse]
-related_decisions: [ADR-002, ADR-003, ADR-004, ADR-005, ADR-006, ADR-007, ADR-008]
+tags:
+  - architecture
+  - packaging
+  - extraction
+  - reuse
+related_decisions:
+  - ADR-002
+  - ADR-003
+  - ADR-004
+  - ADR-005
+  - ADR-006
+  - ADR-007
+  - ADR-008
 supersedes: []
 superseded_by: []
 ---

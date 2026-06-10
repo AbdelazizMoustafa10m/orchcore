@@ -73,7 +73,7 @@ Property-based tests use Hypothesis and are part of the normal `pytest` run.
 ```
 tests/
 ├── conftest.py              # Shared fixtures (sample configs, JSONL data)
-├── fixtures/                # mock_claude.sh for integration tests
+├── fixtures/                # mock_agent.py for integration tests
 ├── test_stream/             # Parser, filter, monitor, stall detector
 ├── test_pipeline/           # Phase/pipeline engine, control flow
 ├── test_runner/             # Subprocess runner

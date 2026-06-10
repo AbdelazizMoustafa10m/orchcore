@@ -172,6 +172,8 @@ Return type of `AgentRunner.run()`. Captures all outputs from a single agent exe
 | `error_category` | `AgentErrorCategory \| None` | `None` | Typed failure classification (see below) |
 | `rate_limit_reset_seconds` | `int \| None` | `None` | Reset wait parsed from the rate-limit message, once, at the source |
 | `json_parse_error_count` | `int` | `0` | Malformed JSONL lines the stream parser skipped |
+| `wire_validation_error_count` | `int` | `0` | Well-formed JSONL lines that failed the selected wire-format schema |
+| `agent_version` | `str \| None` | `None` | CLI version detected by the advisory version check; `None` when detection is disabled or fails |
 
 `AgentResult.error` is populated from the terminal stream state as well as the process exit code. A subprocess that exits `0` but emits a `result` with `error`, an `error` event, or an unrecovered `rate_limit` event returns an error-carrying result and is treated as failed by phase aggregation.
 

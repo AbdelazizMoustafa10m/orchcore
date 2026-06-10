@@ -3,12 +3,21 @@ id: ADR-006
 title: Use Pydantic for all data models with mypy strict mode
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [type-safety, pydantic, mypy, data-models, validation]
-related_decisions: [ADR-001, ADR-003, ADR-005]
+tags:
+  - type-safety
+  - pydantic
+  - mypy
+  - data-models
+  - validation
+related_decisions:
+  - ADR-001
+  - ADR-003
+  - ADR-005
 supersedes: []
 superseded_by: []
 ---

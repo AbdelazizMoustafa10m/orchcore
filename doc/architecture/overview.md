@@ -225,4 +225,4 @@ See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-a
 
 - [Design Document](design.md) — problem statement, requirements, proposed design
 - [Stream Pipeline](stream-pipeline.md) — 4-stage pipeline deep-dive
-- [Architecture Decision Records](adrs/) — all 9 ADRs
+- [Architecture Decision Records](adrs/) — all 10 ADRs

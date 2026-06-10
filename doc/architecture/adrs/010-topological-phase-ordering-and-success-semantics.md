@@ -3,12 +3,18 @@ id: ADR-010
 title: Topological phase ordering and explicit success semantics
 status: ACCEPTED
 date: 2026-06-10
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [pipeline, ordering, dependencies, success-semantics]
-related_decisions: [ADR-008]
+tags:
+  - pipeline
+  - ordering
+  - dependencies
+  - success-semantics
+related_decisions:
+  - ADR-008
 supersedes: []
 superseded_by: []
 ---

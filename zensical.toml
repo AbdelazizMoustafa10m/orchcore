@@ -25,6 +25,11 @@ nav = [
     { "Agent Registry" = "guides/agent-registry.md" },
     { "Recovery & Retry" = "guides/recovery-and-retry.md" },
     { "Flow Control" = "guides/flow-control.md" },
+    { "Workspace Management" = "guides/workspace.md" },
+    { "Prompt Templating" = "guides/prompt-templating.md" },
+    { "Signal Handling" = "guides/signal-handling.md" },
+    { "Observability" = "guides/observability.md" },
+    { "Display Utilities" = "guides/display.md" },
   ] },
   { "Development" = [
     { "Contributing" = "development/contributing.md" },
