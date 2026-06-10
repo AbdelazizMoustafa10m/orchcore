@@ -382,3 +382,119 @@ async def test_parse_stream_yields_async_events(copilot_jsonl_lines: list[str]) 
         StreamEventType.TOOL_DONE,
         StreamEventType.TEXT,
     ]
+
+
+# ---- WP-25: per-format wire models — new regression tests ----
+
+
+def test_gemini_overlapping_tools_correlate_fifo() -> None:
+    """Two tools started before any completes must pair completions in call order.
+
+    Regression for finding C10: the pre-WP-25 global counter attributed every
+    completion to the most recently started tool.
+    """
+    parser = StreamParser(StreamFormat.GEMINI)
+    parser.parse_line(json.dumps({"functionCall": {"name": "Read", "args": {"file_path": "a"}}}))
+    parser.parse_line(json.dumps({"functionCall": {"name": "Grep", "args": {"pattern": "x"}}}))
+
+    first_done = parser.parse_line(json.dumps({"functionResponse": {"name": "Read"}}))
+    second_done = parser.parse_line(json.dumps({"functionResponse": {"name": "Grep"}}))
+
+    assert first_done[0].event_type == StreamEventType.TOOL_DONE
+    assert first_done[0].tool_id == "gemini-tool-1"
+    assert second_done[0].event_type == StreamEventType.TOOL_DONE
+    assert second_done[0].tool_id == "gemini-tool-2"
+
+
+def test_gemini_orphan_tool_response_gets_synthetic_orphan_id() -> None:
+    """A functionResponse without any open tool must not steal a real tool id."""
+    parser = StreamParser(StreamFormat.GEMINI)
+
+    events = parser.parse_line(json.dumps({"functionResponse": {"name": "Read"}}))
+
+    assert events[0].event_type == StreamEventType.TOOL_DONE
+    assert events[0].tool_id == "gemini-tool-orphan-1"
+
+
+def test_wire_validation_failure_is_counted_not_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Well-formed JSON that fails the wire schema increments its own counter."""
+    parser = StreamParser(StreamFormat.CLAUDE)
+    line = json.dumps({"type": "assistant", "message": "not-an-object"})
+
+    with caplog.at_level("WARNING"):
+        events = parser.parse_line(line)
+
+    assert events == []
+    assert parser.wire_validation_error_count == 1
+    assert parser.json_parse_error_count == 0  # JSON-syntax meaning unchanged
+    assert "Wire-schema validation failed" in caplog.text
+
+
+def test_wire_validation_warnings_are_bounded_and_parser_recovers(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    parser = StreamParser(StreamFormat.CLAUDE)
+    bad_line = json.dumps({"type": None})
+    valid_line = json.dumps({"type": "system", "subtype": "init", "session_id": "sess-789"})
+
+    with caplog.at_level("WARNING"):
+        for _ in range(5):
+            assert parser.parse_line(bad_line) == []
+        recovered_events = parser.parse_line(valid_line)
+
+    assert parser.wire_validation_error_count == 5
+    assert caplog.text.count("Wire-schema validation failed") == 3
+    assert "Suppressing further wire-schema validation warnings" in caplog.text
+    assert [event.event_type for event in recovered_events] == [StreamEventType.INIT]
+    assert recovered_events[0].session_id == "sess-789"
+
+
+@pytest.mark.parametrize(
+    ("stream_format", "line_obj", "expected_type"),
+    [
+        pytest.param(
+            StreamFormat.CLAUDE,
+            {"type": "system", "subtype": "init", "session_id": "s", "future_field": {"x": 1}},
+            StreamEventType.INIT,
+            id="claude",
+        ),
+        pytest.param(
+            StreamFormat.CODEX,
+            {"type": "thread.started", "thread_id": "t", "future_field": [1, 2]},
+            StreamEventType.INIT,
+            id="codex",
+        ),
+        pytest.param(
+            StreamFormat.COPILOT,
+            {"text": "hi", "future_field": True},
+            StreamEventType.INIT,
+            id="copilot",
+        ),
+        pytest.param(
+            StreamFormat.OPENCODE,
+            {"type": "step_start", "future_field": "v"},
+            StreamEventType.INIT,
+            id="opencode",
+        ),
+        pytest.param(
+            StreamFormat.GEMINI,
+            {"functionCall": {"name": "Read", "args": {}}, "future_field": 7},
+            StreamEventType.TOOL_START,
+            id="gemini",
+        ),
+    ],
+)
+def test_unknown_fields_flow_through_raw_forward_compat(
+    stream_format: StreamFormat,
+    line_obj: dict[str, object],
+    expected_type: StreamEventType,
+) -> None:
+    """extra="allow" forward compatibility: unknown wire fields must not break
+    parsing, and the original object (unknown fields included) reaches raw."""
+    events = StreamParser(stream_format).parse_line(json.dumps(line_obj))
+
+    assert events[0].event_type == expected_type
+    assert events[0].raw is not None
+    assert events[0].raw["future_field"] == line_obj["future_field"]

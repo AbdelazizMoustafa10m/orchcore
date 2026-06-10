@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from orchcore._pathsafe import resolve_within
 from orchcore.prompt.template import strip_frontmatter
 
 if TYPE_CHECKING:
@@ -32,12 +33,12 @@ class TemplateLoader:
         tries the name as-is first, then appends each known extension.
         """
         for dir_path in self._dirs:
-            candidate = dir_path / template_name
+            candidate = resolve_within(dir_path, template_name)
             if candidate.exists():
                 return candidate
 
             for ext in self.EXTENSIONS:
-                candidate = dir_path / f"{template_name}{ext}"
+                candidate = resolve_within(dir_path, f"{template_name}{ext}")
                 if candidate.exists():
                     return candidate
 

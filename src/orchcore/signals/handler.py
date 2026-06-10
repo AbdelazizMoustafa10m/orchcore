@@ -26,6 +26,7 @@ class SignalManager:
         self._shutdown_requested = False
         self._sigint_count = 0
         self._original_handlers: dict[signal.Signals, SignalHandler] = {}
+        self._fallback_signals: set[signal.Signals] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
@@ -42,7 +43,13 @@ class SignalManager:
 
         for sig in (signal.SIGINT, signal.SIGTERM):
             self._original_handlers[sig] = signal.getsignal(sig)
-            self._loop.add_signal_handler(sig, self._handle_signal, sig)
+            try:
+                self._loop.add_signal_handler(sig, self._handle_signal, sig)
+            except NotImplementedError:
+                # Windows event loops do not implement add_signal_handler.
+                # Classic handlers still safely set flags and escalate SIGINT.
+                signal.signal(sig, self._make_sync_handler(sig))
+                self._fallback_signals.add(sig)
 
         return self
 
@@ -59,8 +66,9 @@ class SignalManager:
             return
 
         for sig in (signal.SIGINT, signal.SIGTERM):
-            with contextlib.suppress(OSError, RuntimeError, ValueError):
-                self._loop.remove_signal_handler(sig)
+            if sig not in self._fallback_signals:
+                with contextlib.suppress(OSError, RuntimeError, ValueError):
+                    self._loop.remove_signal_handler(sig)
 
             original_handler = self._original_handlers.get(sig)
             if original_handler is None:
@@ -68,6 +76,7 @@ class SignalManager:
             signal.signal(sig, original_handler)
 
         self._original_handlers.clear()
+        self._fallback_signals.clear()
         self._loop = None
 
     def _handle_signal(self, sig: signal.Signals) -> None:
@@ -90,3 +99,15 @@ class SignalManager:
         """Raise CancelledError if shutdown has been requested."""
         if self._shutdown_requested:
             raise asyncio.CancelledError("Shutdown requested via signal")
+
+    def _make_sync_handler(
+        self,
+        sig: signal.Signals,
+    ) -> Callable[[int, FrameType | None], None]:
+        """Build a classic signal handler for loops without add_signal_handler."""
+
+        def _handler(signum: int, frame: FrameType | None) -> None:
+            del signum, frame
+            self._handle_signal(sig)
+
+        return _handler

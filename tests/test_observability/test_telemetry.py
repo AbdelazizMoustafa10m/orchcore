@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import types
-from datetime import datetime
+from contextvars import ContextVar
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
 
 from orchcore.observability.telemetry import OrchcoreTelemetry
-from orchcore.stream.events import ToolExecution
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -37,9 +37,20 @@ class _BrokenSpan(_FakeSpan):
 class _FakeTraceModule(types.ModuleType):
     def __init__(self) -> None:
         super().__init__("opentelemetry.trace")
-        self.current_span: _FakeSpan | None = None
+        self._current_span: ContextVar[_FakeSpan | None] = ContextVar(
+            "fake_current_span",
+            default=None,
+        )
         self.provider: _FakeTracerProvider | None = None
         self.tracer = _FakeTracer(self)
+
+    @property
+    def current_span(self) -> _FakeSpan | None:
+        return self._current_span.get()
+
+    @current_span.setter
+    def current_span(self, span: _FakeSpan | None) -> None:
+        self._current_span.set(span)
 
     def set_tracer_provider(self, provider: _FakeTracerProvider) -> None:
         self.provider = provider
@@ -62,20 +73,24 @@ class _FakeTracer:
         self,
         name: str,
         attributes: dict[str, object] | None = None,
-    ) -> object:
+    ) -> AbstractContextManager[_FakeSpan]:
         span = _FakeSpan(name, attributes)
         self.current_spans.append(span)
         trace_module = self._trace_module
 
         class _ContextManager:
             def __enter__(self_nonlocal) -> _FakeSpan:
-                self_nonlocal._previous = trace_module.current_span
-                trace_module.current_span = span
+                self_nonlocal._token = trace_module._current_span.set(span)
                 return span
 
-            def __exit__(self_nonlocal, exc_type, exc, tb) -> bool:
+            def __exit__(
+                self_nonlocal,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: object,
+            ) -> Literal[False]:
                 del exc_type, exc, tb
-                trace_module.current_span = self_nonlocal._previous
+                trace_module._current_span.reset(self_nonlocal._token)
                 return False
 
         return _ContextManager()
@@ -113,13 +128,13 @@ def _install_fake_opentelemetry(
 ) -> _FakeTraceModule:
     trace_module = _FakeTraceModule()
     exporter_module = types.ModuleType("opentelemetry.exporter.otlp.proto.grpc.trace_exporter")
-    exporter_module.OTLPSpanExporter = _FakeOTLPSpanExporter
+    exporter_module.OTLPSpanExporter = _FakeOTLPSpanExporter  # type: ignore[attr-defined]  # fake module API for importlib test.
     export_module = types.ModuleType("opentelemetry.sdk.trace.export")
-    export_module.BatchSpanProcessor = _FakeBatchSpanProcessor
+    export_module.BatchSpanProcessor = _FakeBatchSpanProcessor  # type: ignore[attr-defined]  # fake module API for importlib test.
     resource_module = types.ModuleType("opentelemetry.sdk.resources")
-    resource_module.Resource = _FakeResource
+    resource_module.Resource = _FakeResource  # type: ignore[attr-defined]  # fake module API for importlib test.
     sdk_trace_module = types.ModuleType("opentelemetry.sdk.trace")
-    sdk_trace_module.TracerProvider = _FakeTracerProvider
+    sdk_trace_module.TracerProvider = _FakeTracerProvider  # type: ignore[attr-defined]  # fake module API for importlib test.
 
     modules: dict[str, types.ModuleType] = {
         "opentelemetry.trace": trace_module,
@@ -137,16 +152,6 @@ def _install_fake_opentelemetry(
 
     monkeypatch.setattr(importlib, "import_module", fake_import)
     return trace_module
-
-
-def _build_tool_execution() -> ToolExecution:
-    return ToolExecution(
-        tool_id="tool-9",
-        name="Read",
-        friendly_name="Read file",
-        detail="README.md",
-        started_at=datetime.now(),
-    )
 
 
 def test_telemetry_disabled_constructor_is_no_op(
@@ -186,10 +191,6 @@ def test_telemetry_disabled_constructor_is_no_op(
             lambda t: t.agent_span("implementation", "worker-g"),
             id="agent_span",
         ),
-        pytest.param(
-            lambda t: t.tool_span("worker-g", _build_tool_execution()),
-            id="tool_span",
-        ),
     ],
 )
 def test_span_yields_none_when_telemetry_is_disabled(
@@ -221,14 +222,10 @@ def test_telemetry_builds_spans_when_fake_otel_is_available(
         service_name="orchcore-tests",
         otlp_endpoint="http://collector:4317",
     )
-    tool = _build_tool_execution()
 
     # Act
     with telemetry.phase_span("implementation", agent="worker-g") as phase_span:
         telemetry.record_cost("worker-g", Decimal("2.50"))
-
-    with telemetry.tool_span("worker-g", tool) as tool_span:
-        pass
 
     # Assert
     assert telemetry._enabled
@@ -236,19 +233,89 @@ def test_telemetry_builds_spans_when_fake_otel_is_available(
     assert trace_module.provider.resource == {"service.name": "orchcore-tests"}
     assert len(trace_module.provider.processors) == 1
     assert phase_span is not None
+    phase_span = cast("_FakeSpan", phase_span)
     assert phase_span.attributes == {
         "orchcore.phase": "implementation",
         "orchcore.agent": "worker-g",
         "orchcore.cost.worker-g": 2.5,
-        "orchcore.cost.total": 2.5,
     }
-    assert tool_span is not None
-    assert tool_span.attributes == {
-        "orchcore.agent": "worker-g",
-        "orchcore.tool.name": "Read",
-        "orchcore.tool.detail": "README.md",
-        "orchcore.tool.id": "tool-9",
-    }
+
+
+def test_record_cost_accumulates_within_pipeline_span(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_opentelemetry(monkeypatch, with_exporter=True)
+    telemetry = OrchcoreTelemetry(enabled=True)
+
+    with telemetry.pipeline_span("delivery", "task-123") as span:
+        telemetry.record_cost("alpha", Decimal("1.25"))
+        assert span is not None
+        span = cast("_FakeSpan", span)
+        assert span.attributes["orchcore.cost.total"] == 1.25
+
+        telemetry.record_cost("beta", Decimal("2.75"))
+        assert span.attributes["orchcore.cost.total"] == 4.0
+
+
+def test_record_cost_resets_between_pipeline_spans(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_opentelemetry(monkeypatch, with_exporter=True)
+    telemetry = OrchcoreTelemetry(enabled=True)
+
+    with telemetry.pipeline_span("first", "task-1") as first_span:
+        telemetry.record_cost("alpha", Decimal("2.00"))
+
+    with telemetry.pipeline_span("second", "task-2") as second_span:
+        telemetry.record_cost("alpha", Decimal("3.00"))
+
+    assert first_span is not None
+    assert second_span is not None
+    first_span = cast("_FakeSpan", first_span)
+    second_span = cast("_FakeSpan", second_span)
+    assert first_span.attributes["orchcore.cost.total"] == 2.0
+    assert second_span.attributes["orchcore.cost.total"] == 3.0
+
+
+@pytest.mark.asyncio
+async def test_record_cost_isolates_concurrent_pipeline_spans(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_opentelemetry(monkeypatch, with_exporter=True)
+    telemetry = OrchcoreTelemetry(enabled=True)
+    first_ready = asyncio.Event()
+    second_ready = asyncio.Event()
+    release = asyncio.Event()
+
+    async def record_pipeline(
+        name: str,
+        first_cost: Decimal,
+        second_cost: Decimal,
+        ready: asyncio.Event,
+    ) -> float:
+        with telemetry.pipeline_span(name, f"{name}-task") as span:
+            assert span is not None
+            span = cast("_FakeSpan", span)
+            telemetry.record_cost(f"{name}-first", first_cost)
+            ready.set()
+            await release.wait()
+            telemetry.record_cost(f"{name}-second", second_cost)
+            total = span.attributes["orchcore.cost.total"]
+            assert isinstance(total, float)
+            return total
+
+    first_task = asyncio.create_task(
+        record_pipeline("first", Decimal("1.00"), Decimal("2.00"), first_ready)
+    )
+    second_task = asyncio.create_task(
+        record_pipeline("second", Decimal("10.00"), Decimal("20.00"), second_ready)
+    )
+    await first_ready.wait()
+    await second_ready.wait()
+    release.set()
+
+    assert await first_task == 3.0
+    assert await second_task == 30.0
 
 
 def test_telemetry_warns_when_exporter_module_is_missing(
