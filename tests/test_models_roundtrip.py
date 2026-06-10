@@ -191,6 +191,7 @@ def test_sequence_fields_coerce_lists_to_tuples() -> None:
 
 
 def test_tuple_fields_reject_nested_mutation() -> None:
+    """F8 regression: load-bearing sequence fields are deeply immutable tuples."""
     phase = Phase(name="plan", agents=["claude"], depends_on=["earlier"])
     toolset = ToolSet(internal=["Read"], mcp=["exa"])
     policy = RetryPolicy()

@@ -565,6 +565,7 @@ async def test_run_captures_exit_zero_stream_result_error(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
 ) -> None:
+    """F1 regression: a RESULT error on an exit-0 stream reaches AgentResult."""
     script = textwrap.dedent(
         """
         import json
@@ -636,6 +637,7 @@ async def test_run_filters_sensitive_environment_by_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """F6-adjacent boundary check: default filtered env strips ambient secrets."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ambient-secret")
     script = textwrap.dedent(
         """
@@ -670,6 +672,7 @@ async def test_run_passes_explicit_cwd_to_subprocess(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
 ) -> None:
+    """F6 regression: agent subprocess cwd is explicit, not the orchestrator cwd."""
     workdir = tmp_path / "repo"
     workdir.mkdir()
     script = textwrap.dedent(

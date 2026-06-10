@@ -111,6 +111,7 @@ async def test_signal_manager_supports_async_context_management(
 async def test_signal_manager_falls_back_when_loop_signal_handlers_are_unsupported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """F4 regression: Windows-style loops fall back to signal.signal handlers."""
     fake_loop = UnsupportedSignalLoop()
     original_handlers: dict[
         signal.Signals,

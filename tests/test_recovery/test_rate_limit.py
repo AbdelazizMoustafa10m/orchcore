@@ -243,10 +243,12 @@ def test_backoff_strategy_rejects_empty_schedule() -> None:
 
 
 def test_tzdata_dependency_present() -> None:
+    """F3 regression: named-zone parsing has the first-party tzdata fallback."""
     import tzdata  # type: ignore[import-untyped]  # noqa: F401 - dependency presence guard.
 
 
 def test_named_timezone_resolves_without_system_db() -> None:
+    """F3 regression: named timezone reset parsing works without system tzdb."""
     env = {**os.environ, "PYTHONTZPATH": ""}
 
     subprocess.run(  # noqa: S603

@@ -11,14 +11,36 @@ uv pip install -e ".[dev]"
 This installs orchcore in editable mode with all development dependencies: mypy, pytest,
 pytest-asyncio, hypothesis, ruff, and coverage.
 
+### Working from a non-git checkout
+
+orchcore derives versions from git tags via hatch-vcs. Source exports, distro packaging
+trees, and other checkouts without `.git` need an explicit pretend version before editable
+installs or `uv sync` can resolve the project:
+
+```bash
+export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ORCHCORE=0.0.0.dev0
+uv sync --extra dev
+```
+
+PowerShell:
+
+```powershell
+$env:SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ORCHCORE = "0.0.0.dev0"
+uv sync --extra dev
+```
+
+The distribution-specific `_FOR_ORCHCORE` variable keeps the override scoped to this
+package. `make install-nogit` is the same workflow for POSIX shells.
+
 ## Commands
 
 ```bash
 make check         # Run all checks: lint + typecheck + test
 make lint          # ruff check + ruff format --check
 make format        # ruff format + ruff check --fix
-make typecheck     # mypy src/orchcore/ --strict
+make typecheck     # mypy src/ tests/ examples/ --strict
 make test          # pytest tests/ -v
+make smoke-dist    # build wheel+sdist and smoke-test the installed artifacts
 make clean         # Remove caches and build artifacts
 ```
 
@@ -82,14 +104,14 @@ Python 3.12+ is required. The codebase uses:
 mypy strict mode with zero escape hatches:
 
 ```bash
-mypy src/orchcore/ --strict
+mypy src/ tests/ examples/ --strict
 ```
 
 All public functions require type annotations. Pydantic plugin is enabled for model validation.
 
 ### Linting
 
-ruff with 11 rule sets, 100-character line length:
+ruff with the Phase 4 rule set, 100-character line length:
 
 | Rule Set | Purpose |
 |----------|---------|
@@ -99,18 +121,25 @@ ruff with 11 rule sets, 100-character line length:
 | UP | pyupgrade |
 | B | flake8-bugbear |
 | SIM | flake8-simplify |
-| TCH | flake8-type-checking |
+| TC | flake8-type-checking |
 | ARG | flake8-unused-arguments |
 | S | flake8-bandit (security) |
+| RET | flake8-return |
+| TRY | tryceratops |
+| PT | flake8-pytest-style |
+| PTH | flake8-use-pathlib |
+| PL | pylint |
 | RUF | ruff-specific rules |
 
 ### Test Coverage
 
-90% minimum coverage, enforced in CI:
+95% minimum coverage, enforced in CI. The coverage gate also checks that
+`recovery/rate_limit.py` stays at 95% or higher and `pipeline/engine.py` stays
+at 85% or higher:
 
 ```toml
 [tool.coverage.report]
-fail_under = 90
+fail_under = 95
 ```
 
 ### Module Exports

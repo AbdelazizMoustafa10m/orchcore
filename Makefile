@@ -1,18 +1,26 @@
-.PHONY: install lint typecheck test check clean verifytypes
+PYTHON_SOURCES := src tests examples scripts
+
+.PHONY: install install-nogit lint typecheck test check clean verifytypes smoke-dist readme-example
 
 install:
 	uv pip install -e ".[dev]"
 
+install-nogit:
+	# For source exports without .git, hatch-vcs honors this setuptools-scm override.
+	SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ORCHCORE=0.0.0.dev0 uv sync --extra dev
+
 lint:
-	ruff check src/ tests/
-	ruff format --check src/ tests/
+	ruff check $(PYTHON_SOURCES)
+	ruff format --check $(PYTHON_SOURCES)
+	python scripts/check_readme_example.py
 
 format:
-	ruff format src/ tests/
-	ruff check --fix src/ tests/
+	ruff format $(PYTHON_SOURCES)
+	ruff check --fix $(PYTHON_SOURCES)
+	python scripts/check_readme_example.py --fix
 
 typecheck:
-	mypy src/ tests/ --strict
+	mypy src/ tests/ examples/ --strict
 
 test:
 	pytest tests/ -v
@@ -22,6 +30,14 @@ check: lint typecheck test
 
 verifytypes:
 	uv run pyright --verifytypes orchcore --ignoreexternal
+
+smoke-dist:
+	uv build
+	uv run --isolated --no-cache --no-project --with dist/*.whl scripts/run_smoke_test.py
+	uv run --isolated --no-cache --no-project --with dist/*.tar.gz scripts/run_smoke_test.py
+
+readme-example:
+	python scripts/check_readme_example.py
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

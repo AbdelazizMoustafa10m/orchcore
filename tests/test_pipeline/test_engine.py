@@ -1675,6 +1675,7 @@ async def test_run_phase_treats_exit_zero_agent_error_as_failed_phase(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """F1 regression: an exit-0 stream error aggregates to a failed phase."""
     registry = AgentRegistry()
     registry.register(sample_agent_config.model_copy(update={"name": "codex"}))
     runner = AgentRunner()

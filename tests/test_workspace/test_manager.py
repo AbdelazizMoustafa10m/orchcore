@@ -210,5 +210,6 @@ def test_workspace_name_must_be_strictly_inside_project_root(
     tmp_path: Path,
     workspace_name: str,
 ) -> None:
+    """F5 regression: workspace_name path probes cannot escape project_root."""
     with pytest.raises(ValueError, match="workspace_name"):
         WorkspaceManager(tmp_path, workspace_name=workspace_name)

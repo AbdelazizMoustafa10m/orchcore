@@ -70,13 +70,25 @@ jq_expression = ".content[0].text"
 
 ### 2. Run a Pipeline
 
+<!-- example:quickstart.py:begin -->
 ```python
+"""Minimal orchcore pipeline setup.
+
+Requires a matching ``agents.toml`` file and the configured agent CLI on
+``PATH``. Use ``dry_run=True`` at the AgentRunner layer for artifact-level
+smoke tests; a real pipeline run launches the configured CLI.
+"""
+
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
-from orchcore.pipeline import PipelineRunner, PhaseRunner, Phase
-from orchcore.registry import AgentRegistry, AgentMode, ToolSet
+
+from orchcore.pipeline import Phase, PhaseRunner, PipelineRunner
+from orchcore.registry import AgentMode, AgentRegistry, ToolSet
 from orchcore.runner import AgentRunner
 from orchcore.ui import NullCallback
+
 
 async def main() -> None:
     registry = AgentRegistry()
@@ -84,8 +96,8 @@ async def main() -> None:
 
     phase = Phase(
         name="planning",
-        agents=["claude"],
-        tools=ToolSet(internal=["Read", "Glob", "Grep"], permission="read-only"),
+        agents=("claude",),
+        tools=ToolSet(internal=("Read", "Glob", "Grep"), permission="read-only"),
     )
 
     runner = AgentRunner()
@@ -98,10 +110,14 @@ async def main() -> None:
         ui_callback=NullCallback(),
         mode=AgentMode.PLAN,
     )
+
     print(f"Success: {result.success} | Cost: ${result.total_cost_usd}")
 
-asyncio.run(main())
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
+<!-- example:quickstart.py:end -->
 
 By default, agent subprocesses receive a filtered environment: common API keys and provider-specific variables are not inherited unless you set `env_policy = "inherit"`, pass `env_passlist`, or provide explicit `env_vars` in your agent config.
 

@@ -27,6 +27,12 @@ jobs:
       - name: Build sdist and wheel
         run: uv build
 
+      - name: Smoke test wheel
+        run: uv run --isolated --no-cache --no-project --with dist/*.whl scripts/run_smoke_test.py
+
+      - name: Smoke test sdist
+        run: uv run --isolated --no-cache --no-project --with dist/*.tar.gz scripts/run_smoke_test.py
+
       - name: Attest build provenance
         if: github.event.repository.private == false
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
