@@ -3,12 +3,21 @@ id: ADR-005
 title: Use multi-source layered configuration with TOML
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [configuration, toml, pydantic-settings, profiles, extensibility]
-related_decisions: [ADR-001, ADR-006, ADR-007]
+tags:
+  - configuration
+  - toml
+  - pydantic-settings
+  - profiles
+  - extensibility
+related_decisions:
+  - ADR-001
+  - ADR-006
+  - ADR-007
 supersedes: []
 superseded_by: []
 ---

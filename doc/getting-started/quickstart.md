@@ -19,8 +19,8 @@ deep_tool_timeout = 600.0
 plan = ["--think", "--verbose"]
 fix = ["--fix-mode"]
 
-[agents.claude.env_vars]
-ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+# Optional: env_vars values are literal TOML strings. orchcore does not
+# expand ${VAR}; load secrets in your own config layer before passing them.
 
 [agents.claude.output_extraction]
 strategy = "jq_filter"
@@ -29,7 +29,7 @@ jq_expression = ".content[0].text"
 [agents.codex]
 binary = "codex"
 model = "o3"
-subcommand = ""
+subcommand = "exec"
 stream_format = "codex"
 
 [agents.codex.flags]
@@ -40,7 +40,7 @@ fix = ["--approval-mode", "full-auto"]
 strategy = "stdout_capture"
 ```
 
-Each `[agents.<name>]` section defines an agent's binary path, model, CLI flags per mode, stream format for output parsing, and how to extract final output.
+Each `[agents.<name>]` section defines an agent's binary path, model, prompt-passing subcommand, CLI flags per mode, stream format for output parsing, and how to extract final output.
 
 See the [Agent Registry guide](../guides/agent-registry.md) for all configuration options.
 
@@ -120,6 +120,9 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+Every phase that has agents must have a prompt entry. For intentionally promptless
+phases, pass `allow_empty_prompts=True` to `run_pipeline()`.
 
 ## 4. Add a Custom UICallback
 

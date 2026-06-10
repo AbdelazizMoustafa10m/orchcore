@@ -3,12 +3,23 @@ id: ADR-007
 title: Use registry pattern for agent management
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [registry, agents, extensibility, configuration, toml]
-related_decisions: [ADR-001, ADR-004, ADR-005, ADR-006, ADR-009]
+tags:
+  - registry
+  - agents
+  - extensibility
+  - configuration
+  - toml
+related_decisions:
+  - ADR-001
+  - ADR-004
+  - ADR-005
+  - ADR-006
+  - ADR-009
 supersedes: []
 superseded_by: []
 ---
@@ -23,10 +34,10 @@ ACCEPTED
 
 orchcore must manage configurations for multiple AI coding agent CLIs — Claude Code, Codex, Gemini, Copilot, OpenCode — and support adding new agents as the ecosystem evolves. Each agent has a distinct binary name, model identifier, subcommand structure, mode-specific CLI flags, JSONL stream format, output extraction strategy, environment variable requirements, and timeout settings.
 
-The fundamental question is: how should orchcore represent and manage these per-agent configurations? The design must handle three scenarios:
-1. Built-in agents (Claude, Codex, etc.) that work out of the box
-2. User-customized agents (e.g., Claude with a different model or longer timeout)
-3. Entirely new agents that orchcore doesn't know about yet
+The fundamental question is: how should orchcore represent and manage these per-agent configurations? The implementation handles three scenarios:
+1. Agents registered programmatically by consuming projects
+2. Complete agent entries loaded from TOML files
+3. Runtime per-agent field patches applied with `AgentRegistry.with_overrides()`
 
 In the four source systems:
 - **Planora** (Python): Agent configs are Python dicts defined inline in the orchestration code. Adding a new agent means editing Python source.
@@ -48,65 +59,63 @@ Every source system treats agent configuration as code rather than data. This me
 | Driver | Priority | Why It Matters |
 |---|---|---|
 | Add new agent support without code changes | Critical | Agent CLI ecosystem is growing; orchcore cannot require a release for each new agent |
-| Override built-in agent defaults | High | Users need to change models, timeouts, and flags without editing orchcore source |
+| Override per-agent fields at runtime | High | Users need to change models, timeouts, env handling, and flags without editing orchcore source |
 | Central lookup by name | High | Runner, Pipeline, and Stream components need to resolve agent configs by name |
 | Type-safe agent configuration | High | Invalid configs (wrong binary, missing flags) should fail fast with clear errors |
-| Built-in defaults for known agents | High | Claude, Codex, etc. should work without any configuration |
+| No hardcoded agent policy in core | High | Consuming projects own the exact CLIs, models, flags, and auth posture they run |
 | TOML-based configuration | Medium | Aligns with orchcore's configuration system (ADR-005) |
 
 ## Considered Options
 
-### Option 1: Registry pattern with built-in defaults + TOML overrides (CHOSEN)
+### Option 1: Registry pattern with explicit registrations and TOML data (CHOSEN)
 
-**Overview:** Implement an `AgentRegistry` that combines built-in agent configurations (defined as Python dicts in orchcore's source) with custom/override configurations loaded from TOML files. The registry provides `get(name)`, `list_available()`, and `register()` methods.
+**Overview:** Implement an `AgentRegistry` that stores `AgentConfig` instances registered by consuming projects or loaded as complete entries from TOML files. The registry provides `get()`, `register()`, `list_agents()`, `available()`, `validate()`, `load_from_toml()`, and `with_overrides()` methods.
 
-**Built-in agents defined in code:**
+**Programmatic registration:**
 ```python
-BUILT_IN_AGENTS = {
-    "claude": AgentConfig(
+registry = AgentRegistry()
+registry.register(
+    AgentConfig(
         name="claude",
         binary="claude",
         model="claude-sonnet-4-20250514",
-        flags={
-            AgentMode.PLAN: ["--allowedTools", "Read,Grep,Glob,LS"],
-            AgentMode.FIX: [],
-        },
+        subcommand="-p",
+        flags={AgentMode.PLAN: ("--verbose",)},
         stream_format=StreamFormat.CLAUDE,
         output_extraction=OutputExtraction(strategy="jq_filter", jq_expression="..."),
-        stall_timeout=300,
-        deep_tool_timeout=600,
-    ),
-    "codex": AgentConfig(...),
-    ...
-}
+    )
+)
 ```
 
-**TOML overrides/additions:**
+**TOML entries:**
 ```toml
-# Override built-in agent
 [agents.claude]
+binary = "claude"
 model = "claude-opus-4-20250514"
-stall_timeout = 400
+subcommand = "-p"
+stream_format = "claude"
 
-# Add entirely new agent
-[agents.custom-agent]
-binary = "/usr/local/bin/my-agent"
-model = "custom-model-v1"
-stream_format = "claude"  # Reuse existing parser
+[agents.claude.flags]
+plan = ["--verbose"]
+
+[agents.claude.output_extraction]
+strategy = "jq_filter"
+jq_expression = ".content[0].text"
 ```
 
 **Pros:**
-- Built-in agents work without any config file (zero-config)
-- TOML overrides allow per-project customization without code changes
-- New agents can be added via TOML alone — no orchcore release required
+- Core has no stale hardcoded model/flag defaults to maintain
+- Complete TOML entries allow per-project customization without code changes
+- New agents can be added via TOML alone when they use a supported stream format
 - Central `get(name)` lookup used by Runner, Pipeline, and Stream
 - `AgentConfig` is a Pydantic model — type-safe with validation (ADR-006)
-- `list_available()` enables tooling to show which agents are configured
+- `list_agents()` exposes configured agents; `available()` reports which registered agent binaries are on `PATH`
+- `validate()` reports unknown or unavailable agent names before a pipeline run
 - `register()` enables programmatic registration for testing and dynamic workflows
-- TOML override merging: only specified fields are overridden, others keep defaults
+- `with_overrides()` returns a patched registry without mutating the original registry
 
 **Cons:**
-- Built-in agents in Python code creates a maintenance burden when defaults change
+- Consumers must provide at least one registration or TOML file before pipeline execution
 - New stream formats still require a parser implementation (TOML cannot add parsing logic)
 - Registry is a global-ish singleton per orchestration session — must be thread-safe (asyncio single-thread makes this moot)
 
@@ -115,11 +124,11 @@ stream_format = "claude"  # Reuse existing parser
 | Risk Type | Level | Detail |
 |---|---|---|
 | Technical | Low | Registry pattern is well-established; AgentConfig is a straightforward Pydantic model |
-| Schedule | Low | BUILT_IN_AGENTS dict and TOML loading are simple to implement |
+| Schedule | Low | Registry storage, TOML parsing, and Pydantic validation are straightforward to implement |
 | Ecosystem | Low | TOML parsing uses tomllib (stdlib); no third-party risk |
 
 **Trade-offs:**
-- We gain zero-config built-in agents and TOML-only extensibility for new agents, accepting that new stream formats still require a parser implementation in Python
+- We keep agent configuration as data and avoid stale baked-in defaults, accepting that consumers must provide registry entries before use and that new stream formats still require a parser implementation in Python
 
 ---
 
@@ -165,17 +174,18 @@ stream_format = "claude"  # Reuse existing parser
 
 ## Decision
 
-**We have decided to use a registry pattern where built-in agent configurations are defined as Python dicts in orchcore's source, and custom/override configurations are loaded from TOML files. The AgentRegistry provides central lookup, listing, and programmatic registration.**
+**We have decided to use a registry pattern where agent configurations are data owned by the consuming project. `AgentRegistry` has no hardcoded built-ins; consumers register agents programmatically or load complete entries from TOML files. Runtime patches are applied with `with_overrides()`.**
 
 ### Implementation Details
 
-- `AgentRegistry.__init__(config_path: Path | None = None)`: loads built-in agents, then overlays TOML config from `config_path` (or from the config system's resolved TOML path)
-- `AgentRegistry.get(name: str) -> AgentConfig`: returns merged config (built-in + TOML overrides). Raises `AgentNotFoundError` if unknown.
-- `AgentRegistry.list_available() -> list[str]`: returns sorted list of all registered agent names
+- `AgentRegistry.__init__(agents: dict[str, AgentConfig] | None = None)`: starts empty unless an initial mapping is supplied.
+- `AgentRegistry.get(name: str) -> AgentConfig`: returns the registered config. Raises `KeyError` if unknown.
 - `AgentRegistry.register(config: AgentConfig) -> None`: adds or replaces an agent config programmatically
-- TOML merge logic: for each field in the TOML `[agents.X]` section, if the field is present, it overrides the built-in default. Missing fields retain the built-in value. For entirely new agents, all required fields must be present.
-- Built-in agents: claude, codex, gemini, copilot, opencode
-- Each built-in agent has a complete `AgentConfig` with sensible defaults for all fields
+- `AgentRegistry.list_agents() -> list[str]`: returns registered agent names
+- `AgentRegistry.available() -> list[str]`: returns registered agents whose binary resolves on `PATH`
+- `AgentRegistry.validate(names: list[str]) -> list[str]`: returns names that are unknown or whose binary is unavailable
+- `AgentRegistry.load_from_toml(path: Path, *, on_error: Literal["raise", "skip"] = "raise") -> None`: loads complete `[agents.<name>]` entries. With the default `on_error="raise"`, loading is atomic: all entries are parsed and validated before any registration occurs, and a single validation failure leaves the registry unchanged. `on_error="skip"` registers valid entries and logs invalid ones.
+- `AgentRegistry.with_overrides(overrides: Mapping[str, AgentOverrideConfig | dict[str, Any]]) -> AgentRegistry`: returns a new registry with field patches applied to matching registered agents. This is the override mechanism; TOML loading does not merge partial entries into implicit defaults.
 
 ### Relationship to Tool Assignment (ADR-009)
 
@@ -187,7 +197,7 @@ The registry pattern and per-phase tool assignment (see [ADR-009](./009-tool-ass
 The `AgentConfig.flags[mode]` field provides **default** tool-related flags for each agent mode (e.g., Claude in PLAN mode defaults to read-only tools). However, `Phase.tools` and `Phase.agent_tools` can **override** these defaults per phase. The resolution order is:
 
 ```
-Phase.agent_tools[agent_name]  >  Phase.tools  >  AgentConfig.flags[mode]  >  built-in defaults
+Phase.agent_tools[agent_name]  >  Phase.tools  >  AgentConfig.flags[mode]  >  ToolSet defaults
 ```
 
 This separation means:
@@ -206,37 +216,38 @@ This separation means:
 
 ### Positive
 
-- Zero-config: built-in agents work immediately after `pip install orchcore`
-- Adding a new agent requires only a TOML entry — no code changes, no orchcore release
-- Overriding defaults (model, timeout, flags) is a TOML edit — no forking orchcore
+- Core has no stale hardcoded agent defaults to maintain
+- Adding a new agent that uses a supported stream format requires only a complete TOML entry or programmatic registration
+- Overriding registered configs uses `with_overrides()` — no forking orchcore
 - Central `get()` lookup provides single point of agent resolution for all components
 - `AgentConfig` Pydantic model validates configuration at load time
-- `list_available()` enables tooling and user-facing agent discovery
+- `list_agents()`, `available()`, and `validate()` enable tooling and user-facing agent discovery
 - `register()` enables dynamic configuration in tests and advanced workflows
 
 ### Negative
 
+- Consumers must provide agent configuration before use
 - New stream formats (not just agents) still require a Python parser implementation
-- Built-in agent defaults in Python source need manual updates when agent CLIs change defaults
-- TOML merge semantics (partial override) could confuse users expecting full replacement
+- Complete TOML entries are more verbose than sparse configuration files
 
 ### Neutral
 
 - Registry pattern is a well-understood design pattern — no learning curve
-- 5 built-in agents is a reasonable starting set covering the major AI coding agent CLIs
+- Supported stream parsers cover the major AI coding agent CLIs, but registry data remains consumer-owned
 
 ## Validation and Monitoring
 
 | Success Metric | Target | How to Measure |
 |---|---|---|
-| Built-in agent resolution | All 5 built-in agents resolvable without any config file | Unit test: `registry.get("claude")` succeeds with no TOML |
-| TOML override | Overriding a single field preserves all other defaults | Unit test: override `model`, check `stall_timeout` unchanged |
+| Programmatic registration | Registered agents resolve via `get()` | Unit test: `register(config)`, then `registry.get(config.name)` |
+| Unknown agent behavior | Unknown names raise `KeyError` | Unit test: `registry.get("missing")` raises `KeyError` |
 | New agent via TOML | Adding a complete agent config in TOML makes it available via `get()` | Unit test: define `custom-agent` in TOML, resolve it |
-| Invalid config rejected | Missing required fields in TOML agent raise clear ValidationError | Unit test with incomplete agent config |
-| List available | `list_available()` returns all built-in + TOML-configured agents | Unit test comparing expected vs. actual list |
+| Atomic TOML loading | Invalid entries do not partially mutate the registry | Unit test with invalid config and pre-existing registry |
+| Runtime overrides | `with_overrides()` returns patched configs without mutating the original registry | Unit test: override `model`, compare original and patched registries |
+| Availability reporting | `available()` and `validate()` reflect registered binaries on `PATH` | Unit tests with PATH-controlled fake binaries |
 
 **Review Schedule:**
-- On each new major agent CLI launch: add built-in config and parser
+- On each new major agent CLI launch: add a parser only when its stream format is unsupported
 - Quarterly: Review user feedback on agent configuration experience
 - Annually: Reassess registry vs. plugin approach
 
@@ -244,7 +255,7 @@ This separation means:
 
 - **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — registry is a core component
 - **ADR-004:** [Composable stream pipeline](./004-composable-stream-processing-pipeline.md) — StreamFormat from registry drives parser selection
-- **ADR-005:** [Multi-source layered configuration](./005-multi-source-layered-configuration.md) — TOML overrides loaded via config system
+- **ADR-005:** [Multi-source layered configuration](./005-multi-source-layered-configuration.md) — settings-level agent overrides can be applied with `with_overrides()`
 - **ADR-006:** [Pydantic for all data models](./006-pydantic-for-all-data-models.md) — AgentConfig is a Pydantic model
 - **ADR-009:** [Tool assignment as phase-level concern](./009-tool-assignment-as-phase-level-concern.md) — ToolSet complements registry by defining per-phase tool access
 
@@ -260,3 +271,4 @@ This separation means:
 |---|---|---|---|
 | 1.0 | 2026-03-25 | Abdelaziz Abdelrasol | Initial version (ACCEPTED) |
 | 1.1 | 2026-03-25 | Abdelaziz Abdelrasol | Added relationship to tool assignment (ADR-009); added ADR-009 to related decisions |
+| 1.2 | 2026-06-10 | Abdelaziz Abdelrasol | Refreshed implementation details for registry-as-data, atomic TOML loading, and `with_overrides()` |

@@ -5,16 +5,28 @@ from __future__ import annotations
 import importlib
 import logging
 from contextlib import contextmanager
+from contextvars import ContextVar
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import types
     from collections.abc import Iterator
-    from decimal import Decimal
-
-    from orchcore.stream.events import ToolExecution
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+class _CostAccumulator:
+    """Mutable per-pipeline cost state shared by child task context copies."""
+
+    def __init__(self) -> None:
+        self.total = Decimal(0)
+
+
+_PIPELINE_COST: ContextVar[_CostAccumulator | None] = ContextVar(
+    "orchcore_pipeline_cost",
+    default=None,
+)
 
 
 class OrchcoreTelemetry:
@@ -26,6 +38,7 @@ class OrchcoreTelemetry:
 
     def __init__(
         self,
+        *,
         enabled: bool = False,
         service_name: str = "orchcore",
         otlp_endpoint: str | None = None,
@@ -81,7 +94,7 @@ class OrchcoreTelemetry:
         """Start a span when telemetry is active, or yield None when disabled.
 
         Centralises the disabled-check/start-span scaffolding shared by
-        pipeline_span, phase_span, agent_span, and tool_span.
+        pipeline_span, phase_span, and agent_span.
         """
         if not self._enabled or self._tracer is None:
             yield None
@@ -97,14 +110,18 @@ class OrchcoreTelemetry:
         task_slug: str,
     ) -> Iterator[object | None]:
         """Create a root span for the entire orchestration pipeline."""
-        with self._span(
-            "orchcore.pipeline",
-            {
-                "orchcore.pipeline": pipeline_name,
-                "orchcore.task_slug": task_slug,
-            },
-        ) as span:
-            yield span
+        token = _PIPELINE_COST.set(_CostAccumulator())
+        try:
+            with self._span(
+                "orchcore.pipeline",
+                {
+                    "orchcore.pipeline": pipeline_name,
+                    "orchcore.task_slug": task_slug,
+                },
+            ) as span:
+                yield span
+        finally:
+            _PIPELINE_COST.reset(token)
 
     @contextmanager
     def phase_span(
@@ -134,22 +151,12 @@ class OrchcoreTelemetry:
         ) as span:
             yield span
 
-    @contextmanager
-    def tool_span(self, agent: str, tool: ToolExecution) -> Iterator[object | None]:
-        """Create a child span for a tool invocation."""
-        with self._span(
-            f"orchcore.tool.{tool.name}",
-            {
-                "orchcore.agent": agent,
-                "orchcore.tool.name": tool.name,
-                "orchcore.tool.detail": tool.detail or "",
-                "orchcore.tool.id": tool.tool_id,
-            },
-        ) as span:
-            yield span
-
     def record_cost(self, agent: str, cost_usd: Decimal) -> None:
-        """Record cost information on the current span if telemetry is active."""
+        """Record cost information on the current span if telemetry is active.
+
+        Inside a pipeline span, ``orchcore.cost.total`` is the running total at
+        the time this call records an agent cost.
+        """
         if not self._enabled or self._trace_api is None:
             return
 
@@ -159,7 +166,10 @@ class OrchcoreTelemetry:
                 return
             span.set_attribute("orchcore.agent", agent)
             span.set_attribute(f"orchcore.cost.{agent}", float(cost_usd))
-            span.set_attribute("orchcore.cost.total", float(cost_usd))
+            accumulator = _PIPELINE_COST.get()
+            if accumulator is not None:
+                accumulator.total += cost_usd
+                span.set_attribute("orchcore.cost.total", float(accumulator.total))
         except (AttributeError, RuntimeError, ValueError) as exc:
             # AttributeError: span type doesn't expose set_attribute (non-recording span).
             # RuntimeError: span implementation rejects the mutation (e.g. already ended).

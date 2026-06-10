@@ -42,17 +42,26 @@ for line in raw_jsonl_lines:
 
 **Purpose:** Format-specific JSONL parsing into normalized `StreamEvent` instances.
 
-Each agent CLI emits JSONL in a different schema. The parser contains format-specific logic for
-all 5 supported formats, producing zero or more normalized `StreamEvent` objects per line.
+Each agent CLI emits JSONL in a different schema. Format knowledge lives in one module per
+format under `orchcore/stream/formats/` (`claude.py`, `codex.py`, `copilot.py`, `opencode.py`,
+`gemini.py`), each validating lines into private Pydantic envelope models (`extra="allow"` for
+forward compatibility) and producing zero or more normalized `StreamEvent` objects per line.
+`StreamParser` itself is a thin dispatcher that owns the shared infrastructure: line splitting
+and the two diagnostic counters.
 
 **Supported formats:** Claude, Codex, OpenCode, Gemini, Copilot
 
 **Key behaviors:**
 
-- Handles malformed JSON gracefully with bounded warning logs
+- Handles malformed JSON gracefully with bounded warning logs (`json_parse_error_count`)
+- Counts well-formed lines that fail a format's wire schema (`wire_validation_error_count`)
+  with the same bounded-warning pattern — schema failures never vanish silently; both counters
+  are surfaced on `AgentResult`
 - Extracts tool invocations, text content, cost, tokens, and exit codes
 - Supports native text extraction (no `jq` binary required)
 - Maps format-specific event types to the unified `StreamEventType` enum
+- Gemini tool completions are paired to their starts via a FIFO of open synthetic
+  `gemini-tool-N` ids (Gemini emits no tool ids of its own)
 
 ```python
 from orchcore.stream import StreamParser, StreamFormat

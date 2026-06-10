@@ -1,6 +1,6 @@
 # Observability
 
-orchcore provides optional OpenTelemetry integration via `OrchcoreTelemetry`. When enabled, it emits traces for pipelines, phases, agents, and tool invocations. When OpenTelemetry packages are not installed, all methods silently become no-ops.
+orchcore provides optional OpenTelemetry integration via `OrchcoreTelemetry`. When enabled, it emits traces for pipelines, phases, and agents. When OpenTelemetry packages are not installed, all methods silently become no-ops.
 
 ## Overview
 
@@ -10,8 +10,6 @@ orchcore provides optional OpenTelemetry integration via `OrchcoreTelemetry`. Wh
 pipeline span
 ├── phase span (planning)
 │   └── agent span (claude)
-│       ├── tool span (Read)
-│       └── tool span (Grep)
 └── phase span (execution)
     ├── agent span (claude)
     └── agent span (codex)
@@ -75,10 +73,7 @@ with telemetry.pipeline_span("my-pipeline", task_slug="fix-auth-bug") as span:
 
         # Agent-level span
         with telemetry.agent_span("planning", "claude") as span:
-
-            # Tool-level span (requires a ToolExecution object)
-            with telemetry.tool_span("claude", tool_execution) as span:
-                ...
+            ...
 ```
 
 ## Recording Cost
@@ -91,7 +86,9 @@ from decimal import Decimal
 telemetry.record_cost("claude", Decimal("0.42"))
 ```
 
-This sets `orchcore.cost.claude` and `orchcore.cost.total` attributes on the current span.
+This sets `orchcore.cost.claude` on the current span. When called inside a
+`pipeline_span`, it also sets `orchcore.cost.total` to the running pipeline total
+at recording time.
 
 ## Graceful Degradation
 
