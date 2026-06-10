@@ -43,8 +43,10 @@ jq_expression = ".content[0].text"
 |-------|------|----------|-------------|
 | `binary` | `str` | Yes | Path or name of the agent CLI executable |
 | `model` | `str` | Yes | Model identifier passed to the agent |
-| `subcommand` | `str` | Yes | Agent CLI argument used before the prompt (for example, `"-p"` for Claude or `"exec"` for Codex) |
+| `subcommand` | `str` | Yes | Agent CLI argument used before the prompt (for example, `"-p"` for Claude or `"exec"` for Codex). An empty string is omitted from the command — it never becomes a literal `''` argument. |
 | `stream_format` | `str` | Yes | JSONL format: `claude`, `codex`, `opencode`, `gemini`, `copilot` |
+| `prompt_via` | `"argv" \| "stdin"` | No | How the prompt reaches the CLI (default: `argv`). `stdin` keeps the prompt out of argv and pipes it to the child's stdin. |
+| `stdin_sentinel` | `str \| None` | No | Argv placeholder appended instead of the prompt under `prompt_via = "stdin"` (for example, `"-"` for `codex exec -`). |
 | `stall_timeout` | `float` | No | Seconds before stall detection (default: 300) |
 | `deep_tool_timeout` | `float` | No | Timeout for deep tools like Exa/Tavily (default: 600) |
 | `max_runtime` | `float \| None` | No | Hard wall-clock cap for the subprocess; `None` disables enforcement |
@@ -94,6 +96,30 @@ ANTHROPIC_API_KEY = "..."
 ```
 
 `env_policy = "clean"` starts from a minimal platform environment. It is useful for reproducibility checks, but it is not a full hermetic home-directory sandbox.
+
+### Prompt Transport (`prompt_via`)
+
+By default the prompt travels as a command-line argument (`prompt_via = "argv"`). For very large prompts this risks `ARG_MAX` (POSIX) / 32K `CreateProcess` (Windows) limits, and the prompt content is visible in local process listings. Setting `prompt_via = "stdin"` omits the prompt from argv, opens a stdin pipe, and writes the encoded prompt concurrently with stream consumption (avoiding pipe-buffer deadlocks), then closes stdin.
+
+Per-CLI stdin support:
+
+| CLI | Configuration | Notes |
+|-----|---------------|-------|
+| Claude Code | `subcommand = "-p"`, `prompt_via = "stdin"` | `-p` accepts the prompt from piped stdin; capped at 10 MB as of v2.1.128 — reference files in the prompt for larger contexts. |
+| Codex CLI | `subcommand = "exec"`, `prompt_via = "stdin"`, `stdin_sentinel = "-"` | `codex exec -` reads the full prompt from stdin; the `-` placeholder must be the prompt argument. |
+| Others | keep `prompt_via = "argv"` | Use argv until stdin support is verified for the specific CLI. |
+
+orchcore drives non-interactive CLI modes only: CLIs that expect stdin to stay open for interaction are out of scope — stdin is closed after the prompt is written.
+
+```toml
+[agents.codex]
+binary = "codex"
+model = "gpt-5.2-codex"
+subcommand = "exec"
+stream_format = "codex"
+prompt_via = "stdin"
+stdin_sentinel = "-"
+```
 
 ## Multi-Agent TOML
 
@@ -157,6 +183,18 @@ claude = registry.get("claude")
 print(claude.binary)        # "claude"
 print(claude.stream_format) # StreamFormat.CLAUDE
 ```
+
+Loading is **atomic**: every entry is parsed and validated before any is
+registered. With the default `on_error="raise"`, a file containing invalid
+entries raises a single `ValueError` naming *all* offenders and leaves the
+registry untouched. Pass `on_error="skip"` to register the valid entries and
+log a warning per invalid one (the pre-1.0 lenience for non-table entries).
+
+TOML values are used **literally** — no `${VAR}` environment-variable
+interpolation is performed; a value like `"${ANTHROPIC_API_KEY}"` would reach
+the subprocess as that exact string. For ambient credentials use
+`env_policy`/`env_passlist` (see [Environment Policy](#environment-policy)),
+or resolve values in your own configuration layer before registering.
 
 ### Programmatic Registration
 

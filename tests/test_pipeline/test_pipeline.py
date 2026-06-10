@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ import pytest
 
 from orchcore.pipeline import (
     EmptyPipelineError,
+    FlowControl,
     Phase,
     PhaseResult,
     PhaseRunner,
@@ -343,6 +345,230 @@ async def test_run_pipeline_runs_phase_after_dependencies_complete(
 
 
 @pytest.mark.asyncio
+async def test_run_pipeline_reorders_ill_ordered_phases_topologically(
+    ui_callback: NullCallback,
+) -> None:
+    """WP-20: a dependent declared before its dependency runs after it."""
+    # Arrange — implementation is declared first but depends on planning.
+    phases = [
+        _phase("implementation", depends_on=["planning"]),
+        _phase("planning"),
+    ]
+    phase_runner = StubPhaseRunner(
+        {
+            "planning": _phase_result("planning", PhaseStatus.DONE),
+            "implementation": _phase_result("implementation", PhaseStatus.DONE),
+        }
+    )
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    # Act
+    result = await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={phase.name: phase.name for phase in phases},
+        ui_callback=ui_callback,
+    )
+
+    # Assert — both phases ran, dependency first, and the pipeline succeeded.
+    assert [call.phase_name for call in phase_runner.calls] == [
+        "planning",
+        "implementation",
+    ]
+    assert [phase_result.status for phase_result in result.phases] == [
+        PhaseStatus.DONE,
+        PhaseStatus.DONE,
+    ]
+    assert result.success
+
+
+@pytest.mark.asyncio
+async def test_required_phase_dep_skip_fails_pipeline(ui_callback: NullCallback) -> None:
+    """F10 regression: a required phase skipped for unmet dependencies fails
+    the pipeline (success=False) and stops further execution."""
+    # Arrange — optional planning fails, required implementation depends on it.
+    phases = [
+        _phase("planning", required=False),
+        _phase("implementation", depends_on=["planning"]),
+        _phase("review"),
+    ]
+    phase_runner = StubPhaseRunner(
+        {
+            "planning": _phase_result("planning", PhaseStatus.FAILED, error="planning failed"),
+            "implementation": _phase_result("implementation", PhaseStatus.DONE),
+            "review": _phase_result("review", PhaseStatus.DONE),
+        }
+    )
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    # Act
+    result = await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={phase.name: phase.name for phase in phases},
+        ui_callback=ui_callback,
+    )
+
+    # Assert — implementation is dependency-blocked; review never runs.
+    assert [phase_result.name for phase_result in result.phases] == [
+        "planning",
+        "implementation",
+    ]
+    assert result.phases[1].status is PhaseStatus.SKIPPED
+    assert result.phases[1].error == "Dependencies not met: planning"
+    assert not result.success
+    assert [call.phase_name for call in phase_runner.calls] == ["planning"]
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_optional_dep_skip_keeps_success(
+    ui_callback: NullCallback,
+) -> None:
+    """WP-20: optional phases skip freely on unmet dependencies; the pipeline
+    continues and still succeeds."""
+    # Arrange — optional documentation depends on a user-skipped phase.
+    phases = [
+        _phase("planning"),
+        _phase("documentation", depends_on=["extras"], required=False),
+        _phase("extras", required=False),
+    ]
+    phase_runner = StubPhaseRunner(
+        {
+            "planning": _phase_result("planning", PhaseStatus.DONE),
+            "documentation": _phase_result("documentation", PhaseStatus.DONE),
+        }
+    )
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    # Act
+    result = await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={phase.name: phase.name for phase in phases},
+        ui_callback=ui_callback,
+        skip_phases=["extras"],
+    )
+
+    # Assert — documentation is dependency-blocked but optional.
+    statuses = {phase_result.name: phase_result.status for phase_result in result.phases}
+    assert statuses["planning"] is PhaseStatus.DONE
+    assert statuses["extras"] is PhaseStatus.SKIPPED
+    assert statuses["documentation"] is PhaseStatus.SKIPPED
+    assert result.success
+    assert [call.phase_name for call in phase_runner.calls] == ["planning"]
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_resume_satisfies_dependencies_from_saved_state(
+    ui_callback: NullCallback,
+    workspace: WorkspaceManager,
+) -> None:
+    """WP-20: on resume, dependencies completed in a previous run (loaded
+    from the state file) satisfy dependents."""
+    # Arrange — planning completed in an earlier run.
+    await workspace.awrite_file(".state.json", json.dumps({"completed_phases": ["planning"]}))
+    phases = [
+        _phase("planning"),
+        _phase("implementation", depends_on=["planning"]),
+    ]
+    phase_runner = StubPhaseRunner(
+        {"implementation": _phase_result("implementation", PhaseStatus.DONE)}
+    )
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner, workspace=workspace)
+
+    # Act
+    result = await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={"implementation": "Build it"},
+        ui_callback=ui_callback,
+        resume_from="implementation",
+    )
+
+    # Assert
+    assert result.phases[0].status is PhaseStatus.SKIPPED
+    assert result.phases[0].error == "Already completed (resuming)"
+    assert result.phases[1].status is PhaseStatus.DONE
+    assert result.success
+    assert [call.phase_name for call in phase_runner.calls] == ["implementation"]
+
+
+@pytest.mark.asyncio
+async def test_flow_control_pause_blocks_between_phases_and_resume_releases(
+    ui_callback: NullCallback,
+) -> None:
+    """WP-21: pause takes effect at the phase boundary; resume releases."""
+    # Arrange — pause as soon as the first phase completes.
+    flow_control = FlowControl()
+    phases = [_phase("planning"), _phase("implementation")]
+
+    class PausingPhaseRunner(StubPhaseRunner):
+        async def run_phase(self, *args: object, **kwargs: object) -> PhaseResult:
+            result = await super().run_phase(*args, **kwargs)  # type: ignore[arg-type]
+            if result.name == "planning":
+                flow_control.pause()
+            return result
+
+    phase_runner = PausingPhaseRunner(
+        {
+            "planning": _phase_result("planning", PhaseStatus.DONE),
+            "implementation": _phase_result("implementation", PhaseStatus.DONE),
+        }
+    )
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner, flow_control=flow_control)
+
+    # Act — run the pipeline as a task; it must stall at the checkpoint.
+    pipeline_task = asyncio.create_task(
+        pipeline_runner.run_pipeline(
+            phases=phases,
+            prompts={phase.name: phase.name for phase in phases},
+            ui_callback=ui_callback,
+        )
+    )
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert [call.phase_name for call in phase_runner.calls] == ["planning"]
+    assert not pipeline_task.done()
+
+    flow_control.resume()
+    result = await asyncio.wait_for(pipeline_task, timeout=5.0)
+
+    # Assert — implementation only ran after resume.
+    assert [call.phase_name for call in phase_runner.calls] == [
+        "planning",
+        "implementation",
+    ]
+    assert result.success
+
+
+@pytest.mark.asyncio
+async def test_flow_control_skip_skips_exactly_one_phase_and_clears_flag(
+    ui_callback: NullCallback,
+) -> None:
+    """WP-21: a skip request applies to the next executing phase only and
+    counts as a user-requested skip for the success semantics."""
+    # Arrange
+    flow_control = FlowControl()
+    flow_control.request_skip()
+    phases = [_phase("planning"), _phase("implementation")]
+    phase_runner = StubPhaseRunner(
+        {"implementation": _phase_result("implementation", PhaseStatus.DONE)}
+    )
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner, flow_control=flow_control)
+
+    # Act
+    result = await pipeline_runner.run_pipeline(
+        phases=phases,
+        prompts={phase.name: phase.name for phase in phases},
+        ui_callback=ui_callback,
+    )
+
+    # Assert
+    assert result.phases[0].status is PhaseStatus.SKIPPED
+    assert result.phases[0].error == "Skipped via FlowControl"
+    assert result.phases[1].status is PhaseStatus.DONE
+    assert not flow_control.skip_requested
+    assert result.success
+    assert [call.phase_name for call in phase_runner.calls] == ["implementation"]
+
+
+@pytest.mark.asyncio
 async def test_run_pipeline_skips_requested_phases(ui_callback: NullCallback) -> None:
     # Arrange
     phases = [
@@ -403,14 +629,15 @@ async def test_run_pipeline_skips_dependents_of_user_skipped_phases(
         skip_phases=["planning"],
     )
 
-    # Assert
+    # Assert — skipping a required phase's dependency blocks the dependent,
+    # which fails the pipeline (WP-20 / F10 success semantics).
     assert [phase_result.status for phase_result in result.phases] == [
         PhaseStatus.SKIPPED,
         PhaseStatus.SKIPPED,
     ]
     assert result.phases[0].error == "Skipped by user request"
     assert result.phases[1].error == "Dependencies not met: planning"
-    assert result.success
+    assert not result.success
 
 
 @pytest.mark.asyncio
@@ -464,11 +691,12 @@ async def test_run_pipeline_only_phase_still_enforces_dependencies(
         only_phase="implementation",
     )
 
-    # Assert
+    # Assert — the selected phase is required and its dependency never ran in
+    # this process, so the pipeline reports failure (WP-20 success semantics).
     assert [phase_result.name for phase_result in result.phases] == ["implementation"]
     assert result.phases[0].status is PhaseStatus.SKIPPED
     assert result.phases[0].error == "Dependencies not met: planning"
-    assert result.success
+    assert not result.success
     assert phase_runner.calls == []
 
 

@@ -134,7 +134,7 @@ src/orchcore/
 
 orchcore uses a two-level execution model:
 
-1. **PipelineRunner** — coordinates multiple phases in dependency order. Handles resume, skip, and only-phase options.
+1. **PipelineRunner** — coordinates multiple phases in topological dependency order (dependencies first, declaration order preserved among independent phases — see [ADR-010](adrs/010-topological-phase-ordering-and-success-semantics.md)). Handles resume, skip, and only-phase options. A required phase whose dependencies are unmet fails the pipeline instead of silently counting as success.
 2. **PhaseRunner** — executes a single phase. Launches agents sequentially or in parallel via `AgentRunner`, enforces concurrency limits, and aggregates results.
 3. **AgentRunner** — launches each subprocess with an explicit command, filtered environment, optional working directory, stream parser, and process-tree shutdown policy.
 

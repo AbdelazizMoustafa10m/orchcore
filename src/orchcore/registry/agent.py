@@ -60,6 +60,14 @@ class AgentConfig(BaseModel):
     deep_tool_timeout: float = 600.0
     max_runtime: float | None = None
     kill_on_stall: bool = False
+    prompt_via: Literal["argv", "stdin"] = "argv"
+    """How the prompt reaches the agent CLI. ``"stdin"`` keeps the prompt out
+    of argv (no ARG_MAX/CreateProcess limits, not visible in process listings)
+    and writes it to the child's stdin instead."""
+    stdin_sentinel: str | None = None
+    """Argv element appended in place of the prompt under ``prompt_via="stdin"``
+    for CLIs that need a placeholder (e.g. ``"-"`` for ``codex exec -``).
+    Keeps CLI quirks in registry data, not code."""
 
 
 class ToolSet(BaseModel):

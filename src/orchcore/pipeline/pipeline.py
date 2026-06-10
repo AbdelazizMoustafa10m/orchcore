@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import json
 import logging
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus, PipelineRes
 from orchcore.registry.agent import AgentMode
 
 if TYPE_CHECKING:
+    from orchcore.pipeline.control import FlowControl
     from orchcore.pipeline.engine import PhaseRunner
     from orchcore.ui.callback import UICallback
     from orchcore.workspace.manager import WorkspaceManager
@@ -32,9 +34,12 @@ class PipelineRunner:
         self,
         phase_runner: PhaseRunner,
         workspace: WorkspaceManager | None = None,
+        *,
+        flow_control: FlowControl | None = None,
     ) -> None:
         self._phase_runner = phase_runner
         self._workspace = workspace
+        self._flow_control = flow_control
 
     async def run_pipeline(
         self,
@@ -47,9 +52,17 @@ class PipelineRunner:
         only_phase: str | None = None,
         allow_empty_prompts: bool = False,
     ) -> PipelineResult:
-        """Execute a pipeline of phases in order."""
+        """Execute a pipeline of phases in topological dependency order.
+
+        Phases run dependencies-first; phases with no path between them keep
+        their declaration order (stable ordering, see ADR-010). A *required*
+        phase whose dependencies are unmet is recorded as ``SKIPPED``, fails
+        the pipeline (``success=False``), and stops further execution —
+        mirroring the required-phase failure rule. Optional phases skip
+        freely without affecting ``success``.
+        """
         skip_set = set(skip_phases or [])
-        _validate_pipeline_request(
+        ordered_phases = _validate_pipeline_request(
             phases=phases,
             prompts=prompts,
             resume_from=resume_from,
@@ -63,10 +76,11 @@ class PipelineRunner:
         phase_results: list[PhaseResult] = []
         completed_phases = await self._load_state() if resume_from is not None else set()
         resuming = resume_from is not None
+        dependency_blocked_required = False
 
-        ui_callback.on_pipeline_start(phases)
+        ui_callback.on_pipeline_start(ordered_phases)
 
-        for phase in phases:
+        for phase in ordered_phases:
             if only_phase is not None and phase.name != only_phase:
                 continue
 
@@ -90,15 +104,38 @@ class PipelineRunner:
                 ui_callback.on_phase_skip(phase, reason)
                 continue
 
+            if self._flow_control is not None:
+                # Phase-boundary checkpoint: pause takes effect between
+                # phases, and a pending skip request applies to the next
+                # phase that would actually execute. A FlowControl skip is a
+                # user-requested skip for the success semantics — though
+                # skipping a required phase dependency-blocks its dependents.
+                await self._flow_control.wait_if_paused()
+                if self._flow_control.skip_requested:
+                    self._flow_control.clear_skip()
+                    reason = "Skipped via FlowControl"
+                    phase_results.append(_skipped_phase_result(name=phase.name, reason=reason))
+                    ui_callback.on_phase_skip(phase, reason)
+                    continue
+
             unmet_dependencies = [
                 dependency_name
                 for dependency_name in phase.depends_on
                 if dependency_name not in completed_phases
             ]
             if unmet_dependencies:
+                # Ordering guarantees dependencies already had their turn, so
+                # an unmet dependency here means it failed or was skipped.
                 reason = f"Dependencies not met: {', '.join(unmet_dependencies)}"
                 phase_results.append(_skipped_phase_result(name=phase.name, reason=reason))
                 ui_callback.on_phase_skip(phase, reason)
+                if phase.required:
+                    dependency_blocked_required = True
+                    logger.warning(
+                        "Required phase %r blocked by unmet dependencies, stopping pipeline",
+                        phase.name,
+                    )
+                    break
                 continue
 
             prompt = prompts.get(phase.name, "")
@@ -142,7 +179,10 @@ class PipelineRunner:
             phases=phase_results,
             total_duration=datetime.now(UTC) - started_at,
             total_cost_usd=_total_cost(phase_results),
-            success=_pipeline_succeeded(phase_results),
+            success=_pipeline_succeeded(
+                phase_results,
+                dependency_blocked_required=dependency_blocked_required,
+            ),
         )
         ui_callback.on_pipeline_complete(pipeline_result)
         return pipeline_result
@@ -209,8 +249,14 @@ def _validate_pipeline_request(
     only_phase: str | None,
     skip_phases: set[str],
     allow_empty_prompts: bool,
-) -> None:
-    """Validate public run_pipeline inputs before execution starts."""
+) -> list[Phase]:
+    """Validate run_pipeline inputs and return the topological execution order.
+
+    Prompt validation mirrors the effective execution set: phases positioned
+    before ``resume_from`` in the *ordered* sequence never execute on a
+    resumed run, so they are exempt from the prompt check, exactly like
+    ``skip_phases``/``only_phase`` exclusions.
+    """
     if not phases:
         raise EmptyPipelineError("Pipeline must contain at least one phase")
 
@@ -250,16 +296,20 @@ def _validate_pipeline_request(
     if cycle_path is not None:
         raise PipelineValidationError(f"Dependency cycle detected: {' -> '.join(cycle_path)}")
 
+    ordered_phases = _topological_phases(phases)
+
     if allow_empty_prompts:
-        return
+        return ordered_phases
 
     start_index = 0
     if resume_from is not None:
-        start_index = next(index for index, phase in enumerate(phases) if phase.name == resume_from)
+        start_index = next(
+            index for index, phase in enumerate(ordered_phases) if phase.name == resume_from
+        )
 
     missing_prompt_phases = [
         phase.name
-        for phase in phases[start_index:]
+        for phase in ordered_phases[start_index:]
         if phase.agents
         and phase.name not in skip_phases
         and (only_phase is None or phase.name == only_phase)
@@ -271,6 +321,46 @@ def _validate_pipeline_request(
             f"No prompt provided for phase(s): {missing}. "
             "Pass allow_empty_prompts=True to permit promptless phases."
         )
+
+    return ordered_phases
+
+
+def _topological_phases(phases: list[Phase]) -> list[Phase]:
+    """Return phases in stable topological order (Kahn's algorithm).
+
+    Dependencies always precede their dependents; phases with no path between
+    them keep their declaration order. Deterministic output matters for
+    resume state and UX, so the ready queue is keyed on declaration index.
+    Callers must have validated the graph first: unknown dependencies and
+    cycles are rejected by ``_validate_pipeline_request`` before this runs.
+    """
+    index_by_name = {phase.name: index for index, phase in enumerate(phases)}
+    pending_dependencies: dict[str, set[str]] = {
+        phase.name: set(phase.depends_on) for phase in phases
+    }
+    dependents_by_name: dict[str, list[str]] = {phase.name: [] for phase in phases}
+    for phase in phases:
+        for dependency_name in set(phase.depends_on):
+            dependents_by_name[dependency_name].append(phase.name)
+
+    ready_indices = [
+        index_by_name[name]
+        for name, dependencies in pending_dependencies.items()
+        if not dependencies
+    ]
+    heapq.heapify(ready_indices)
+
+    ordered: list[Phase] = []
+    while ready_indices:
+        phase = phases[heapq.heappop(ready_indices)]
+        ordered.append(phase)
+        for dependent_name in dependents_by_name[phase.name]:
+            remaining = pending_dependencies[dependent_name]
+            remaining.discard(phase.name)
+            if not remaining:
+                heapq.heappush(ready_indices, index_by_name[dependent_name])
+
+    return ordered
 
 
 def _collect_unknown_dependencies(phases_by_name: dict[str, Phase]) -> dict[str, list[str]]:
@@ -342,8 +432,19 @@ def _total_cost(phase_results: list[PhaseResult]) -> Decimal | None:
     return sum(costs, Decimal(0))
 
 
-def _pipeline_succeeded(phase_results: list[PhaseResult]) -> bool:
-    """Return whether the pipeline completed without a failed phase result."""
+def _pipeline_succeeded(
+    phase_results: list[PhaseResult],
+    *,
+    dependency_blocked_required: bool,
+) -> bool:
+    """Return whether the pipeline completed all required work.
+
+    A pipeline succeeds when no phase failed *and* no required phase was
+    skipped because its dependencies were unmet. User-requested skips
+    (``skip_phases``, resume) still count as success.
+    """
+    if dependency_blocked_required:
+        return False
     return all(
         result.status in {PhaseStatus.DONE, PhaseStatus.SKIPPED, PhaseStatus.PARTIAL}
         for result in phase_results

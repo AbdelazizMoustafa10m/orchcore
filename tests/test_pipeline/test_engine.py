@@ -30,7 +30,7 @@ from orchcore.recovery import FailureMode, GitRecovery, RetryPolicy
 from orchcore.registry.agent import AgentConfig, AgentMode, ToolSet
 from orchcore.registry.registry import AgentRegistry
 from orchcore.runner.subprocess import AgentRunner
-from orchcore.stream.events import AgentResult
+from orchcore.stream.events import AgentErrorCategory, AgentResult
 from orchcore.ui.callback import NullCallback
 
 if TYPE_CHECKING:
@@ -111,6 +111,8 @@ def _build_agent_result(
     exit_code: int,
     output_empty: bool,
     error: str | None = None,
+    error_category: AgentErrorCategory | None = None,
+    rate_limit_reset_seconds: int | None = None,
 ) -> AgentResult:
     return AgentResult(
         agent_name=agent_name,
@@ -121,6 +123,8 @@ def _build_agent_result(
         duration=timedelta(0),
         output_empty=output_empty,
         error=error,
+        error_category=error_category,
+        rate_limit_reset_seconds=rate_limit_reset_seconds,
     )
 
 
@@ -640,6 +644,7 @@ def test_phase_result_aggregation_and_helper_fallbacks(tmp_path: Path) -> None:
         output_path=tmp_path / "gamma.md",
         phase_name="analysis",
         error="launch failed",
+        category=AgentErrorCategory.OS_ERROR,
     )
 
     partial = _build_phase_result(
@@ -657,6 +662,8 @@ def test_phase_result_aggregation_and_helper_fallbacks(tmp_path: Path) -> None:
     assert _agent_error_message(empty_success) == "Agent 'empty' completed without producing output"
     assert _agent_error_message(exit_failure) == "Agent 'beta' exited with code 2"
     assert synthetic.error == "launch failed (phase='analysis', agent='gamma')"
+    assert synthetic.error_category is AgentErrorCategory.OS_ERROR
+    assert partial.error_messages == ["Agent 'beta' exited with code 2"]
     assert _exception_message(RuntimeError()) == "RuntimeError"
     assert _path_component(" !!! ") == "unnamed"
 
@@ -701,6 +708,8 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
                 exit_code=1,
                 output_empty=True,
                 error="429 rate limit exceeded, try again in 17 seconds",
+                error_category=AgentErrorCategory.RATE_LIMIT,
+                rate_limit_reset_seconds=17,
             )
         return _build_agent_result(
             agent_name="codex",
@@ -762,10 +771,20 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("raised_error", "expected_message"),
+    ("raised_error", "expected_message", "expected_category"),
     [
-        pytest.param(FileNotFoundError("missing binary"), "binary", id="missing-binary"),
-        pytest.param(OSError("permission denied"), "failed in phase", id="os-error"),
+        pytest.param(
+            FileNotFoundError("missing binary"),
+            "binary",
+            AgentErrorCategory.BINARY_NOT_FOUND,
+            id="missing-binary",
+        ),
+        pytest.param(
+            OSError("permission denied"),
+            "failed in phase",
+            AgentErrorCategory.OS_ERROR,
+            id="os-error",
+        ),
     ],
 )
 async def test_run_with_semaphore_returns_synthetic_launch_errors(
@@ -773,6 +792,7 @@ async def test_run_with_semaphore_returns_synthetic_launch_errors(
     monkeypatch: pytest.MonkeyPatch,
     raised_error: OSError,
     expected_message: str,
+    expected_category: AgentErrorCategory,
 ) -> None:
     setup = retry_test_setup
 
@@ -796,6 +816,7 @@ async def test_run_with_semaphore_returns_synthetic_launch_errors(
     assert result.error is not None
     assert expected_message in result.error
     assert "phase='analysis', agent='codex'" in result.error
+    assert result.error_category is expected_category
 
 
 @pytest.mark.asyncio
@@ -854,6 +875,7 @@ async def test_run_with_semaphore_uses_fallback_rate_limit_message(
                 exit_code=1,
                 output_empty=True,
                 error="   ",
+                error_category=AgentErrorCategory.RATE_LIMIT,
             )
         return _build_agent_result(
             agent_name="codex",
@@ -862,23 +884,7 @@ async def test_run_with_semaphore_uses_fallback_rate_limit_message(
             output_empty=False,
         )
 
-    def fake_is_rate_limited(self: object, text: str) -> bool:
-        del self, text
-        return True
-
-    def fake_extract_message(self: object, text: str) -> str | None:
-        del self, text
-        return None
-
     monkeypatch.setattr(setup.runner, "run", fake_run)
-    monkeypatch.setattr(
-        "orchcore.pipeline.engine.RateLimitDetector.is_rate_limited",
-        fake_is_rate_limited,
-    )
-    monkeypatch.setattr(
-        "orchcore.pipeline.engine.RateLimitDetector.extract_message",
-        fake_extract_message,
-    )
     monkeypatch.setattr(
         "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
         lambda *_args, **_kwargs: 0.0,
@@ -1048,6 +1054,7 @@ async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
                 exit_code=1,
                 output_empty=True,
                 error="rate limit exceeded",
+                error_category=AgentErrorCategory.RATE_LIMIT,
             )
         return _build_agent_result(
             agent_name="codex",
@@ -1121,6 +1128,7 @@ async def test_run_with_semaphore_default_git_recovery_runs_no_git_commands(
                 exit_code=1,
                 output_empty=True,
                 error="rate limit exceeded",
+                error_category=AgentErrorCategory.RATE_LIMIT,
             )
         return _build_agent_result(
             agent_name="codex",
@@ -1175,6 +1183,7 @@ async def test_run_with_semaphore_retries_exit_zero_stream_rate_limit(
                 exit_code=0,
                 output_empty=False,
                 error="agent reported a rate limit",
+                error_category=AgentErrorCategory.RATE_LIMIT,
             )
         return _build_agent_result(
             agent_name="codex",
@@ -1204,6 +1213,107 @@ async def test_run_with_semaphore_retries_exit_zero_stream_rate_limit(
     assert attempts == 2
     assert result.error is None
     assert setup.ui_callback.rate_limits == [("codex", "agent reported a rate limit")]
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_retries_on_category_without_string_matching(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WP-18: the retry decision keys on error_category alone — an error
+    string that matches no RateLimitDetector pattern still retries."""
+    setup = retry_test_setup
+    attempts = 0
+    wait_inputs: list[tuple[int, int | None]] = []
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return _build_agent_result(
+                agent_name="codex",
+                output_path=setup.output_path,
+                exit_code=1,
+                output_empty=True,
+                error="provider capacity replenishes shortly",
+                error_category=AgentErrorCategory.RATE_LIMIT,
+                rate_limit_reset_seconds=42,
+            )
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    def fake_compute_wait(self: object, attempt: int, reset_seconds: int | None = None) -> float:
+        del self
+        wait_inputs.append((attempt, reset_seconds))
+        return 0.0
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        fake_compute_wait,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", _async_noop)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="retry",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
+    )
+
+    assert attempts == 2
+    assert result.error is None
+    assert wait_inputs == [(1, 42)]
+    assert setup.ui_callback.rate_limits == [("codex", "provider capacity replenishes shortly")]
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_does_not_retry_rate_limit_prose_without_category(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WP-18: stdout noise that merely looks like a rate limit (no typed
+    category) no longer triggers a retry at the engine level."""
+    setup = retry_test_setup
+    attempts = 0
+
+    async def fake_run(**_: object) -> AgentResult:
+        nonlocal attempts
+        attempts += 1
+        return _build_agent_result(
+            agent_name="codex",
+            output_path=setup.output_path,
+            exit_code=1,
+            output_empty=True,
+            error="429 rate limit exceeded",
+            error_category=AgentErrorCategory.NONZERO_EXIT,
+        )
+
+    monkeypatch.setattr(setup.runner, "run", fake_run)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=setup.agent,
+        prompt="run",
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(max_retries=3, failure_mode=FailureMode.FAIL_FAST),
+    )
+
+    assert attempts == 1
+    assert result.error == "429 rate limit exceeded"
+    assert setup.ui_callback.rate_limits == []
+    assert setup.ui_callback.retries == []
 
 
 @pytest.mark.asyncio
@@ -1302,6 +1412,7 @@ async def test_run_with_semaphore_uses_policy_git_recovery_cwd(
                 exit_code=1,
                 output_empty=True,
                 error="rate limit exceeded",
+                error_category=AgentErrorCategory.RATE_LIMIT,
             )
         return _build_agent_result(
             agent_name="codex",
@@ -1372,6 +1483,7 @@ async def test_run_with_semaphore_stashes_and_restores_before_retry(
                 exit_code=1,
                 output_empty=True,
                 error="rate limit exceeded",
+                error_category=AgentErrorCategory.RATE_LIMIT,
             )
         return _build_agent_result(
             agent_name="codex",
@@ -1439,6 +1551,7 @@ async def test_run_with_semaphore_restores_stash_when_shutdown_happens_before_sl
             exit_code=1,
             output_empty=True,
             error="rate limit exceeded",
+            error_category=AgentErrorCategory.RATE_LIMIT,
         )
 
     class FakeGitRecovery:
@@ -1513,6 +1626,7 @@ async def test_run_with_semaphore_skips_git_recovery_without_cwd(
                 exit_code=1,
                 output_empty=True,
                 error="rate limit exceeded",
+                error_category=AgentErrorCategory.RATE_LIMIT,
             )
         return _build_agent_result(
             agent_name="codex",
@@ -1661,6 +1775,12 @@ async def test_run_parallel_cancels_pending_agents_in_fail_fast_mode(
     assert result.agent_results[0].error == "fast failed"
     assert result.agent_results[1].error is not None
     assert "Cancelled due to fail-fast sibling failure" in result.agent_results[1].error
+    assert result.agent_results[1].error_category is AgentErrorCategory.CANCELLED
+    # error_messages preserves agent order alongside the joined display form.
+    assert len(result.error_messages) == 2
+    assert result.error_messages[0] == "fast failed"
+    assert "Cancelled due to fail-fast sibling failure" in result.error_messages[1]
+    assert result.error == "; ".join(result.error_messages)
 
 
 @pytest.mark.asyncio
@@ -1830,6 +1950,7 @@ async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
             exit_code=1,
             output_empty=True,
             error="rate limit exceeded",
+            error_category=AgentErrorCategory.RATE_LIMIT,
         )
 
     async def fake_is_tree_dirty(self: object) -> bool:

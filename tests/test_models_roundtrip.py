@@ -9,7 +9,13 @@ from pydantic import BaseModel, ValidationError
 
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus, PipelineResult
 from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction
-from orchcore.stream.events import AgentResult, StreamEvent, StreamEventType, StreamFormat
+from orchcore.stream.events import (
+    AgentErrorCategory,
+    AgentResult,
+    StreamEvent,
+    StreamEventType,
+    StreamFormat,
+)
 
 
 @pytest.mark.parametrize(
@@ -43,6 +49,20 @@ from orchcore.stream.events import AgentResult, StreamEvent, StreamEventType, St
             id="StreamEvent",
         ),
         pytest.param(
+            AgentResult,
+            {
+                "agent_name": "test-agent",
+                "output_path": Path("outputs/test.md"),
+                "exit_code": 1,
+                "duration": timedelta(seconds=30),
+                "error": "429 rate limit exceeded, try again in 17 seconds",
+                "error_category": AgentErrorCategory.RATE_LIMIT,
+                "rate_limit_reset_seconds": 17,
+                "json_parse_error_count": 2,
+            },
+            id="AgentResult-error-taxonomy",
+        ),
+        pytest.param(
             PhaseResult,
             {
                 "name": "test",
@@ -57,6 +77,8 @@ from orchcore.stream.events import AgentResult, StreamEvent, StreamEventType, St
                         cost_usd=Decimal("1.25"),
                     )
                 ],
+                "error": "agent failed; sibling cancelled",
+                "error_messages": ["agent failed", "sibling cancelled"],
                 "cost_usd": Decimal("1.25"),
             },
             id="PhaseResult",

@@ -50,7 +50,8 @@ class PhaseResult(BaseModel):
     duration: timedelta | None = None
     output_files: list[Path] = Field(default_factory=list)
     agent_results: list[AgentResult] = Field(default_factory=list)
-    error: str | None = None
+    error: str | None = None  # joined display form of error_messages
+    error_messages: list[str] = Field(default_factory=list)  # per-agent, in agent order
     cost_usd: Decimal | None = None
 
 

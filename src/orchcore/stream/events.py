@@ -77,6 +77,24 @@ class StreamEvent(BaseModel):
     raw: dict[str, object] | None = None
 
 
+class AgentErrorCategory(StrEnum):
+    """Typed failure categories carried on :class:`AgentResult`.
+
+    Categories are populated at the source (runner or engine) so consumers
+    and the retry logic can branch on data instead of matching error prose.
+    """
+
+    RATE_LIMIT = "rate_limit"
+    BINARY_NOT_FOUND = "binary_not_found"
+    NONZERO_EXIT = "nonzero_exit"
+    EMPTY_OUTPUT = "empty_output"
+    STREAM_ERROR = "stream_error"  # RESULT(error=...) / ERROR event with exit 0
+    STALL_TIMEOUT = "stall_timeout"  # kill_on_stall terminated the agent
+    TIMEOUT = "timeout"  # max_runtime exceeded
+    CANCELLED = "cancelled"
+    OS_ERROR = "os_error"
+
+
 class AgentState(StrEnum):
     """Agent state machine."""
 
@@ -154,10 +172,14 @@ class AgentResult(BaseModel):
     num_turns: int | None = None
     session_id: str | None = None
     output_empty: bool = False
-    error: str | None = None
+    error: str | None = None  # human message (kept maximal: agent, exit code, stderr tail)
+    error_category: AgentErrorCategory | None = None
+    rate_limit_reset_seconds: int | None = None  # parsed once, at the source (runner)
+    json_parse_error_count: int = 0  # malformed JSONL lines seen by the stream parser
 
 
 __all__ = [
+    "AgentErrorCategory",
     "AgentMonitorSnapshot",
     "AgentResult",
     "AgentState",

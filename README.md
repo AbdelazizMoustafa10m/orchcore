@@ -110,8 +110,8 @@ By default, agent subprocesses receive a filtered environment: common API keys a
 | Module | Purpose |
 |--------|---------|
 | `stream/` | 4-stage pipeline (Filter → Parse → Monitor → Stall Detect) for 5 agent formats |
-| `pipeline/` | Phase orchestration — sequential/parallel multi-agent execution with dependency checks |
-| `runner/` | Async subprocess management with stdout/stderr streaming |
+| `pipeline/` | Phase orchestration — sequential/parallel multi-agent execution in topological dependency order |
+| `runner/` | Async subprocess management with stdout/stderr streaming and optional stdin prompt transport (`prompt_via = "stdin"`) |
 | `registry/` | Agent configurations as data (TOML/dict) with runtime lookup |
 | `config/` | Layered configuration: TOML → env vars → CLI overrides → profiles |
 | `recovery/` | Rate-limit detection, exponential backoff, git dirty-tree recovery |

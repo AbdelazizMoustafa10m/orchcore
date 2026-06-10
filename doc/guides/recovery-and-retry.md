@@ -2,9 +2,23 @@
 
 orchcore handles the messy realities of long-running AI agent processes: rate limits, stalls, git dirty trees, and partial failures. This guide covers the recovery and retry system.
 
+## Typed Failure Categories
+
+Failures travel as data. Every failed `AgentResult` carries an
+`error_category` (an `AgentErrorCategory` value such as `rate_limit`,
+`nonzero_exit`, `stream_error`, `timeout`, or `cancelled`) populated where the
+failure is first observed — see the
+[stream-events reference](../reference/stream-events.md#agenterrorcategory)
+for the full population table. The engine's retry decision keys on this
+category alone: a result with `error_category == AgentErrorCategory.RATE_LIMIT`
+is retried under the phase's `RetryPolicy`, using the
+`rate_limit_reset_seconds` the runner already parsed; everything else is
+returned as-is. No error-string matching happens at the engine level, so
+stdout noise that merely *looks* like a rate limit no longer triggers retries.
+
 ## Rate-Limit Detection
 
-The `RateLimitDetector` uses regex patterns to identify rate-limit messages in agent output across all supported CLIs.
+The `RateLimitDetector` uses regex patterns to identify rate-limit messages in agent output across all supported CLIs. It acts as the runner's *fallback classifier*: when a CLI exits non-zero without emitting a typed `rate_limit` stream event, a matching stderr tail upgrades the result's category from `nonzero_exit` to `rate_limit`.
 
 **Detected patterns include:**
 

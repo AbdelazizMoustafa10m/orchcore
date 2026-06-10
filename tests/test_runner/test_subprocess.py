@@ -13,12 +13,14 @@ import pytest
 from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
 from orchcore.runner.subprocess import (
     AgentRunner,
+    _resolve_result_state,
     _shutdown_process,
     _strip_preamble_text,
     _translate_toolset,
     build_agent_env,
 )
 from orchcore.stream.events import (
+    AgentErrorCategory,
     AgentMonitorSnapshot,
     AgentState,
     StreamEvent,
@@ -62,6 +64,74 @@ def test_build_command_uses_mode_flags(
         "test-model",
         "--verbose",
     ]
+
+
+def test_empty_subcommand_omitted_from_argv(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """F2 regression: ``subcommand = ""`` must not become a literal ``''``
+    argv element (previously ``['codex', '', 'PROMPT', ...]``)."""
+    agent = sample_agent_config.model_copy(update={"subcommand": ""})
+
+    command = AgentRunner._build_command(
+        agent,
+        "write tests",
+        tmp_path / "output.md",
+        AgentMode.PLAN,
+    )
+
+    assert "" not in command
+    assert command == [
+        "echo",
+        "write tests",
+        "--model",
+        "test-model",
+        "--verbose",
+    ]
+
+
+def test_build_command_stdin_omits_prompt_from_argv(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    agent = sample_agent_config.model_copy(update={"prompt_via": "stdin"})
+
+    command = AgentRunner._build_command(
+        agent,
+        "write tests",
+        tmp_path / "output.md",
+        AgentMode.PLAN,
+    )
+
+    assert "write tests" not in command
+    assert command == [
+        "echo",
+        "-p",
+        "--model",
+        "test-model",
+        "--verbose",
+    ]
+
+
+def test_build_command_stdin_appends_sentinel_in_place_of_prompt(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """Codex-style ``codex exec -`` placeholder, kept in registry data."""
+    agent = sample_agent_config.model_copy(
+        update={"subcommand": "exec", "prompt_via": "stdin", "stdin_sentinel": "-"}
+    )
+
+    command = AgentRunner._build_command(
+        agent,
+        "write tests",
+        tmp_path / "output.md",
+        AgentMode.PLAN,
+    )
+
+    assert "write tests" not in command
+    assert command[:3] == ["echo", "exec", "-"]
 
 
 def test_build_command_appends_direct_file_output_flag(
@@ -518,6 +588,7 @@ async def test_run_captures_exit_zero_stream_result_error(
 
     assert result.exit_code == 0
     assert result.error == "structured failure"
+    assert result.error_category is AgentErrorCategory.STREAM_ERROR
     assert not result.output_empty
 
 
@@ -875,3 +946,349 @@ async def test_run_emits_failed_snapshot_when_process_exits_nonzero(
 )
 def test_strip_preamble_text(text: str, expected: str) -> None:
     assert _strip_preamble_text(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("state_kwargs", "expected_category", "expected_reset"),
+    [
+        pytest.param(
+            {"timed_out": True, "max_runtime": 5.0},
+            AgentErrorCategory.TIMEOUT,
+            None,
+            id="max-runtime-timeout",
+        ),
+        pytest.param(
+            {"stalled_out": True, "stall_idle_seconds": 30.0},
+            AgentErrorCategory.STALL_TIMEOUT,
+            None,
+            id="kill-on-stall",
+        ),
+        pytest.param(
+            {
+                "exit_code": 0,
+                "stream_error": "rate limited, try again in 17 seconds",
+                "stream_error_category": AgentErrorCategory.RATE_LIMIT,
+            },
+            AgentErrorCategory.RATE_LIMIT,
+            17,
+            id="typed-rate-limit-event-exit-zero",
+        ),
+        pytest.param(
+            {
+                "exit_code": 0,
+                "stream_error": "structured failure",
+                "stream_error_category": AgentErrorCategory.STREAM_ERROR,
+            },
+            AgentErrorCategory.STREAM_ERROR,
+            None,
+            id="stream-error-exit-zero",
+        ),
+        pytest.param(
+            {"exit_code": 2, "stderr_chunks": ["disk exploded\n"]},
+            AgentErrorCategory.NONZERO_EXIT,
+            None,
+            id="nonzero-exit-without-stream-category",
+        ),
+        pytest.param(
+            {"exit_code": 1, "stderr_chunks": ["rate limit exceeded\n"]},
+            AgentErrorCategory.RATE_LIMIT,
+            None,
+            id="nonzero-exit-fallback-detector-upgrade",
+        ),
+        pytest.param(
+            {
+                "exit_code": 1,
+                "stderr_chunks": ["process blew up\n"],
+                "stream_error": "rate limited, try again in 90 seconds",
+                "stream_error_category": AgentErrorCategory.RATE_LIMIT,
+            },
+            AgentErrorCategory.RATE_LIMIT,
+            90,
+            id="nonzero-exit-typed-stream-rate-limit-wins",
+        ),
+        pytest.param(
+            {"exit_code": 0, "snap_state": AgentState.RATE_LIMITED},
+            AgentErrorCategory.RATE_LIMIT,
+            None,
+            id="terminal-rate-limited-state-without-message",
+        ),
+        pytest.param(
+            {"exit_code": 0, "snap_state": AgentState.FAILED},
+            AgentErrorCategory.STREAM_ERROR,
+            None,
+            id="terminal-failed-state-without-message",
+        ),
+        pytest.param(
+            {"exit_code": 0},
+            None,
+            None,
+            id="clean-success",
+        ),
+    ],
+)
+def test_resolve_result_state_category_matrix(
+    state_kwargs: dict[str, object],
+    expected_category: AgentErrorCategory | None,
+    expected_reset: int | None,
+) -> None:
+    """WP-18 population map: one case per row of the category table."""
+    defaults: dict[str, object] = {
+        "exit_code": 0,
+        "stderr_chunks": [],
+        "stdout_chunks": [],
+        "stream_error": None,
+        "stream_error_category": None,
+        "snap_state": AgentState.COMPLETED,
+        "timed_out": False,
+        "max_runtime": None,
+        "stalled_out": False,
+        "stall_idle_seconds": None,
+    }
+    defaults.update(state_kwargs)
+
+    error, category, reset_seconds = _resolve_result_state(**defaults)  # type: ignore[arg-type]
+
+    assert category is expected_category
+    assert reset_seconds == expected_reset
+    if expected_category is None:
+        assert error is None
+    else:
+        assert error
+
+
+@pytest.mark.asyncio
+async def test_run_populates_rate_limit_category_from_typed_stream_event(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    script = textwrap.dedent(
+        """
+        import json
+
+        print(json.dumps({"type": "system", "subtype": "rate_limit"}), flush=True)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.exit_code == 0
+    assert result.error_category is AgentErrorCategory.RATE_LIMIT
+    assert result.error is not None
+    assert result.json_parse_error_count == 0
+
+
+@pytest.mark.asyncio
+async def test_run_upgrades_nonzero_exit_to_rate_limit_and_parses_reset(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """WP-18 fallback classifier: CLIs that never emit typed events still
+    produce RATE_LIMIT results when the stderr tail matches, with the reset
+    parsed once at the source."""
+    script = textwrap.dedent(
+        """
+        import sys
+
+        print("429 rate limit exceeded, try again in 17 seconds", file=sys.stderr)
+        sys.exit(1)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.exit_code == 1
+    assert result.error_category is AgentErrorCategory.RATE_LIMIT
+    assert result.rate_limit_reset_seconds == 17
+    assert result.error is not None
+    assert "429 rate limit exceeded" in result.error
+
+
+@pytest.mark.asyncio
+async def test_run_counts_malformed_json_lines_on_result(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """WP-18: the parser's malformed-line count reaches AgentResult."""
+    script = textwrap.dedent(
+        """
+        import json
+
+        print(json.dumps({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "useful output"}]},
+        }), flush=True)
+        print("{not valid json", flush=True)
+        print(json.dumps({"type": "result", "exit_code": 0}), flush=True)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.exit_code == 0
+    assert result.error is None
+    assert result.json_parse_error_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_flags_empty_output_category_on_clean_exit(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        "pass",
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.exit_code == 0
+    assert result.error is None
+    assert result.output_empty is True
+    assert result.error_category is AgentErrorCategory.EMPTY_OUTPUT
+
+
+def _write_stdin_echo_script(tmp_path: Path) -> tuple[Path, Path]:
+    """A fake agent CLI that reads its prompt from stdin and records it."""
+    received_path = tmp_path / "received.txt"
+    script_path = tmp_path / "fake_agent.py"
+    script_path.write_text(
+        textwrap.dedent(
+            f"""
+            import json
+            import sys
+
+            data = sys.stdin.read()
+            with open({str(received_path)!r}, "w", encoding="utf-8") as fh:
+                fh.write(data)
+            print(json.dumps({{
+                "type": "assistant",
+                "message": {{"content": [{{"type": "text", "text": "received"}}]}},
+            }}), flush=True)
+            print(json.dumps({{"type": "result", "exit_code": 0}}), flush=True)
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    return script_path, received_path
+
+
+def _stdin_agent(sample_agent_config: AgentConfig, script_path: Path) -> AgentConfig:
+    return sample_agent_config.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": str(script_path),
+            "flags": {AgentMode.PLAN: []},
+            "prompt_via": "stdin",
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_delivers_prompt_via_stdin_not_argv(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """F2/WP-23: under prompt_via="stdin" the child receives the prompt on
+    stdin and the prompt never appears in argv."""
+    script_path, received_path = _write_stdin_echo_script(tmp_path)
+    agent = _stdin_agent(sample_agent_config, script_path)
+    prompt = "secret prompt that must stay out of argv"
+
+    command = AgentRunner._build_command(agent, prompt, tmp_path / "output.md", AgentMode.PLAN)
+    result = await AgentRunner().run(
+        agent,
+        prompt,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert prompt not in command
+    assert result.exit_code == 0
+    assert result.error is None
+    assert received_path.read_text(encoding="utf-8") == prompt
+    assert (tmp_path / "output.md").read_text(encoding="utf-8") == "received"
+
+
+@pytest.mark.asyncio
+async def test_run_stdin_large_prompt_completes_without_deadlock(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """WP-23: a prompt far beyond the OS pipe buffer is fed concurrently with
+    stream consumption, so neither side deadlocks."""
+    script_path, received_path = _write_stdin_echo_script(tmp_path)
+    agent = _stdin_agent(sample_agent_config, script_path)
+    prompt = "x" * (256 * 1024)
+
+    result = await AgentRunner().run(
+        agent,
+        prompt,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.exit_code == 0
+    assert result.error is None
+    assert received_path.read_text(encoding="utf-8") == prompt
+
+
+@pytest.mark.asyncio
+async def test_run_stdin_dead_child_consumes_pipe_error(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """WP-23 regression: a child that exits without reading stdin while the
+    prompt exceeds the pipe buffer must not leave an unretrieved feeder
+    exception; the result reflects the CLI's own exit."""
+    script_path = tmp_path / "dead_agent.py"
+    script_path.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    agent = _stdin_agent(sample_agent_config, script_path)
+    prompt = "x" * (1024 * 1024)
+
+    loop = asyncio.get_running_loop()
+    unraisable: list[dict[str, object]] = []
+    loop.set_exception_handler(lambda _loop, context: unraisable.append(dict(context)))
+    try:
+        result = await AgentRunner().run(
+            agent,
+            prompt,
+            tmp_path / "output.md",
+            mode=AgentMode.PLAN,
+        )
+        import gc
+
+        gc.collect()
+        await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(None)
+
+    assert result.exit_code == 0
+    assert unraisable == []

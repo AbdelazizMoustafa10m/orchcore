@@ -38,6 +38,7 @@ class OrchcoreTelemetry:
 
     def __init__(
         self,
+        *,
         enabled: bool = False,
         service_name: str = "orchcore",
         otlp_endpoint: str | None = None,

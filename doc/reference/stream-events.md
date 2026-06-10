@@ -168,9 +168,29 @@ Return type of `AgentRunner.run()`. Captures all outputs from a single agent exe
 | `num_turns` | `int \| None` | `None` | Conversation turns |
 | `session_id` | `str \| None` | `None` | Session identifier |
 | `output_empty` | `bool` | `False` | Whether output file was empty |
-| `error` | `str \| None` | `None` | Error message if failed |
+| `error` | `str \| None` | `None` | Error message if failed (human form: kept maximal) |
+| `error_category` | `AgentErrorCategory \| None` | `None` | Typed failure classification (see below) |
+| `rate_limit_reset_seconds` | `int \| None` | `None` | Reset wait parsed from the rate-limit message, once, at the source |
+| `json_parse_error_count` | `int` | `0` | Malformed JSONL lines the stream parser skipped |
 
 `AgentResult.error` is populated from the terminal stream state as well as the process exit code. A subprocess that exits `0` but emits a `result` with `error`, an `error` event, or an unrecovered `rate_limit` event returns an error-carrying result and is treated as failed by phase aggregation.
+
+### AgentErrorCategory
+
+Failures travel as data: `error_category` lets consumers (and the engine's retry
+loop) branch on the failure kind without matching error prose. Categories are
+populated where the failure is first observed:
+
+| Population site | Category |
+|-----------------|----------|
+| Runner sees a typed `rate_limit` stream event | `rate_limit` (reset parsed once into `rate_limit_reset_seconds`) |
+| Runner sees `error` or `result(error=...)` with exit 0 | `stream_error` |
+| Runner: exit code != 0, no stream category | `nonzero_exit` — upgraded to `rate_limit` when the fallback `RateLimitDetector` matches the stderr tail (CLIs that never emit typed events) |
+| Runner: empty output file on an otherwise clean run | `empty_output` |
+| Runner: `max_runtime` exceeded / `kill_on_stall` fired | `timeout` / `stall_timeout` |
+| Engine: agent binary missing (`FileNotFoundError`) | `binary_not_found` |
+| Engine: other `OSError` at launch | `os_error` |
+| Engine: shutdown or fail-fast sibling cancellation | `cancelled` |
 
 ## Related
 

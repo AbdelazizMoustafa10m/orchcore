@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path  # noqa: TC003 — used at runtime in path operations
 from typing import TYPE_CHECKING, Any
 
+from orchcore.recovery.rate_limit import RateLimitDetector, ResetTimeParser
 from orchcore.registry.agent import (
     CODEX_PERMISSION_VALUES,
     DEFAULT_TOOLSET_MAX_TURNS,
@@ -24,6 +25,7 @@ from orchcore.registry.agent import (
     ToolSet,
 )
 from orchcore.stream.events import (
+    AgentErrorCategory,
     AgentResult,
     AgentState,
     StreamEvent,
@@ -147,6 +149,7 @@ class AgentRunner:
         agent: AgentConfig,
         prompt: str,
         output_path: Path,
+        *,
         mode: AgentMode = AgentMode.PLAN,
         dry_run: bool = False,
         on_event: Callable[[StreamEvent], None] | None = None,
@@ -179,11 +182,14 @@ class AgentRunner:
 
         started_at = datetime.now(UTC)
 
+        use_stdin = agent.prompt_via == "stdin"
+        stdin_pipe = asyncio.subprocess.PIPE if use_stdin else None
         logger.debug("Launching agent command: %s (cwd=%s)", cmd, cwd)
         if os.name != "nt":
             # POSIX agents run in a new session so shutdown can signal the whole tree.
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=stdin_pipe,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
@@ -193,6 +199,7 @@ class AgentRunner:
         else:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=stdin_pipe,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
@@ -200,6 +207,29 @@ class AgentRunner:
             )
         if on_process_start is not None:
             on_process_start(proc)
+
+        async def _feed_stdin() -> None:
+            # Runs as a background task: a large prompt can exceed the OS pipe
+            # buffer, and the child may block writing stdout before reading
+            # all of stdin — feeding while we consume avoids the classic
+            # pipe deadlock.
+            stdin = proc.stdin
+            if stdin is None:
+                raise RuntimeError("stdin transport requested but no stdin pipe attached")
+            try:
+                stdin.write(prompt.encode("utf-8"))
+                await stdin.drain()
+            except OSError as exc:
+                # BrokenPipeError/ConnectionResetError: the child exited (or
+                # closed stdin) before reading the full prompt. Its own exit
+                # state decides the run's outcome; the pipe error is expected.
+                logger.debug("agent closed stdin before reading the full prompt: %s", exc)
+            finally:
+                with contextlib.suppress(OSError):
+                    stdin.close()
+                    await stdin.wait_closed()
+
+        stdin_task = asyncio.create_task(_feed_stdin()) if use_stdin else None
 
         stream_path = output_path.with_suffix(".stream")
         log_path = output_path.with_suffix(".log")
@@ -215,6 +245,7 @@ class AgentRunner:
 
         text_chunks: list[str] = []
         stream_error: str | None = None
+        stream_error_category: AgentErrorCategory | None = None
         stall_idle_seconds: float | None = None
         stall_abort = asyncio.Event()
         # Prefer the explicit on_stall parameter; fall back to introspecting
@@ -223,7 +254,7 @@ class AgentRunner:
         stall_callback = on_stall if on_stall is not None else _resolve_stall_callback(on_event)
 
         def _collecting_on_event(event: StreamEvent) -> None:
-            nonlocal stall_idle_seconds, stream_error
+            nonlocal stall_idle_seconds, stream_error, stream_error_category
             if event.event_type == StreamEventType.TEXT:
                 full = event.text_full or event.text_preview
                 if full is not None:
@@ -233,12 +264,16 @@ class AgentRunner:
             if event.event_type == StreamEventType.RESULT:
                 if event.error:
                     stream_error = event.error
+                    stream_error_category = AgentErrorCategory.STREAM_ERROR
                 elif event.exit_code is not None and event.exit_code != 0:
                     stream_error = f"stream reported exit code {event.exit_code}"
+                    stream_error_category = AgentErrorCategory.STREAM_ERROR
                 else:
                     stream_error = None
+                    stream_error_category = None
             elif event.event_type == StreamEventType.ERROR:
                 stream_error = event.error or event.text_preview or "agent reported an error event"
+                stream_error_category = AgentErrorCategory.STREAM_ERROR
             elif event.event_type == StreamEventType.RATE_LIMIT:
                 stream_error = (
                     event.error
@@ -250,6 +285,7 @@ class AgentRunner:
                     )
                     or "agent reported a rate limit"
                 )
+                stream_error_category = AgentErrorCategory.RATE_LIMIT
             if (
                 event.event_type == StreamEventType.STALL
                 and event.idle_seconds is not None
@@ -369,11 +405,12 @@ class AgentRunner:
             )
 
             snap = monitor.snapshot()
-            result_error = _result_error(
+            result_error, error_category, reset_seconds = _resolve_result_state(
                 exit_code=exit_code,
                 stderr_chunks=stderr_chunks,
                 stdout_chunks=stdout_chunks,
                 stream_error=stream_error,
+                stream_error_category=stream_error_category,
                 snap_state=snap.state,
                 timed_out=timed_out,
                 max_runtime=agent.max_runtime,
@@ -384,6 +421,8 @@ class AgentRunner:
                 on_snapshot(snap)
 
             output_empty = await asyncio.to_thread(_check_output_empty, output_path)
+            if result_error is None and error_category is None and output_empty:
+                error_category = AgentErrorCategory.EMPTY_OUTPUT
 
             result = AgentResult(
                 agent_name=agent.name,
@@ -398,12 +437,19 @@ class AgentRunner:
                 session_id=snap.session_id,
                 output_empty=output_empty,
                 error=result_error,
+                error_category=error_category,
+                rate_limit_reset_seconds=reset_seconds,
+                json_parse_error_count=stream_parser.json_parse_error_count,
             )
             run_completed = True
             return result
         finally:
             if not run_completed:
                 await _shutdown_process(proc)
+            # Not _cancel_task: that returns early for already-finished tasks
+            # without retrieving their exception, which would surface as
+            # "Task exception was never retrieved" from the feeder.
+            await _settle_stdin_task(stdin_task)
             await _cancel_task(snapshot_task)
             await _cancel_task(secondary_task)
             if on_process_end is not None:
@@ -417,8 +463,20 @@ class AgentRunner:
         mode: AgentMode,
         toolset: ToolSet | None = None,
     ) -> list[str]:
-        """Build the subprocess command list."""
-        cmd = [agent.binary, agent.subcommand, prompt]
+        """Build the subprocess command list.
+
+        An empty ``subcommand`` is omitted entirely (it must never become a
+        literal ``''`` argv element). Under ``prompt_via="stdin"`` the prompt
+        is omitted from argv; ``stdin_sentinel`` (e.g. ``"-"``) takes its
+        place when the CLI requires a placeholder argument.
+        """
+        cmd = [agent.binary]
+        if agent.subcommand:
+            cmd.append(agent.subcommand)
+        if agent.prompt_via == "argv":
+            cmd.append(prompt)
+        elif agent.stdin_sentinel is not None:
+            cmd.append(agent.stdin_sentinel)
         cmd.extend(["--model", agent.model])
 
         if toolset is not None:
@@ -676,6 +734,18 @@ async def _cancel_task(task: asyncio.Task[Any] | None) -> None:
         await task
 
 
+async def _settle_stdin_task(task: asyncio.Task[None] | None) -> None:
+    """Cancel the stdin feeder if still running, then always await it so any
+    exception is retrieved (awaiting a finished task re-raises it)."""
+    if task is None:
+        return
+
+    if not task.done():
+        task.cancel()
+    with contextlib.suppress(asyncio.CancelledError, OSError):
+        await task
+
+
 def _kill_tree_windows(pid: int) -> subprocess.CompletedProcess[bytes]:
     """Force-kill a Windows process tree with taskkill."""
     return subprocess.run(  # noqa: S603 - fixed argv, no shell interpolation.
@@ -751,32 +821,65 @@ def _check_output_empty(path: Path) -> bool:
     return not path.exists() or path.stat().st_size == 0
 
 
-def _result_error(
+def _resolve_result_state(
     *,
     exit_code: int,
     stderr_chunks: list[str],
     stdout_chunks: list[str],
     stream_error: str | None,
+    stream_error_category: AgentErrorCategory | None,
     snap_state: AgentState,
     timed_out: bool,
     max_runtime: float | None,
     stalled_out: bool,
     stall_idle_seconds: float | None,
-) -> str | None:
-    """Resolve the final AgentResult.error value from process and stream state."""
+) -> tuple[str | None, AgentErrorCategory | None, int | None]:
+    """Resolve AgentResult error, category, and rate-limit reset from run state.
+
+    Population map (mirrors the WP-18 table in doc/reference/stream-events.md):
+    max_runtime timeout -> TIMEOUT; kill_on_stall -> STALL_TIMEOUT; typed
+    RATE_LIMIT stream event -> RATE_LIMIT; ERROR / RESULT(error=...) with exit
+    0 -> STREAM_ERROR; nonzero exit without a stream category -> NONZERO_EXIT,
+    upgraded to RATE_LIMIT when the fallback detector matches the stderr tail
+    (CLIs that never emit typed events). The reset time is parsed here, once,
+    so the engine only consumes ``rate_limit_reset_seconds``.
+    """
+    error: str | None
+    category: AgentErrorCategory | None
     if timed_out:
         runtime = "unknown" if max_runtime is None else f"{max_runtime:g}s"
-        return f"max_runtime exceeded after {runtime}"
+        return f"max_runtime exceeded after {runtime}", AgentErrorCategory.TIMEOUT, None
     if stalled_out:
         idle = "unknown" if stall_idle_seconds is None else f"{stall_idle_seconds:g}s"
-        return f"stalled for {idle} (kill_on_stall)"
+        return f"stalled for {idle} (kill_on_stall)", AgentErrorCategory.STALL_TIMEOUT, None
     if exit_code != 0:
-        return _derive_error(exit_code, stderr_chunks, stdout_chunks)
-    if stream_error is not None:
-        return stream_error
-    if snap_state in {AgentState.FAILED, AgentState.RATE_LIMITED}:
-        return f"stream reported terminal state {snap_state.value} without a message"
-    return None
+        error = _derive_error(exit_code, stderr_chunks, stdout_chunks)
+        if stream_error_category is AgentErrorCategory.RATE_LIMIT:
+            category = AgentErrorCategory.RATE_LIMIT
+        elif RateLimitDetector().is_rate_limited(error):
+            # Fallback classifier for CLIs that never emit typed events.
+            category = AgentErrorCategory.RATE_LIMIT
+        else:
+            category = AgentErrorCategory.NONZERO_EXIT
+    elif stream_error is not None:
+        error = stream_error
+        category = stream_error_category or AgentErrorCategory.STREAM_ERROR
+    elif snap_state is AgentState.RATE_LIMITED:
+        error = f"stream reported terminal state {snap_state.value} without a message"
+        category = AgentErrorCategory.RATE_LIMIT
+    elif snap_state is AgentState.FAILED:
+        error = f"stream reported terminal state {snap_state.value} without a message"
+        category = AgentErrorCategory.STREAM_ERROR
+    else:
+        return None, None, None
+
+    reset_seconds: int | None = None
+    if category is AgentErrorCategory.RATE_LIMIT:
+        parser = ResetTimeParser()
+        reset_seconds = parser.parse(error)
+        if reset_seconds is None and stream_error is not None and stream_error != error:
+            reset_seconds = parser.parse(stream_error)
+    return error, category, reset_seconds
 
 
 def _derive_error(

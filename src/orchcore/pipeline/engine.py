@@ -17,12 +17,10 @@ from orchcore.recovery import (
     BackoffStrategy,
     FailureMode,
     GitRecovery,
-    RateLimitDetector,
-    ResetTimeParser,
     RetryPolicy,
 )
 from orchcore.runner.subprocess import kill_process_tree, terminate_process_tree
-from orchcore.stream.events import AgentResult
+from orchcore.stream.events import AgentErrorCategory, AgentResult
 
 if TYPE_CHECKING:
     from orchcore.pipeline.phase import Phase
@@ -68,6 +66,7 @@ class PhaseRunner:
         self,
         runner: AgentRunner,
         registry: AgentRegistry,
+        *,
         workspace: WorkspaceManager | None = None,
         max_concurrency: int = 3,
         snapshot_interval: float | None = None,
@@ -372,7 +371,7 @@ class PhaseRunner:
                         ):
                             pending_agent = agent_by_task[pending_task]
                             if isinstance(pending_result, asyncio.CancelledError):
-                                raw_results_by_agent[pending_agent.name] = RuntimeError(
+                                raw_results_by_agent[pending_agent.name] = _FailFastCancellation(
                                     "Cancelled due to fail-fast sibling failure"
                                 )
                             else:
@@ -420,6 +419,7 @@ class PhaseRunner:
                     output_path=output_path,
                     phase_name=phase.name,
                     error=_exception_message(raw_outcome),
+                    category=_exception_category(raw_outcome),
                 )
 
             agent_results.append(agent_result)
@@ -460,6 +460,7 @@ class PhaseRunner:
             output_files=output_files,
             agent_results=agent_results,
             error="; ".join(error_messages) if error_messages else None,
+            error_messages=error_messages,
             cost_usd=sum(costs, Decimal(0)) if costs else None,
         )
         ui_callback.on_phase_end(phase, phase_result)
@@ -481,8 +482,6 @@ class PhaseRunner:
         async with self._semaphore:
             ui_callback.on_agent_start(agent.name, phase_name)
             policy = retry_policy or RetryPolicy(failure_mode=phase_failure_mode)
-            rate_limit_detector = RateLimitDetector()
-            reset_time_parser = ResetTimeParser()
             backoff_strategy = BackoffStrategy(
                 schedule=policy.backoff_schedule,
                 max_wait=policy.max_wait,
@@ -497,6 +496,7 @@ class PhaseRunner:
                         output_path=output_path,
                         phase_name=phase_name,
                         error=f"Agent {agent.name!r} aborted: shutdown in progress",
+                        category=AgentErrorCategory.CANCELLED,
                     )
                 try:
                     with _agent_span(self._telemetry, phase_name, agent.name):
@@ -523,6 +523,7 @@ class PhaseRunner:
                             f"Agent {agent.name!r} binary {agent.binary!r} could not be "
                             f"started in phase {phase_name!r}: {exc}"
                         ),
+                        category=AgentErrorCategory.BINARY_NOT_FOUND,
                     )
                 except OSError as exc:
                     return _synthetic_agent_result(
@@ -530,25 +531,24 @@ class PhaseRunner:
                         output_path=output_path,
                         phase_name=phase_name,
                         error=(f"Agent {agent.name!r} failed in phase {phase_name!r}: {exc}"),
+                        category=AgentErrorCategory.OS_ERROR,
                     )
 
-                if result.exit_code == 0 and result.error is None:
-                    return result
-
-                error_output = result.error or ""
-                if not rate_limit_detector.is_rate_limited(error_output):
+                # Retry decisions key on the typed category populated by the
+                # runner; no error-string matching happens at this level.
+                if result.error_category is not AgentErrorCategory.RATE_LIMIT:
                     return result
                 if not policy.should_retry(attempt):
                     return result
 
-                message = rate_limit_detector.extract_message(error_output) or error_output.strip()
+                message = (result.error or "").strip()
                 if not message:
                     message = f"Agent {agent.name!r} hit a rate limit"
 
                 ui_callback.on_rate_limit(agent.name, message)
                 wait_seconds = backoff_strategy.compute_wait(
                     attempt,
-                    reset_seconds=reset_time_parser.parse(error_output),
+                    reset_seconds=result.rate_limit_reset_seconds,
                 )
                 ui_callback.on_rate_limit_wait(agent.name, wait_seconds)
 
@@ -776,8 +776,20 @@ def _build_phase_result(
         output_files=output_files,
         agent_results=agent_results,
         error="; ".join(error_messages) if error_messages else None,
+        error_messages=error_messages,
         cost_usd=sum(costs, Decimal(0)) if costs else None,
     )
+
+
+class _FailFastCancellation(RuntimeError):
+    """Marks agents cancelled because a fail-fast sibling failed."""
+
+
+def _exception_category(error: BaseException) -> AgentErrorCategory:
+    """Map an exception escaping an agent task onto a result category."""
+    if isinstance(error, _FailFastCancellation | asyncio.CancelledError):
+        return AgentErrorCategory.CANCELLED
+    return AgentErrorCategory.OS_ERROR
 
 
 def _synthetic_agent_result(
@@ -786,8 +798,9 @@ def _synthetic_agent_result(
     output_path: Path,
     phase_name: str,
     error: str,
+    category: AgentErrorCategory,
 ) -> AgentResult:
-    """Create a synthetic AgentResult for launch/setup failures."""
+    """Create a synthetic AgentResult for launch/setup/cancellation failures."""
     return AgentResult(
         agent_name=agent_name,
         output_path=output_path,
@@ -797,6 +810,7 @@ def _synthetic_agent_result(
         duration=timedelta(0),
         output_empty=True,
         error=f"{error} (phase={phase_name!r}, agent={agent_name!r})",
+        error_category=category,
     )
 
 

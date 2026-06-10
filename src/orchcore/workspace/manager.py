@@ -24,6 +24,7 @@ class WorkspaceManager:
     def __init__(
         self,
         project_root: Path,
+        *,
         workspace_name: str = ".orchcore-workspace",
         reports_dir: Path | None = None,
         archive_subdir: str = "runs",
