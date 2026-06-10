@@ -181,7 +181,7 @@ strategy = "stdout_capture"
     agent = registry.get("demo")
     assert agent.binary == "echo"
     assert agent.model == "demo-model"
-    assert agent.flags[AgentMode.PLAN] == ["--verbose"]
+    assert agent.flags[AgentMode.PLAN] == ("--verbose",)
     assert agent.output_extraction.strategy.value == "stdout_capture"
 
 

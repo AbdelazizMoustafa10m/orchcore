@@ -30,7 +30,7 @@ class RetryPolicy(BaseModel):
     """
 
     max_retries: int = 3
-    backoff_schedule: list[int] = [120, 300, 900, 1800]
+    backoff_schedule: tuple[int, ...] = (120, 300, 900, 1800)
     max_wait: int = 21600  # 6 hours
     failure_mode: FailureMode = FailureMode.FAIL_FAST
     min_count: int = 1  # For REQUIRE_MINIMUM mode

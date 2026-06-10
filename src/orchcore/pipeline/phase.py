@@ -27,15 +27,20 @@ class PhaseStatus(StrEnum):
 
 
 class Phase(BaseModel):
-    """Definition of a pipeline phase."""
+    """Definition of a pipeline phase.
+
+    ``frozen=True`` is shallow (Pydantic): sequence fields are tuples so
+    nested mutation is impossible too (WP-31). Pydantic coerces list inputs,
+    so TOML/JSON loading is unaffected.
+    """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     name: str
-    agents: list[str]
+    agents: tuple[str, ...]
     parallel: bool = False
     required: bool = True
-    depends_on: list[str] = Field(default_factory=list)
+    depends_on: tuple[str, ...] = ()
     tools: ToolSet | None = None
     agent_tools: dict[str, ToolSet] = Field(default_factory=dict)
     retry_policy: RetryPolicy | None = Field(default=None)

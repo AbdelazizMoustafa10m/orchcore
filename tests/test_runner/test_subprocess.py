@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import subprocess
 import sys
 import textwrap
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
+from orchcore.registry.versioning import IncompatibleVersionSpec
 from orchcore.runner.subprocess import (
     AgentRunner,
+    _detect_agent_version,
+    _LineBuffer,
+    _log_version_compatibility,
     _resolve_result_state,
     _shutdown_process,
     _strip_preamble_text,
@@ -30,7 +36,6 @@ from orchcore.stream.events import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from pathlib import Path
 
 
 class _RecordingUICallback:
@@ -1292,3 +1297,325 @@ async def test_run_stdin_dead_child_consumes_pipe_error(
 
     assert result.exit_code == 0
     assert unraisable == []
+
+
+# ---- WP-26: agent CLI version-compatibility framework ----
+
+
+@pytest.fixture
+def fresh_version_cache(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
+    """Isolate the module-level version cache for each test."""
+    cache: dict[str, str | None] = {}
+    monkeypatch.setattr("orchcore.runner.subprocess._VERSION_CACHE", cache)
+    return cache
+
+
+def _version_agent(**overrides: object) -> AgentConfig:
+    base: dict[str, object] = {
+        "name": "version-agent",
+        "binary": sys.executable,
+        "model": "test-model",
+        "subcommand": "-c",
+        "flags": {AgentMode.PLAN: []},
+        "stream_format": StreamFormat.CLAUDE,
+        "output_extraction": OutputExtraction(
+            strategy=OutputExtraction.Strategy.STDOUT_CAPTURE,
+        ),
+    }
+    base.update(overrides)
+    return AgentConfig.model_validate(base)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fresh_version_cache")
+async def test_detect_agent_version_runs_one_exec_per_binary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = _version_agent(version_command=("-c", "print('tool 4.5.6 ready')"))
+    exec_calls = 0
+    real_exec = asyncio.create_subprocess_exec
+
+    async def counting_exec(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        nonlocal exec_calls
+        exec_calls += 1
+        return await real_exec(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("orchcore.runner.subprocess.asyncio.create_subprocess_exec", counting_exec)
+
+    first = await _detect_agent_version(agent, None)
+    second = await _detect_agent_version(agent, None)
+
+    assert first == "4.5.6"
+    assert second == "4.5.6"
+    assert exec_calls == 1  # second call served from the cache
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fresh_version_cache")
+async def test_run_populates_agent_version_on_result(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    script = 'import json; print(json.dumps({"type": "result", "exit_code": 0}), flush=True)'
+    agent = sample_agent_config.model_copy(
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    # Default version_command ("--version",) against the Python interpreter.
+    assert result.agent_version is not None
+    assert result.agent_version.count(".") >= 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fresh_version_cache")
+async def test_run_skips_version_check_when_disabled_or_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    async def fail_if_called(_agent: AgentConfig, _cwd: Path | None) -> str | None:
+        raise AssertionError("version check must not run")
+
+    monkeypatch.setattr("orchcore.runner.subprocess._detect_agent_version", fail_if_called)
+
+    disabled = sample_agent_config.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": "-c",
+            "flags": {AgentMode.PLAN: []},
+            "version_command": (),
+        }
+    )
+    result = await AgentRunner().run(
+        disabled,
+        'import json; print(json.dumps({"type": "result", "exit_code": 0}), flush=True)',
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+    assert result.agent_version is None
+
+    dry = sample_agent_config.model_copy(update={"binary": sys.executable, "subcommand": "-c"})
+    dry_result = await AgentRunner().run(
+        dry,
+        "ignored",
+        tmp_path / "dry.md",
+        mode=AgentMode.PLAN,
+        dry_run=True,
+    )
+    assert dry_result.agent_version is None
+
+
+@pytest.mark.asyncio
+async def test_version_check_malformed_output_caches_none_and_logs_info_once(
+    fresh_version_cache: dict[str, str | None],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    agent = _version_agent(version_command=("-c", "print('no version digits here')"))
+
+    with caplog.at_level(logging.INFO, logger="orchcore.runner.subprocess"):
+        first = await _detect_agent_version(agent, None)
+        second = await _detect_agent_version(agent, None)
+
+    assert first is None
+    assert second is None
+    assert fresh_version_cache == {sys.executable: None}
+    assert caplog.text.count("no version detected") == 1  # cached -> logged once
+
+
+@pytest.mark.asyncio
+async def test_version_check_missing_binary_logs_debug_and_caches_none(
+    fresh_version_cache: dict[str, str | None],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    agent = _version_agent(binary="definitely-not-a-real-binary-xyz")
+
+    with caplog.at_level(logging.DEBUG, logger="orchcore.runner.subprocess"):
+        version = await _detect_agent_version(agent, None)
+
+    assert version is None
+    assert fresh_version_cache == {"definitely-not-a-real-binary-xyz": None}
+    assert "version command failed" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fresh_version_cache")
+async def test_version_subprocess_crosses_explicit_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The version exec must inherit the filtered env and explicit cwd (WP-10/WP-17)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ambient-secret")
+    workdir = tmp_path / "repo"
+    workdir.mkdir()
+    report_path = tmp_path / "boundary.json"
+    script = (
+        "import json, os, pathlib; "
+        f"pathlib.Path({str(report_path)!r}).write_text(json.dumps("
+        "{'has_secret': 'ANTHROPIC_API_KEY' in os.environ, 'cwd': os.getcwd()})); "
+        "print('9.9.9')"
+    )
+    agent = _version_agent(version_command=("-c", script))
+
+    version = await _detect_agent_version(agent, workdir)
+
+    assert version == "9.9.9"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["has_secret"] is False  # default env_policy="filtered" applies
+    assert Path(report["cwd"]).resolve() == workdir.resolve()
+
+
+def test_log_version_compatibility_calibrated_levels(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    incompatible_agent = _version_agent(
+        incompatible_versions=(
+            IncompatibleVersionSpec(spec="<=2.0.0", reason="stream-json v1 format"),
+        ),
+        compatible_versions=(">=2.1,<3",),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="orchcore.runner.subprocess"):
+        _log_version_compatibility(incompatible_agent, "1.9.0")
+    assert caplog.records[-1].levelno == logging.WARNING
+    assert "stream-json v1 format" in caplog.records[-1].getMessage()
+
+    with caplog.at_level(logging.DEBUG, logger="orchcore.runner.subprocess"):
+        _log_version_compatibility(incompatible_agent, "2.5.0")
+    assert caplog.records[-1].levelno == logging.DEBUG
+    assert "within the declared compatible ranges" in caplog.records[-1].getMessage()
+
+    with caplog.at_level(logging.DEBUG, logger="orchcore.runner.subprocess"):
+        _log_version_compatibility(incompatible_agent, "3.5.0")
+    assert caplog.records[-1].levelno == logging.INFO
+    assert "outside the declared compatible ranges" in caplog.records[-1].getMessage()
+
+    undeclared_agent = _version_agent()
+    with caplog.at_level(logging.DEBUG, logger="orchcore.runner.subprocess"):
+        _log_version_compatibility(undeclared_agent, "1.0.0")
+    assert caplog.records[-1].levelno == logging.DEBUG
+    assert "no version expectations declared" in caplog.records[-1].getMessage()
+
+
+# ---- WP-30: bounded in-memory stream collection ----
+
+
+def test_line_buffer_below_threshold_behaves_like_plain_list() -> None:
+    buffer = _LineBuffer(spill_threshold=1024)
+
+    buffer.append("hello ")
+    buffer.append("world\n")
+
+    assert buffer.spilled is False
+    assert buffer.getvalue() == "hello world\n"
+    assert buffer.tail_lines() == ["hello ", "world\n"]
+    buffer.close()
+
+
+def test_line_buffer_spills_past_threshold_and_bounds_memory() -> None:
+    buffer = _LineBuffer(spill_threshold=100)
+    lines = [f"line-{index:04d}\n" for index in range(50)]
+
+    for line in lines:
+        buffer.append(line)
+
+    assert buffer.spilled is True
+    # Once spilled, nothing accumulates in memory anymore.
+    assert buffer.buffered_chunk_count == 0
+    # Full content still reproduced exactly at write-out time.
+    assert buffer.getvalue() == "".join(lines)
+    # The tail keeps only the most recent non-blank lines for error derivation.
+    assert buffer.tail_lines() == lines[-10:]
+    buffer.close()
+
+
+def test_line_buffer_tail_skips_blank_chunks() -> None:
+    buffer = _LineBuffer(spill_threshold=1024)
+
+    buffer.append("real error\n")
+    buffer.append("   \n")
+    buffer.append("\n")
+
+    assert buffer.tail_lines() == ["real error\n"]
+    buffer.close()
+
+
+def test_line_buffer_close_releases_spill_file() -> None:
+    buffer = _LineBuffer(spill_threshold=1)
+    buffer.append("spills immediately\n")
+    assert buffer.spilled is True
+
+    buffer.close()
+
+    assert buffer.spilled is False
+    assert buffer.getvalue() == ""
+
+
+@pytest.mark.asyncio
+async def test_run_chatty_agent_completes_with_spilled_buffers(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """A stream larger than the spill threshold still extracts exact output,
+    while peak in-memory collection stays bounded (the collector spills)."""
+    monkeypatch.setattr("orchcore.runner.subprocess._SPILL_THRESHOLD_CHARS", 1024)
+
+    class _RecordingBuffer(_LineBuffer):
+        def __init__(self) -> None:
+            super().__init__()
+            self.did_spill = False
+            created.append(self)
+
+        def append(self, chunk: str) -> None:
+            super().append(chunk)
+            if self.spilled:
+                self.did_spill = True
+
+    created: list[_RecordingBuffer] = []
+
+    monkeypatch.setattr("orchcore.runner.subprocess._LineBuffer", _RecordingBuffer)
+    # 60 TEXT events x ~40 chars >> the 1 KiB threshold.
+    script = textwrap.dedent(
+        """
+        import json
+
+        for index in range(60):
+            print(json.dumps({
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": f"chunk-{index:04d}-padding\\n"}]},
+            }), flush=True)
+        print(json.dumps({"type": "result", "exit_code": 0}), flush=True)
+        """
+    ).strip()
+    agent = sample_agent_config.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": "-c",
+            "flags": {AgentMode.PLAN: []},
+            "version_command": (),
+        }
+    )
+
+    result = await AgentRunner().run(
+        agent,
+        script,
+        tmp_path / "output.md",
+        mode=AgentMode.PLAN,
+    )
+
+    assert result.exit_code == 0
+    assert result.error is None
+    expected = "".join(f"chunk-{index:04d}-padding\n" for index in range(60))
+    assert (tmp_path / "output.md").read_text(encoding="utf-8") == expected
+    # Both the text collector and the teed stdout collector crossed the
+    # threshold and spilled; in-memory accumulation is bounded. (The buffers
+    # are close()d by run()'s finally, so record spilling as it happens.)
+    assert len(created) == 3
+    assert sum(1 for buffer in created if buffer.did_spill) >= 2

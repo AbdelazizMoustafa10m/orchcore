@@ -8,7 +8,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus, PipelineResult
-from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction
+from orchcore.recovery.retry import RetryPolicy
+from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
 from orchcore.stream.events import (
     AgentErrorCategory,
     AgentResult,
@@ -156,3 +157,78 @@ def test_frozen_models_reject_attribute_assignment(
 ) -> None:
     with pytest.raises(ValidationError, match="frozen"):
         setattr(model, field_name, value)
+
+
+# ---- WP-31: deep-freeze boundary — tuple fields reject mutation, dict
+# fields remain shallow-mutable (documented behavior, F8 regression) ----
+
+
+def _frozen_agent_config() -> AgentConfig:
+    return AgentConfig(
+        name="test",
+        binary="echo",
+        model="test-model",
+        subcommand="-p",
+        flags={AgentMode.PLAN: ["--verbose"]},
+        stream_format=StreamFormat.CLAUDE,
+        env_vars={"ORCHCORE_ENV": "test"},
+        output_extraction=OutputExtraction(strategy=OutputExtraction.Strategy.STDOUT_CAPTURE),
+    )
+
+
+def test_sequence_fields_coerce_lists_to_tuples() -> None:
+    phase = Phase(name="plan", agents=["claude"], depends_on=["earlier"])
+    toolset = ToolSet(internal=["Read"], mcp=["exa"])
+    policy = RetryPolicy(backoff_schedule=[1, 2, 3])
+    agent = _frozen_agent_config()
+
+    assert phase.agents == ("claude",)
+    assert phase.depends_on == ("earlier",)
+    assert toolset.internal == ("Read",)
+    assert toolset.mcp == ("exa",)
+    assert policy.backoff_schedule == (1, 2, 3)
+    assert agent.flags[AgentMode.PLAN] == ("--verbose",)
+
+
+def test_tuple_fields_reject_nested_mutation() -> None:
+    phase = Phase(name="plan", agents=["claude"], depends_on=["earlier"])
+    toolset = ToolSet(internal=["Read"], mcp=["exa"])
+    policy = RetryPolicy()
+    agent = _frozen_agent_config()
+
+    for sequence in (
+        phase.agents,
+        phase.depends_on,
+        toolset.internal,
+        toolset.mcp,
+        policy.backoff_schedule,
+        agent.flags[AgentMode.PLAN],
+    ):
+        with pytest.raises(AttributeError):
+            sequence.append("mutated")  # type: ignore[union-attr]
+
+
+def test_dict_fields_remain_shallow_mutable_documented_boundary() -> None:
+    """frozen=True stays shallow for mapping fields — pinned so the boundary
+    is documented behavior, not a surprise (see ADR-006 errata)."""
+    agent = _frozen_agent_config()
+    phase = Phase(name="plan", agents=["claude"])
+
+    agent.env_vars["INJECTED"] = "still-mutable"
+    agent.flags[AgentMode.FIX] = ("--new",)
+    phase.agent_tools["claude"] = ToolSet()
+
+    assert agent.env_vars["INJECTED"] == "still-mutable"
+    assert agent.flags[AgentMode.FIX] == ("--new",)
+    assert "claude" in phase.agent_tools
+
+
+def test_round_trip_preserves_tuple_fields() -> None:
+    phase = Phase(name="plan", agents=["a", "b"], depends_on=["earlier"])
+
+    restored = Phase.model_validate(phase.model_dump(mode="json"))
+    restored_json = Phase.model_validate_json(phase.model_dump_json())
+
+    assert restored == phase
+    assert restored_json == phase
+    assert restored.agents == ("a", "b")

@@ -4,6 +4,7 @@ import datetime
 import logging
 import random
 import re
+from collections.abc import Sequence
 from datetime import timezone
 from typing import ClassVar
 
@@ -199,7 +200,7 @@ class BackoffStrategy:
 
     def __init__(
         self,
-        schedule: list[int] | None = None,
+        schedule: Sequence[int] | None = None,
         jitter_range: tuple[int, int] | None = None,
         max_wait: int = 21600,
     ) -> None:

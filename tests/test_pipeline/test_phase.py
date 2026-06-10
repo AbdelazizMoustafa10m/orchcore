@@ -29,7 +29,7 @@ def test_phase_creation_uses_defaults() -> None:
     assert phase.name == "planning"
     assert not phase.parallel
     assert phase.required
-    assert phase.depends_on == []
+    assert phase.depends_on == ()
     assert phase.tools is None
     assert phase.agent_tools == {}
     assert phase.retry_policy is None
@@ -81,7 +81,7 @@ def test_phase_creation_with_tools_and_agent_tools() -> None:
     )
 
     assert phase.tools == tools
-    assert phase.agent_tools["analyst"].internal == ["Edit"]
+    assert phase.agent_tools["analyst"].internal == ("Edit",)
 
 
 def test_phase_result_creation() -> None:

@@ -53,6 +53,9 @@ jq_expression = ".content[0].text"
 | `kill_on_stall` | `bool` | No | Terminate the process tree when a stall event is detected |
 | `env_policy` | `"filtered" \| "inherit" \| "clean"` | No | Environment source policy for the subprocess (default: `filtered`) |
 | `env_passlist` | `list[str]` | No | Case-insensitive regex allowlist that re-admits filtered environment names |
+| `version_command` | `list[str]` | No | Arguments that print the CLI version (default: `["--version"]`; `[]` disables the check) |
+| `compatible_versions` | `list[str]` | No | Version specifiers declared as known good (e.g. `[">=2.1.112,<3"]`) |
+| `incompatible_versions` | `list[table]` | No | Known-bad ranges, each `{ spec = "...", reason = "..." }` |
 | `flags.<mode>` | `list[str]` | No | Mode-specific CLI flags (modes: `plan`, `fix`, `audit`, `review`) |
 | `env_vars` | `dict` | No | Environment variables to set for the subprocess |
 | `output_extraction.strategy` | `str` | Yes | How to extract output: `jq_filter`, `direct_file`, `stdout_capture` |
@@ -96,6 +99,32 @@ ANTHROPIC_API_KEY = "..."
 ```
 
 `env_policy = "clean"` starts from a minimal platform environment. It is useful for reproducibility checks, but it is not a full hermetic home-directory sandbox.
+
+### Version Compatibility
+
+Agent CLIs release daily, and a stream-format change in a new CLI version otherwise surfaces only as inscrutable parse warnings. Version expectations are registry data:
+
+```toml
+[agents.claude]
+# ...
+version_command = ["--version"]            # default; [] disables checking
+compatible_versions = [">=2.1.112,<3"]
+
+[[agents.claude.incompatible_versions]]
+spec = "<=2.0.0"
+reason = "stream-json v1 format; https://github.com/anthropics/claude-code/issues/NNN"
+```
+
+Specifier grammar: comma-separated AND of `==`, `!=`, `>=`, `<=`, `>`, `<` clauses; `==`/`!=` accept a trailing `.*` wildcard (`"==2.1.*"`); list entries combine as OR. Known-incompatible ranges win over compatible ones.
+
+How the check behaves at runtime:
+
+- It runs **once per binary path per process** (cached, including failures) and is **advisory**: it never fails or delays the run beyond a hard 10-second timeout.
+- The version subprocess crosses the same explicit boundary as agent runs: filtered environment per the agent's `env_policy`, the run's explicit working directory, no stdin.
+- Logging is calibrated: known-compatible versions log at DEBUG, known-incompatible at WARNING (with the recorded reason), versions outside declared ranges at INFO, and undeclared setups at DEBUG.
+- The detected version lands on `AgentResult.agent_version` (`None` when detection is disabled or fails).
+
+Treat the ranges as maintained data: every `incompatible_versions` entry should carry a `reason` linking to the upstream issue or changelog entry that motivated it.
 
 ### Prompt Transport (`prompt_via`)
 

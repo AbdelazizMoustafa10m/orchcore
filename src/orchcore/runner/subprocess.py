@@ -7,12 +7,15 @@ import contextlib
 import logging
 import os
 import re
+import shutil
 import signal
 import subprocess
+import tempfile
 import warnings
+from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path  # noqa: TC003 — used at runtime in path operations
-from typing import TYPE_CHECKING, Any
+from typing import IO, TYPE_CHECKING, Any
 
 from orchcore.recovery.rate_limit import RateLimitDetector, ResetTimeParser
 from orchcore.registry.agent import (
@@ -23,6 +26,11 @@ from orchcore.registry.agent import (
     AgentMode,
     OutputExtraction,
     ToolSet,
+)
+from orchcore.registry.versioning import (
+    VERSION_OUTPUT_RE,
+    CompatibilityStatus,
+    evaluate_compatibility,
 )
 from orchcore.stream.events import (
     AgentErrorCategory,
@@ -96,6 +104,80 @@ _CLEAN_KEEP_KEYS: frozenset[str] = frozenset(
 
 _EXCLUDED_ENV_RE = re.compile("|".join(_DEFAULT_EXCLUDED_ENV_PATTERNS), re.IGNORECASE)
 
+# Advisory CLI version detection (WP-26): one exec per binary path per process.
+_VERSION_CACHE: dict[str, str | None] = {}
+_VERSION_CHECK_TIMEOUT = 10.0
+
+# Bounded in-memory stream collection (WP-30): a collector keeps chunks in
+# memory up to this many characters, then spills them to an unnamed temp file.
+_SPILL_THRESHOLD_CHARS = 8 * 1024 * 1024
+# Non-blank lines retained in memory for error derivation (_non_blank_tail
+# reports at most 10).
+_TAIL_KEEP_LINES = 10
+
+
+class _LineBuffer:
+    """Collects stream chunks with bounded peak memory (WP-30).
+
+    Below the spill threshold behavior is identical to a plain list join;
+    past it, buffered chunks move to an unnamed temp file and later appends
+    stream straight to it. A short non-blank tail always stays in memory for
+    error derivation. ``getvalue()`` concatenates at write-out time (callers
+    run it off the event loop); ``close()`` releases the spill file.
+    """
+
+    def __init__(self, spill_threshold: int | None = None) -> None:
+        self._threshold = _SPILL_THRESHOLD_CHARS if spill_threshold is None else spill_threshold
+        self._chunks: list[str] = []
+        self._size = 0
+        self._spill: IO[str] | None = None
+        self._tail: deque[str] = deque(maxlen=_TAIL_KEEP_LINES)
+
+    def append(self, chunk: str) -> None:
+        if chunk.strip():
+            self._tail.append(chunk)
+        self._size += len(chunk)
+        if self._spill is not None:
+            self._spill.write(chunk)
+            return
+        self._chunks.append(chunk)
+        if self._size > self._threshold:
+            # Per-chunk writes after rollover are small and OS-buffered, the
+            # same trade-off _tee_to_file documents for its line writes. The
+            # unnamed temp file is reclaimed by the OS even on hard crashes.
+            spill = tempfile.TemporaryFile(  # noqa: SIM115 - lifetime spans appends; close()d in run()'s finally
+                mode="w+", encoding="utf-8", errors="replace"
+            )
+            spill.writelines(self._chunks)
+            self._chunks.clear()
+            self._spill = spill
+
+    @property
+    def spilled(self) -> bool:
+        return self._spill is not None
+
+    @property
+    def buffered_chunk_count(self) -> int:
+        """In-memory chunk count (instrumentation for the bounding tests)."""
+        return len(self._chunks)
+
+    def tail_lines(self) -> list[str]:
+        """Most recent non-blank chunks, enough for _non_blank_tail."""
+        return list(self._tail)
+
+    def getvalue(self) -> str:
+        if self._spill is None:
+            return "".join(self._chunks)
+        self._spill.flush()
+        self._spill.seek(0)
+        return self._spill.read()
+
+    def close(self) -> None:
+        if self._spill is not None:
+            self._spill.close()
+            self._spill = None
+        self._chunks.clear()
+
 
 async def _read_lines(stream: asyncio.StreamReader) -> AsyncIterator[str]:
     """Yield decoded lines from an asyncio StreamReader."""
@@ -141,8 +223,107 @@ def build_agent_env(agent: AgentConfig) -> dict[str, str]:
     return {**base, **agent.env_vars}
 
 
+async def _detect_agent_version(agent: AgentConfig, cwd: Path | None) -> str | None:
+    """Detect the agent CLI version once per binary path; advisory only (WP-26).
+
+    The result (including failure, cached as None) is memoized per resolved
+    binary path so a process never runs more than one version exec per CLI.
+    """
+    key = shutil.which(agent.binary) or agent.binary
+    if key in _VERSION_CACHE:
+        return _VERSION_CACHE[key]
+    version = await _run_version_command(agent, cwd)
+    _VERSION_CACHE[key] = version
+    if version is None:
+        logger.info(
+            "Agent %s: no version detected from `%s %s` (advisory check only)",
+            agent.name,
+            agent.binary,
+            " ".join(agent.version_command),
+        )
+        return None
+    _log_version_compatibility(agent, version)
+    return version
+
+
+async def _run_version_command(agent: AgentConfig, cwd: Path | None) -> str | None:
+    """Run the version command across the same explicit boundary as agent runs.
+
+    Filtered env per the agent's env_policy, the run's explicit cwd, no stdin,
+    and a hard timeout — the check must not reintroduce the ambient-env or
+    ambient-cwd holes WP-10/WP-17 closed. Every failure mode returns None.
+    """
+    proc: asyncio.subprocess.Process | None = None
+    try:
+        async with asyncio.timeout(_VERSION_CHECK_TIMEOUT):
+            proc = await asyncio.create_subprocess_exec(
+                agent.binary,
+                *agent.version_command,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=build_agent_env(agent),
+                cwd=cwd,
+            )
+            stdout, stderr = await proc.communicate()
+    except (TimeoutError, OSError) as exc:
+        logger.debug("Agent %s: version command failed: %s", agent.name, exc)
+        if proc is not None and proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+        return None
+    # CLIs print versions to stdout or stderr; read both.
+    output = (
+        stdout.decode("utf-8", errors="replace") + "\n" + stderr.decode("utf-8", errors="replace")
+    )
+    match = VERSION_OUTPUT_RE.search(output)
+    return match.group() if match else None
+
+
+def _log_version_compatibility(agent: AgentConfig, version: str) -> None:
+    """Calibrated logging: WARNING known-bad, DEBUG known-good, INFO unknown."""
+    verdict = evaluate_compatibility(
+        version, agent.compatible_versions, agent.incompatible_versions
+    )
+    if verdict.status is CompatibilityStatus.INCOMPATIBLE:
+        logger.warning(
+            "Agent %s CLI version %s is known-incompatible: %s",
+            agent.name,
+            version,
+            verdict.reason or "no reason recorded",
+        )
+    elif verdict.status is CompatibilityStatus.COMPATIBLE:
+        logger.debug(
+            "Agent %s CLI version %s is within the declared compatible ranges",
+            agent.name,
+            version,
+        )
+    elif verdict.status is CompatibilityStatus.UNKNOWN:
+        logger.info(
+            "Agent %s CLI version %s is outside the declared compatible ranges %s; "
+            "proceeding (advisory check only)",
+            agent.name,
+            version,
+            list(agent.compatible_versions),
+        )
+    else:
+        logger.debug(
+            "Agent %s CLI version %s detected (no version expectations declared)",
+            agent.name,
+            version,
+        )
+
+
 class AgentRunner:
-    """Executes an agent as an async subprocess and streams output through the pipeline."""
+    """Executes an agent as an async subprocess and streams output through the pipeline.
+
+    Memory behavior (WP-30): stream content is collected through spill
+    buffers — in memory up to ``_SPILL_THRESHOLD_CHARS`` (8 MiB) per
+    collector, then spilled to unnamed temp files — so chatty agents cannot
+    grow the process heap without bound. Behavior below the threshold is
+    byte-identical to plain in-memory collection.
+    """
 
     async def run(
         self,
@@ -179,6 +360,10 @@ class AgentRunner:
                 duration=timedelta(0),
                 output_empty=True,
             )
+
+        agent_version: str | None = None
+        if agent.version_command:
+            agent_version = await _detect_agent_version(agent, cwd)
 
         started_at = datetime.now(UTC)
 
@@ -243,7 +428,7 @@ class AgentRunner:
         )
         monitor = AgentMonitor(agent.name)
 
-        text_chunks: list[str] = []
+        text_buffer = _LineBuffer()
         stream_error: str | None = None
         stream_error_category: AgentErrorCategory | None = None
         stall_idle_seconds: float | None = None
@@ -258,7 +443,7 @@ class AgentRunner:
             if event.event_type == StreamEventType.TEXT:
                 full = event.text_full or event.text_preview
                 if full is not None:
-                    text_chunks.append(full)
+                    text_buffer.append(full)
             if on_event is not None:
                 on_event(event)
             if event.event_type == StreamEventType.RESULT:
@@ -307,15 +492,15 @@ class AgentRunner:
             primary_stream = proc.stdout
             secondary_stream = proc.stderr
 
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
+        stdout_buffer = _LineBuffer()
+        stderr_buffer = _LineBuffer()
 
         async def _read_secondary() -> None:
             async for line in _read_lines(secondary_stream):
                 if primary_is_stderr:
-                    stdout_chunks.append(line)
+                    stdout_buffer.append(line)
                 else:
-                    stderr_chunks.append(line)
+                    stderr_buffer.append(line)
 
         secondary_task = asyncio.create_task(_read_secondary())
         snapshot_task = _start_snapshot_task(
@@ -331,7 +516,7 @@ class AgentRunner:
                 _tee_to_file(
                     raw_lines,
                     stream_path,
-                    collector=stderr_chunks if primary_is_stderr else stdout_chunks,
+                    collector=stderr_buffer if primary_is_stderr else stdout_buffer,
                 )
             )
             parsed = stream_parser.parse_stream(filtered)
@@ -374,7 +559,7 @@ class AgentRunner:
 
             await secondary_task
 
-            await asyncio.to_thread(log_path.write_text, "".join(stderr_chunks), encoding="utf-8")
+            await asyncio.to_thread(_write_log, log_path, stderr_buffer)
 
             exit_code = await proc.wait()
 
@@ -390,7 +575,9 @@ class AgentRunner:
                         StreamEvent(
                             event_type=StreamEventType.RESULT,
                             exit_code=exit_code,
-                            error=_derive_error(exit_code, stderr_chunks, stdout_chunks),
+                            error=_derive_error(
+                                exit_code, stderr_buffer.tail_lines(), stdout_buffer.tail_lines()
+                            ),
                         )
                     )
 
@@ -400,15 +587,15 @@ class AgentRunner:
                 _write_output,
                 agent=agent,
                 output_path=output_path,
-                text_chunks=text_chunks,
-                stdout_chunks=stdout_chunks,
+                text_buffer=text_buffer,
+                stdout_buffer=stdout_buffer,
             )
 
             snap = monitor.snapshot()
             result_error, error_category, reset_seconds = _resolve_result_state(
                 exit_code=exit_code,
-                stderr_chunks=stderr_chunks,
-                stdout_chunks=stdout_chunks,
+                stderr_chunks=stderr_buffer.tail_lines(),
+                stdout_chunks=stdout_buffer.tail_lines(),
                 stream_error=stream_error,
                 stream_error_category=stream_error_category,
                 snap_state=snap.state,
@@ -440,6 +627,8 @@ class AgentRunner:
                 error_category=error_category,
                 rate_limit_reset_seconds=reset_seconds,
                 json_parse_error_count=stream_parser.json_parse_error_count,
+                wire_validation_error_count=stream_parser.wire_validation_error_count,
+                agent_version=agent_version,
             )
             run_completed = True
             return result
@@ -452,6 +641,8 @@ class AgentRunner:
             await _settle_stdin_task(stdin_task)
             await _cancel_task(snapshot_task)
             await _cancel_task(secondary_task)
+            for buffer in (text_buffer, stdout_buffer, stderr_buffer):
+                buffer.close()
             if on_process_end is not None:
                 on_process_end(proc)
 
@@ -484,7 +675,7 @@ class AgentRunner:
             cmd.extend(_translate_toolset(agent, toolset))
         else:
             # Fall back to mode-based flags
-            cmd.extend(agent.flags.get(mode, []))
+            cmd.extend(agent.flags.get(mode, ()))
 
         # Codex uses -o flag for direct file output
         if agent.output_extraction.strategy == OutputExtraction.Strategy.DIRECT_FILE:
@@ -623,7 +814,7 @@ def _command_contains_flag_sequence(cmd: list[str], expected_sequence: tuple[str
 async def _tee_to_file(
     raw: AsyncIterator[str],
     path: Path,
-    collector: list[str] | None = None,
+    collector: _LineBuffer | None = None,
 ) -> AsyncIterator[str]:
     """Yield each line from raw while also writing it to path (tee for archival).
 
@@ -642,13 +833,22 @@ async def _tee_to_file(
         await asyncio.to_thread(fh.close)
 
 
+def _write_log(log_path: Path, stderr_buffer: _LineBuffer) -> None:
+    """Write captured stderr to the log file (blocking; run in thread pool)."""
+    log_path.write_text(stderr_buffer.getvalue(), encoding="utf-8")
+
+
 def _write_output(
     agent: AgentConfig,
     output_path: Path,
-    text_chunks: list[str],
-    stdout_chunks: list[str],
+    text_buffer: _LineBuffer,
+    stdout_buffer: _LineBuffer,
 ) -> None:
-    """Write extracted text to output_path based on the agent's OutputExtraction strategy."""
+    """Write extracted text to output_path based on the agent's OutputExtraction strategy.
+
+    Blocking; run in thread pool. Concatenation happens here, at write-out
+    time, so chatty streams stay spilled to disk until the single final read.
+    """
     extraction = agent.output_extraction
 
     match extraction.strategy:
@@ -658,13 +858,15 @@ def _write_output(
 
         case OutputExtraction.Strategy.JQ_FILTER:
             # text_preview fields are already the extracted text fragments.
-            text = "".join(text_chunks)
+            text = text_buffer.getvalue()
             if extraction.strip_preamble:
                 text = _strip_preamble_text(text)
             output_path.write_text(text, encoding="utf-8")
 
         case OutputExtraction.Strategy.STDOUT_CAPTURE:
-            text = "".join(stdout_chunks) if extraction.stderr_as_stream else "".join(text_chunks)
+            text = (
+                stdout_buffer.getvalue() if extraction.stderr_as_stream else text_buffer.getvalue()
+            )
             output_path.write_text(text, encoding="utf-8")
 
 

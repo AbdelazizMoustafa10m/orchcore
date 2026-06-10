@@ -1,0 +1,347 @@
+{
+  "sessions": [
+    {
+      "name": "canonical",
+      "lines": [
+        {
+          "sessionId": "cop-1",
+          "toolName": "Read",
+          "id": "cp-1",
+          "parameters": {
+            "file_path": "README.md"
+          }
+        },
+        {
+          "toolName": "Read",
+          "id": "cp-1",
+          "parameters": {
+            "file_path": "README.md"
+          },
+          "result": "ok"
+        },
+        {
+          "tool": "Bash",
+          "id": "cp-2",
+          "input": {
+            "command": "ls"
+          }
+        },
+        {
+          "tool": "Bash",
+          "id": "cp-2",
+          "input": {
+            "command": "ls"
+          },
+          "done": true
+        },
+        {
+          "text": "Copilot text"
+        },
+        {
+          "message": "Copilot message"
+        },
+        {
+          "content": "Copilot content"
+        },
+        {
+          "unknownKey": 1
+        }
+      ],
+      "events": [
+        {
+          "event_type": "init",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": "cop-1",
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "sessionId": "cop-1",
+            "toolName": "Read",
+            "id": "cp-1",
+            "parameters": {
+              "file_path": "README.md"
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "cp-1",
+          "tool_name": "Read",
+          "tool_detail": "README.md",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "sessionId": "cop-1",
+            "toolName": "Read",
+            "id": "cp-1",
+            "parameters": {
+              "file_path": "README.md"
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "cp-1",
+          "tool_name": "Read",
+          "tool_detail": "README.md",
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "toolName": "Read",
+            "id": "cp-1",
+            "parameters": {
+              "file_path": "README.md"
+            },
+            "result": "ok"
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "cp-2",
+          "tool_name": "Bash",
+          "tool_detail": "$ ls",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "tool": "Bash",
+            "id": "cp-2",
+            "input": {
+              "command": "ls"
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "cp-2",
+          "tool_name": "Bash",
+          "tool_detail": "$ ls",
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "tool": "Bash",
+            "id": "cp-2",
+            "input": {
+              "command": "ls"
+            },
+            "done": true
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Copilot text",
+          "text_full": "Copilot text",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "text": "Copilot text"
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Copilot message",
+          "text_full": "Copilot message",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "message": "Copilot message"
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Copilot content",
+          "text_full": "Copilot content",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "content": "Copilot content"
+          }
+        }
+      ]
+    },
+    {
+      "name": "metadata-session-id",
+      "lines": [
+        {
+          "metadata": {
+            "conversationId": "cop-meta-1"
+          },
+          "text": "hello"
+        }
+      ],
+      "events": [
+        {
+          "event_type": "init",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": "cop-meta-1",
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "metadata": {
+              "conversationId": "cop-meta-1"
+            },
+            "text": "hello"
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "hello",
+          "text_full": "hello",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "metadata": {
+              "conversationId": "cop-meta-1"
+            },
+            "text": "hello"
+          }
+        }
+      ]
+    }
+  ]
+}

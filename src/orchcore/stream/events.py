@@ -176,6 +176,8 @@ class AgentResult(BaseModel):
     error_category: AgentErrorCategory | None = None
     rate_limit_reset_seconds: int | None = None  # parsed once, at the source (runner)
     json_parse_error_count: int = 0  # malformed JSONL lines seen by the stream parser
+    wire_validation_error_count: int = 0  # well-formed lines that failed the wire schema
+    agent_version: str | None = None  # CLI version detected by the advisory version check
 
 
 __all__ = [
