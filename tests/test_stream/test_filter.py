@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from orchcore.stream.events import StreamFormat
 from orchcore.stream.filter import StreamFilter
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 @pytest.mark.parametrize(
@@ -102,7 +107,7 @@ def test_should_keep_filters_only_known_noise(
 @pytest.mark.asyncio
 async def test_filter_stream_preserves_actionable_lines_in_order() -> None:
     # Arrange
-    async def raw_lines():
+    async def raw_lines() -> AsyncIterator[str]:
         for line in (
             '{"type":"content_block_delta"}',
             '{"type":"assistant"}',

@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 from itertools import chain, repeat
+from typing import TYPE_CHECKING
 
 import pytest
 
 from orchcore.stream.events import StreamEvent, StreamEventType
 from orchcore.stream.stall import StallDetector
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Awaitable
+
 
 class _AsyncEventIterator:
     def __init__(self, events: list[StreamEvent]) -> None:
         self._events = iter(events)
 
-    def __aiter__(self):
+    def __aiter__(self) -> AsyncIterator[StreamEvent]:
         return self
 
     async def __anext__(self) -> StreamEvent:
@@ -31,11 +35,13 @@ def _patch_watch_timing(
     step_iter = iter(steps)
     time_iter = chain(monotonic_values, repeat(monotonic_values[-1]))
 
-    async def fake_wait_for(coro, timeout):
+    async def fake_wait_for(coro: Awaitable[object], timeout: float) -> object:
         del timeout
         step = next(step_iter)
         if step == "timeout":
-            coro.close()
+            close = getattr(coro, "close", None)
+            if callable(close):
+                close()
             raise TimeoutError
         return await coro
 

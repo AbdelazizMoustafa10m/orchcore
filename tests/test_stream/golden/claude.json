@@ -1,0 +1,644 @@
+{
+  "sessions": [
+    {
+      "name": "canonical",
+      "lines": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "session_id": "sess-claude-1"
+        },
+        {
+          "type": "system",
+          "subtype": "api_retry",
+          "attempt": 1,
+          "max_retries": 3,
+          "delay": 2000
+        },
+        {
+          "type": "system",
+          "subtype": "api_retry",
+          "attempt": 2,
+          "max_retries": 3,
+          "delay": 4000,
+          "error_code": "rate_limit_error"
+        },
+        {
+          "type": "system",
+          "subtype": "rate_limit",
+          "retry_after_ms": 30000
+        },
+        {
+          "type": "content_block_start",
+          "content_block": {
+            "type": "thinking"
+          }
+        },
+        {
+          "type": "content_block_start",
+          "content_block": {
+            "type": "text"
+          }
+        },
+        {
+          "type": "content_block_start",
+          "content_block": {
+            "type": "tool_use",
+            "name": "Read",
+            "id": "tb-1",
+            "input": {
+              "file_path": "src/app.py"
+            }
+          }
+        },
+        {
+          "type": "content_block_delta",
+          "delta": {
+            "type": "input_json_delta",
+            "partial_json": "{}"
+          }
+        },
+        {
+          "type": "content_block_start",
+          "content_block": {
+            "type": "tool_use",
+            "name": "Agent",
+            "id": "tb-2",
+            "input": {
+              "description": "review auth"
+            }
+          }
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "content": [
+              {
+                "type": "tool_use",
+                "name": "Read",
+                "id": "tb-1",
+                "input": {
+                  "file_path": "src/app.py"
+                }
+              },
+              {
+                "type": "text",
+                "text": "# Result\n\nDone."
+              }
+            ]
+          }
+        },
+        {
+          "type": "result",
+          "total_cost_usd": "0.0456",
+          "duration_ms": 1234,
+          "exit_code": 0,
+          "num_turns": 4,
+          "session_id": "sess-claude-1",
+          "usage": {
+            "input_tokens": 100,
+            "output_tokens": 50
+          }
+        }
+      ],
+      "events": [
+        {
+          "event_type": "init",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": "sess-claude-1",
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "sess-claude-1"
+          }
+        },
+        {
+          "event_type": "retry",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": 1,
+          "retry_max": 3,
+          "retry_delay_ms": 2000,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "system",
+            "subtype": "api_retry",
+            "attempt": 1,
+            "max_retries": 3,
+            "delay": 2000
+          }
+        },
+        {
+          "event_type": "retry",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": 2,
+          "retry_max": 3,
+          "retry_delay_ms": 4000,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "system",
+            "subtype": "api_retry",
+            "attempt": 2,
+            "max_retries": 3,
+            "delay": 4000,
+            "error_code": "rate_limit_error"
+          }
+        },
+        {
+          "event_type": "rate_limit",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": 4000,
+          "error_category": "rate_limit_error",
+          "idle_seconds": null,
+          "raw": {
+            "type": "system",
+            "subtype": "api_retry",
+            "attempt": 2,
+            "max_retries": 3,
+            "delay": 4000,
+            "error_code": "rate_limit_error"
+          }
+        },
+        {
+          "event_type": "rate_limit",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": 30000,
+          "error_category": "rate_limit",
+          "idle_seconds": null,
+          "raw": {
+            "type": "system",
+            "subtype": "rate_limit",
+            "retry_after_ms": 30000
+          }
+        },
+        {
+          "event_type": "state",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "thinking",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "content_block_start",
+            "content_block": {
+              "type": "thinking"
+            }
+          }
+        },
+        {
+          "event_type": "state",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "writing",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "content_block_start",
+            "content_block": {
+              "type": "text"
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "tb-1",
+          "tool_name": "Read",
+          "tool_detail": "src/app.py",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "content_block_start",
+            "content_block": {
+              "type": "tool_use",
+              "name": "Read",
+              "id": "tb-1",
+              "input": {
+                "file_path": "src/app.py"
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_exec",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "content_block_delta",
+            "delta": {
+              "type": "input_json_delta",
+              "partial_json": "{}"
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "tb-2",
+          "tool_name": "Agent",
+          "tool_detail": "Agent \"review auth\"",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "content_block_start",
+            "content_block": {
+              "type": "tool_use",
+              "name": "Agent",
+              "id": "tb-2",
+              "input": {
+                "description": "review auth"
+              }
+            }
+          }
+        },
+        {
+          "event_type": "subagent",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Subagent: review auth",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "content_block_start",
+            "content_block": {
+              "type": "tool_use",
+              "name": "Agent",
+              "id": "tb-2",
+              "input": {
+                "description": "review auth"
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "tb-1",
+          "tool_name": "Read",
+          "tool_detail": "src/app.py",
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "name": "Read",
+                  "id": "tb-1",
+                  "input": {
+                    "file_path": "src/app.py"
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "# Result\n\nDone."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "# Result\n\nDone.",
+          "text_full": "# Result\n\nDone.",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "name": "Read",
+                  "id": "tb-1",
+                  "input": {
+                    "file_path": "src/app.py"
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "# Result\n\nDone."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": "0.0456",
+          "duration_ms": 1234,
+          "exit_code": 0,
+          "num_turns": 4,
+          "session_id": "sess-claude-1",
+          "token_usage": {
+            "input_tokens": 100,
+            "output_tokens": 50
+          },
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "result",
+            "total_cost_usd": "0.0456",
+            "duration_ms": 1234,
+            "exit_code": 0,
+            "num_turns": 4,
+            "session_id": "sess-claude-1",
+            "usage": {
+              "input_tokens": 100,
+              "output_tokens": 50
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "errors-and-unknowns",
+      "lines": [
+        {
+          "type": "result",
+          "error": "agent failed: boom"
+        },
+        {
+          "type": "result",
+          "error": {
+            "message": "overloaded"
+          }
+        },
+        {
+          "type": "system",
+          "subtype": "unknown_subtype"
+        },
+        {
+          "type": "unknown_event"
+        },
+        {
+          "type": "content_block_start",
+          "content_block": {
+            "type": "unknown_block"
+          }
+        },
+        {
+          "type": "content_block_delta",
+          "delta": {
+            "type": "text_delta"
+          }
+        }
+      ],
+      "events": [
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "agent failed: boom",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "result",
+            "error": "agent failed: boom"
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "overloaded",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "result",
+            "error": {
+              "message": "overloaded"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

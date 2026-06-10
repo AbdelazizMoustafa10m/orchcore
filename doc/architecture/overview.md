@@ -134,8 +134,9 @@ src/orchcore/
 
 orchcore uses a two-level execution model:
 
-1. **PipelineRunner** — coordinates multiple phases in dependency order. Handles resume, skip, and only-phase options.
+1. **PipelineRunner** — coordinates multiple phases in topological dependency order (dependencies first, declaration order preserved among independent phases — see [ADR-010](adrs/010-topological-phase-ordering-and-success-semantics.md)). Handles resume, skip, and only-phase options. A required phase whose dependencies are unmet fails the pipeline instead of silently counting as success.
 2. **PhaseRunner** — executes a single phase. Launches agents sequentially or in parallel via `AgentRunner`, enforces concurrency limits, and aggregates results.
+3. **AgentRunner** — launches each subprocess with an explicit command, filtered environment, optional working directory, stream parser, and process-tree shutdown policy.
 
 ```mermaid
 sequenceDiagram
@@ -150,15 +151,15 @@ sequenceDiagram
         PR->>PhR: run_phase(phase, prompt, callback)
         alt parallel phase
             par for each agent
-                PhR->>AR: run(agent, prompt, output_path)
-                AR->>A: subprocess launch
+                PhR->>AR: run(agent, prompt, output_path, cwd)
+                AR->>A: subprocess launch with filtered env + cwd
                 A-->>AR: JSONL stream
                 AR-->>PhR: AgentResult
             end
         else sequential phase
             loop for each agent
-                PhR->>AR: run(agent, prompt, output_path)
-                AR->>A: subprocess launch
+                PhR->>AR: run(agent, prompt, output_path, cwd)
+                AR->>A: subprocess launch with filtered env + cwd
                 A-->>AR: JSONL stream
                 AR-->>PhR: AgentResult
             end
@@ -198,7 +199,7 @@ See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-a
 | **Reliability** | Graceful degradation, configurable partial failure semantics |
 | **Performance** | < 5ms per event, < 100ms subprocess launch |
 | **Type Safety** | mypy strict with Pydantic validation at boundaries |
-| **Async-First** | Pure stdlib asyncio, TaskGroup for structured concurrency |
+| **Async-First** | Pure stdlib asyncio with explicit task creation, fail-fast waits, and gather-based result collection |
 | **Protocol-Based DI** | UICallback is a Protocol, not a base class |
 | **Registry-as-Data** | Agents defined via TOML/dict, not hardcoded classes |
 
@@ -214,14 +215,14 @@ See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-a
 
 ## Constraints
 
-- **Python >= 3.12** — `TaskGroup`, `tomllib`, modern type syntax
+- **Python >= 3.12** — `tomllib`, modern type syntax, and current asyncio APIs
 - **asyncio only** — no trio, gevent, or threading
-- **Core deps** — pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1
+- **Core deps** — pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1, tzdata >= 2024.1
 - **No agent API keys** — agents manage their own authentication
-- **POSIX signals** — SIGINT/SIGTERM handling (Windows is not first-class in v1.0)
+- **Cross-platform signals** — event-loop handlers where available, classic signal fallback on Windows
 
 ## Related
 
 - [Design Document](design.md) — problem statement, requirements, proposed design
 - [Stream Pipeline](stream-pipeline.md) — 4-stage pipeline deep-dive
-- [Architecture Decision Records](adrs/) — all 9 ADRs
+- [Architecture Decision Records](adrs/) — all 10 ADRs

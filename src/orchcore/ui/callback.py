@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -107,8 +108,6 @@ class LoggingCallback(NullCallback):
     """UICallback implementation that logs events via Python logging."""
 
     def __init__(self) -> None:
-        import logging
-
         self._logger = logging.getLogger("orchcore.ui")
 
     def on_pipeline_start(self, phases: Sequence[Phase]) -> None:

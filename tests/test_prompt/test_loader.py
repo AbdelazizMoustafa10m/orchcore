@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from orchcore.prompt.loader import TemplateLoader
 
-if TYPE_CHECKING:
-    from pathlib import Path
+ABSOLUTE_TEMPLATE_NAME = f"{Path.cwd().anchor}orchcore-secret"
 
 
 @pytest.fixture
@@ -49,6 +48,17 @@ def test_load_raises_file_not_found_error_with_searched_directories(
     assert str(template_dirs[1]) in message
 
 
+@pytest.mark.parametrize("template_name", ["../secret", ABSOLUTE_TEMPLATE_NAME, r"C:\secret"])
+def test_load_rejects_templates_outside_configured_directories(
+    template_dirs: list[Path],
+    template_name: str,
+) -> None:
+    loader = TemplateLoader(template_dirs)
+
+    with pytest.raises(ValueError):
+        loader.load(template_name)
+
+
 @pytest.mark.parametrize(
     ("template_name", "expected"),
     [
@@ -68,3 +78,14 @@ def test_exists_checks_template_names_with_and_without_extensions(
     loader = TemplateLoader([template_dir])
 
     assert loader.exists(template_name) is expected
+
+
+@pytest.mark.parametrize("template_name", ["../secret", ABSOLUTE_TEMPLATE_NAME, r"C:\secret"])
+def test_exists_rejects_templates_outside_configured_directories(
+    template_dirs: list[Path],
+    template_name: str,
+) -> None:
+    loader = TemplateLoader(template_dirs)
+
+    with pytest.raises(ValueError):
+        loader.exists(template_name)

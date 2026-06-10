@@ -4,19 +4,19 @@
 
 ---
 
-orchcore extracts the 60-70% of duplicated infrastructure from production AI orchestration systems into a single, typed, async-first Python 3.12+ library. It handles launching agent CLIs as subprocesses, processing their JSONL output through a unified stream pipeline, orchestrating multi-phase DAG-based execution, and managing configuration, recovery, and graceful shutdown — so consuming projects only implement domain-specific logic.
+orchcore extracts the 60-70% of duplicated infrastructure from production AI orchestration systems into a single, typed, async-first Python 3.12+ library. It handles launching agent CLIs as subprocesses, processing their JSONL output through a unified stream pipeline, orchestrating multi-phase execution with dependency checks, and managing configuration, recovery, and graceful shutdown — so consuming projects only implement domain-specific logic.
 
 ## Features
 
-- **Multi-agent subprocess orchestration** — launch and manage Claude, Codex, Gemini, Copilot, and OpenCode CLIs as async subprocesses
-- **Unified stream processing** — 4-stage pipeline (Filter, Parse, Monitor, Stall Detect) normalizes 5 different JSONL formats into a single `StreamEvent` model
-- **DAG-based phase pipelines** — sequential and parallel phase execution with dependency ordering, partial failure semantics, and resume support
+- **Multi-agent subprocess orchestration** — async launch, stream capture, concurrency control
+- **Unified stream processing** — 4-stage pipeline normalizes 5 JSONL formats into a single `StreamEvent` model
+- **Phase pipelines** — sequential/parallel execution with dependency checks and resume
 - **Rate-limit recovery** — automatic detection with timezone-aware reset parsing and exponential backoff
 - **Layered configuration** — TOML files, environment variables, CLI overrides, and named profiles via pydantic-settings
 - **Protocol-based UI** — `UICallback` protocol decouples engine from presentation; plug in Rich, Textual, or headless output
 - **Registry-as-data** — add new agent support via TOML configuration alone, zero code changes
-- **Graceful shutdown** — SIGINT/SIGTERM handling with cooperative cancellation flag; PhaseRunner owns subprocess termination with 30s grace period
-- **Git dirty-tree recovery** — auto-stash or auto-commit before retry to ensure clean working state
+- **Graceful shutdown** — SIGINT/SIGTERM with subprocess cleanup and state preservation
+- **Safe subprocess boundaries** — filtered agent environments by default, explicit cwd support, and opt-in git recovery
 - **Optional observability** — OpenTelemetry integration via `OrchcoreTelemetry`
 
 ## Quick Links
@@ -34,17 +34,17 @@ orchcore extracts the 60-70% of duplicated infrastructure from production AI orc
 
 | Module | Purpose |
 |--------|---------|
-| `stream/` | 4-stage pipeline normalizing JSONL from 5 agent formats into unified `StreamEvent` models |
-| `pipeline/` | DAG-based phase orchestration engine for sequential/parallel multi-agent execution |
-| `runner/` | Async subprocess management — launches agent CLIs with stdin/stdout/stderr piping |
-| `registry/` | Agent configurations as data (TOML/dict) with runtime lookup and tool resolution |
-| `config/` | Layered configuration: TOML → env vars (`ORCHCORE_*`) → CLI overrides → profiles |
-| `recovery/` | Rate-limit detection, retry with exponential backoff, git dirty-tree recovery |
-| `workspace/` | Manages `.orchcore-workspace/outputs/<phase>/<agent>.md` artifact lifecycle |
+| `stream/` | 4-stage pipeline (Filter → Parse → Monitor → Stall Detect) for 5 agent formats |
+| `pipeline/` | Phase orchestration — sequential/parallel multi-agent execution in topological dependency order |
+| `runner/` | Async subprocess management with stdout/stderr streaming and optional stdin prompt transport (`prompt_via = "stdin"`) |
+| `registry/` | Agent configurations as data (TOML/dict) with runtime lookup |
+| `config/` | Layered configuration: TOML files, env vars, CLI overrides, and profiles |
+| `recovery/` | Rate-limit detection, exponential backoff, git dirty-tree recovery |
+| `workspace/` | Artifact lifecycle management |
 | `prompt/` | Jinja2 template rendering with frontmatter stripping |
 | `ui/` | `UICallback` protocol — consuming projects implement their own display layer |
-| `signals/` | Cooperative SIGINT/SIGTERM shutdown flag (`shutdown_requested`) with `check_shutdown()` |
-| `display/` | Colored stderr logging via ANSI codes (no Rich dependency in core) |
+| `signals/` | Graceful SIGINT/SIGTERM shutdown |
+| `display/` | Colored stderr logging (no Rich dependency in core) |
 | `observability/` | Optional OpenTelemetry integration |
 
 ## Guides
@@ -73,3 +73,4 @@ orchcore extracts the 60-70% of duplicated infrastructure from production AI orc
 | [007](architecture/adrs/007-registry-pattern-for-agent-management.md) | Registry pattern for agent management |
 | [008](architecture/adrs/008-partial-failure-semantics-with-retry.md) | Partial failure semantics with retry |
 | [009](architecture/adrs/009-tool-assignment-as-phase-level-concern.md) | Tool assignment as phase-level concern |
+| [010](architecture/adrs/010-topological-phase-ordering-and-success-semantics.md) | Topological phase ordering and explicit success semantics |

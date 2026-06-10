@@ -33,6 +33,17 @@ class FakeLoop:
         return True
 
 
+class UnsupportedSignalLoop(FakeLoop):
+    def add_signal_handler(
+        self,
+        sig: signal.Signals,
+        callback: Callable[..., object],
+        *args: signal.Signals,
+    ) -> None:
+        self.added.append((sig, callback, args))
+        raise NotImplementedError
+
+
 def test_shutdown_requested_is_initially_false() -> None:
     # Arrange
     manager = SignalManager()
@@ -94,6 +105,47 @@ async def test_signal_manager_supports_async_context_management(
         (signal.SIGINT, signal.default_int_handler),
         (signal.SIGTERM, signal.SIG_DFL),
     ]
+
+
+@pytest.mark.asyncio
+async def test_signal_manager_falls_back_when_loop_signal_handlers_are_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F4 regression: Windows-style loops fall back to signal.signal handlers."""
+    fake_loop = UnsupportedSignalLoop()
+    original_handlers: dict[
+        signal.Signals,
+        int | Callable[[int, FrameType | None], object] | None,
+    ] = {
+        signal.SIGINT: signal.default_int_handler,
+        signal.SIGTERM: signal.SIG_DFL,
+    }
+    signal_calls: list[
+        tuple[signal.Signals, int | Callable[[int, FrameType | None], object] | None]
+    ] = []
+
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: fake_loop)
+    monkeypatch.setattr(signal, "getsignal", original_handlers.__getitem__)
+    monkeypatch.setattr(signal, "signal", lambda sig, handler: signal_calls.append((sig, handler)))
+
+    manager = SignalManager()
+
+    async with manager:
+        assert [entry[0] for entry in fake_loop.added] == [signal.SIGINT, signal.SIGTERM]
+        installed_handlers = [handler for _, handler in signal_calls]
+        assert all(callable(handler) for handler in installed_handlers)
+
+    assert fake_loop.removed == []
+    assert signal_calls[2:] == [
+        (signal.SIGINT, signal.default_int_handler),
+        (signal.SIGTERM, signal.SIG_DFL),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_signal_manager_real_loop_smoke() -> None:
+    async with SignalManager() as manager:
+        assert manager is not None
 
 
 def test_sigterm_then_sigint_does_not_force_exit() -> None:

@@ -3,12 +3,21 @@ id: ADR-006
 title: Use Pydantic for all data models with mypy strict mode
 status: ACCEPTED
 date: 2026-03-25
-decision_makers: [Abdelaziz Abdelrasol]
+decision_makers:
+  - Abdelaziz Abdelrasol
 consulted: []
 informed: []
 confidence: HIGH
-tags: [type-safety, pydantic, mypy, data-models, validation]
-related_decisions: [ADR-001, ADR-003, ADR-005]
+tags:
+  - type-safety
+  - pydantic
+  - mypy
+  - data-models
+  - validation
+related_decisions:
+  - ADR-001
+  - ADR-003
+  - ADR-005
 supersedes: []
 superseded_by: []
 ---
@@ -229,8 +238,21 @@ The lack of consistent type safety across the source systems has been a recurrin
 - [mypy strict mode](https://mypy.readthedocs.io/en/stable/command_line.html#cmdoption-mypy-strict)
 - [PEP 557 — Data Classes](https://peps.python.org/pep-0557/) (rejected alternative)
 
+## Errata
+
+- **2026-06-10 (WP-31):** Pydantic's `frozen=True` blocks attribute *assignment* only — nested
+  containers remained freely mutable (`agent.flags[mode].append(...)` succeeded, and
+  `with_overrides()` shares unpatched configs by reference, so nested mutation was visible
+  across registries). Load-bearing sequence fields on cross-boundary models are therefore
+  tuples: `Phase.agents`, `Phase.depends_on`, `AgentConfig.flags` values,
+  `ToolSet.internal`/`ToolSet.mcp`, and `RetryPolicy.backoff_schedule`. Pydantic coerces list
+  inputs, so TOML/JSON loading is unaffected; tuples serialize as arrays. Dict fields
+  (`env_vars`, `agent_tools`, the outer `flags` mapping) remain shallow-mutable — this boundary
+  is pinned as documented behavior by `tests/test_models_roundtrip.py`.
+
 ## Document History
 
 | Version | Date | Author | Changes |
 |---|---|---|---|
 | 1.0 | 2026-03-25 | Abdelaziz Abdelrasol | Initial version (ACCEPTED) |
+| 1.1 | 2026-06-10 | Abdelaziz Abdelrasol | Errata: shallow-frozen caveat; tuple sequence fields (WP-31) |
