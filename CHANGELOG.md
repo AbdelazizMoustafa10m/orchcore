@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.1](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v1.0.0...v1.0.1) (2026-06-10)
+
+
+### Build System
+
+* bump idna from 3.11 to 3.15 ([#17](https://github.com/AbdelazizMoustafa10m/orchcore/issues/17)) ([3a9eccc](https://github.com/AbdelazizMoustafa10m/orchcore/commit/3a9eccc07d13302dc3b2eb1a0b657eb39798801c))
+* bump pygments from 2.19.2 to 2.20.0 ([#7](https://github.com/AbdelazizMoustafa10m/orchcore/issues/7)) ([89c53a0](https://github.com/AbdelazizMoustafa10m/orchcore/commit/89c53a01ee7fb1a634089ff6a6becf6371cc42eb))
+* bump pytest from 9.0.2 to 9.0.3 ([#13](https://github.com/AbdelazizMoustafa10m/orchcore/issues/13)) ([bbcd21c](https://github.com/AbdelazizMoustafa10m/orchcore/commit/bbcd21c9700e235156079940cba888bf4e6bfe0d))
+* bump urllib3 from 2.6.3 to 2.7.0 ([#16](https://github.com/AbdelazizMoustafa10m/orchcore/issues/16)) ([ead6811](https://github.com/AbdelazizMoustafa10m/orchcore/commit/ead68110d9dfc416838bf50ad828fa0bf67e41b4))
+
+
+### CI/CD
+
+* bump the github-actions group across 1 directory with 12 updates ([#14](https://github.com/AbdelazizMoustafa10m/orchcore/issues/14)) ([8e24477](https://github.com/AbdelazizMoustafa10m/orchcore/commit/8e244772be6b04d91d17cf71fe1ca1821341bd01))
+
 ## [1.0.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v0.2.1...v1.0.0) (2026-06-10)
 
 
