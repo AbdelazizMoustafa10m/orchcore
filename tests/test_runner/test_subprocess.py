@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+import os
+import signal
 import subprocess
 import sys
 import textwrap
@@ -781,6 +784,181 @@ async def test_run_enforces_max_runtime(
     assert result.error == "max_runtime exceeded after 0.05s"
 
 
+_LOCK_PROBE_SCRIPT = r"""
+import os
+import sys
+
+path = sys.argv[1]
+with open(path, "r+b") as fh:
+    if os.name == "nt":
+        import msvcrt
+
+        try:
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            raise SystemExit(1)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise SystemExit(1)
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+"""
+
+
+def _can_acquire_lock(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        completed = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", _LOCK_PROBE_SCRIPT, str(path)],
+            check=False,
+            capture_output=True,
+            timeout=2.0,
+        )
+    except subprocess.TimeoutExpired:
+        return False
+    return completed.returncode == 0
+
+
+async def _wait_for_path(path: Path, *, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"timed out waiting for {path}")
+
+
+async def _wait_for_lock_release(path: Path, *, timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _can_acquire_lock(path):
+            return True
+        await asyncio.sleep(0.02)
+    return False
+
+
+def _terminate_pid(pid: int) -> None:
+    with contextlib.suppress(OSError):
+        os.kill(pid, signal.SIGTERM)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_process_terminates_spawned_grandchild(tmp_path: Path) -> None:
+    grandchild_path = tmp_path / "grandchild.py"
+    child_path = tmp_path / "child.py"
+    parent_path = tmp_path / "parent.py"
+    lock_path = tmp_path / "grandchild.lock"
+    ready_path = tmp_path / "grandchild.ready"
+    grandchild_pid_path = tmp_path / "grandchild.pid"
+
+    grandchild_path.write_text(
+        textwrap.dedent(
+            """
+            import os
+            import sys
+            import time
+            from pathlib import Path
+
+            lock_path = Path(sys.argv[1])
+            ready_path = Path(sys.argv[2])
+            pid_path = Path(sys.argv[3])
+            with lock_path.open("w+b") as fh:
+                fh.write(b"0")
+                fh.flush()
+                fh.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                pid_path.write_text(str(os.getpid()), encoding="utf-8")
+                ready_path.write_text("ready", encoding="utf-8")
+                while True:
+                    time.sleep(1)
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    child_path.write_text(
+        textwrap.dedent(
+            """
+            import subprocess
+            import sys
+            import time
+
+            subprocess.Popen([sys.executable, *sys.argv[1:]])  # noqa: S603
+            while True:
+                time.sleep(1)
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    parent_path.write_text(
+        textwrap.dedent(
+            """
+            import subprocess
+            import sys
+            import time
+
+            subprocess.Popen([sys.executable, *sys.argv[1:]])  # noqa: S603
+            while True:
+                time.sleep(1)
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    if os.name != "nt":
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(parent_path),
+            str(child_path),
+            str(grandchild_path),
+            str(lock_path),
+            str(ready_path),
+            str(grandchild_pid_path),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    else:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(parent_path),
+            str(child_path),
+            str(grandchild_path),
+            str(lock_path),
+            str(ready_path),
+            str(grandchild_pid_path),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    grandchild_pid: int | None = None
+    try:
+        await _wait_for_path(ready_path)
+        grandchild_pid = int(grandchild_pid_path.read_text(encoding="utf-8"))
+
+        await _shutdown_process(proc)
+
+        lock_released = await _wait_for_lock_release(lock_path)
+        if not lock_released and grandchild_pid is not None:
+            _terminate_pid(grandchild_pid)
+        assert lock_released
+    finally:
+        if proc.returncode is None:
+            await _shutdown_process(proc)
+
+
 @pytest.mark.asyncio
 async def test_shutdown_process_falls_back_when_taskkill_fails(
     monkeypatch: pytest.MonkeyPatch,
@@ -984,6 +1162,17 @@ def test_strip_preamble_text(text: str, expected: str) -> None:
         pytest.param(
             {
                 "exit_code": 0,
+                "stream_error": "rate limited, try again in 90 seconds",
+                "stream_error_category": AgentErrorCategory.RATE_LIMIT,
+                "stream_rate_limit_retry_delay_ms": 5000,
+            },
+            AgentErrorCategory.RATE_LIMIT,
+            5,
+            id="typed-rate-limit-delay-prefers-structured-value",
+        ),
+        pytest.param(
+            {
+                "exit_code": 0,
                 "stream_error": "structured failure",
                 "stream_error_category": AgentErrorCategory.STREAM_ERROR,
             },
@@ -1065,19 +1254,47 @@ def test_resolve_result_state_category_matrix(
 
 
 @pytest.mark.asyncio
-async def test_run_populates_rate_limit_category_from_typed_stream_event(
+@pytest.mark.parametrize(
+    ("stream_format", "event", "expected_reset_seconds"),
+    [
+        pytest.param(
+            StreamFormat.CLAUDE,
+            {"type": "system", "subtype": "rate_limit", "retry_after_ms": 5000},
+            5,
+            id="claude",
+        ),
+        pytest.param(
+            StreamFormat.CODEX,
+            {"type": "error", "code": "rate_limit_exceeded", "retry_after_ms": 5000},
+            5,
+            id="codex",
+        ),
+        pytest.param(
+            StreamFormat.GEMINI,
+            {
+                "error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota"},
+                "retry_after_ms": 60000,
+            },
+            60,
+            id="gemini",
+        ),
+    ],
+)
+async def test_run_populates_rate_limit_reset_from_typed_stream_event(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
+    stream_format: StreamFormat,
+    event: dict[str, object],
+    expected_reset_seconds: int,
 ) -> None:
-    script = textwrap.dedent(
-        """
-        import json
-
-        print(json.dumps({"type": "system", "subtype": "rate_limit"}), flush=True)
-        """
-    ).strip()
+    script = f"print({json.dumps(event)!r}, flush=True)"
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={
+            "binary": sys.executable,
+            "subcommand": "-c",
+            "flags": {AgentMode.PLAN: []},
+            "stream_format": stream_format,
+        }
     )
 
     result = await AgentRunner().run(
@@ -1090,6 +1307,7 @@ async def test_run_populates_rate_limit_category_from_typed_stream_event(
     assert result.exit_code == 0
     assert result.error_category is AgentErrorCategory.RATE_LIMIT
     assert result.error is not None
+    assert result.rate_limit_reset_seconds == expected_reset_seconds
     assert result.json_parse_error_count == 0
 
 
@@ -1178,7 +1396,7 @@ async def test_run_flags_empty_output_category_on_clean_exit(
     )
 
     assert result.exit_code == 0
-    assert result.error is None
+    assert result.error == "Agent 'test-agent' completed without producing output"
     assert result.output_empty is True
     assert result.error_category is AgentErrorCategory.EMPTY_OUTPUT
 
@@ -1355,6 +1573,44 @@ async def test_detect_agent_version_runs_one_exec_per_binary(
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("fresh_version_cache")
+async def test_detect_agent_version_logs_current_agent_compatibility_from_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    first_agent = _version_agent(
+        name="agent-a",
+        version_command=("-c", "print('tool 1.9.0 ready')"),
+    )
+    second_agent = _version_agent(
+        name="agent-b",
+        version_command=("-c", "raise SystemExit('should not run')"),
+        incompatible_versions=(
+            IncompatibleVersionSpec(spec="<=2.0.0", reason="stream-json v1 format"),
+        ),
+    )
+    exec_calls = 0
+    real_exec = asyncio.create_subprocess_exec
+
+    async def counting_exec(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        nonlocal exec_calls
+        exec_calls += 1
+        return await real_exec(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("orchcore.runner.subprocess.asyncio.create_subprocess_exec", counting_exec)
+
+    with caplog.at_level(logging.WARNING, logger="orchcore.runner.subprocess"):
+        first = await _detect_agent_version(first_agent, None)
+        second = await _detect_agent_version(second_agent, None)
+
+    assert first == "1.9.0"
+    assert second == "1.9.0"
+    assert exec_calls == 1
+    assert "Agent agent-b CLI version 1.9.0 is known-incompatible" in caplog.text
+    assert "stream-json v1 format" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("fresh_version_cache")
 async def test_run_populates_agent_version_on_result(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
@@ -1496,6 +1752,16 @@ def test_log_version_compatibility_calibrated_levels(
 
     with caplog.at_level(logging.DEBUG, logger="orchcore.runner.subprocess"):
         _log_version_compatibility(incompatible_agent, "3.5.0")
+    assert caplog.records[-1].levelno == logging.INFO
+    assert "outside the declared compatible ranges" in caplog.records[-1].getMessage()
+
+    incompatible_only_agent = _version_agent(
+        incompatible_versions=(
+            IncompatibleVersionSpec(spec="<=2.0.0", reason="stream-json v1 format"),
+        ),
+    )
+    with caplog.at_level(logging.DEBUG, logger="orchcore.runner.subprocess"):
+        _log_version_compatibility(incompatible_only_agent, "2.5.0")
     assert caplog.records[-1].levelno == logging.INFO
     assert "outside the declared compatible ranges" in caplog.records[-1].getMessage()
 

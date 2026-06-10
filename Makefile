@@ -32,9 +32,10 @@ verifytypes:
 	uv run pyright --verifytypes orchcore --ignoreexternal
 
 smoke-dist:
+	rm -rf dist/
 	uv build
-	uv run --isolated --no-cache --no-project --with dist/*.whl scripts/run_smoke_test.py
-	uv run --isolated --no-cache --no-project --with dist/*.tar.gz scripts/run_smoke_test.py
+	uv run --isolated --no-cache --no-project --with "$$(uv run python scripts/resolve_dist_artifact.py wheel)" scripts/run_smoke_test.py
+	uv run --isolated --no-cache --no-project --with "$$(uv run python scripts/resolve_dist_artifact.py sdist)" scripts/run_smoke_test.py
 
 readme-example:
 	python scripts/check_readme_example.py

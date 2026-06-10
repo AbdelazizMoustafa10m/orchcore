@@ -204,6 +204,8 @@ async def test_rate_limit_scenario_across_formats(
         assert result.rate_limit_reset_seconds == 60
     else:
         assert result.exit_code == 0
+        expected_reset = 60 if stream_format is StreamFormat.GEMINI else 5
+        assert result.rate_limit_reset_seconds == expected_reset
 
 
 @pytest.mark.asyncio

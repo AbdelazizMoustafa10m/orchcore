@@ -243,13 +243,15 @@ jobs:
           python-version: '3.12'
 
       - name: Build sdist and wheel
-        run: uv build
+        run: |
+          rm -rf dist/
+          uv build
 
       - name: Smoke test wheel
-        run: uv run --isolated --no-cache --no-project --with dist/*.whl scripts/run_smoke_test.py
+        run: uv run --isolated --no-cache --no-project --with "$(uv run python scripts/resolve_dist_artifact.py wheel)" scripts/run_smoke_test.py
 
       - name: Smoke test sdist
-        run: uv run --isolated --no-cache --no-project --with dist/*.tar.gz scripts/run_smoke_test.py
+        run: uv run --isolated --no-cache --no-project --with "$(uv run python scripts/resolve_dist_artifact.py sdist)" scripts/run_smoke_test.py
 
   summary:
     name: CI Summary

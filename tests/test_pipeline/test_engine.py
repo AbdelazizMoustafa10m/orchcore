@@ -631,6 +631,12 @@ def test_phase_result_aggregation_and_helper_fallbacks(tmp_path: Path) -> None:
         duration=timedelta(0),
         output_empty=True,
     )
+    empty_with_runner_error = empty_success.model_copy(
+        update={
+            "error": "Agent 'empty' completed without producing output",
+            "error_category": AgentErrorCategory.EMPTY_OUTPUT,
+        }
+    )
     exit_failure = AgentResult(
         agent_name="beta",
         output_path=tmp_path / "beta.md",
@@ -653,6 +659,12 @@ def test_phase_result_aggregation_and_helper_fallbacks(tmp_path: Path) -> None:
         agent_results=[success, exit_failure],
         allow_partial=True,
     )
+    empty_failure = _build_phase_result(
+        phase_name="analysis",
+        started_at=datetime.now(UTC),
+        agent_results=[empty_with_runner_error],
+        allow_partial=False,
+    )
 
     assert partial.status is PhaseStatus.PARTIAL
     assert partial.output_files == [tmp_path / "alpha.md", tmp_path / "beta.md"]
@@ -660,10 +672,14 @@ def test_phase_result_aggregation_and_helper_fallbacks(tmp_path: Path) -> None:
     assert partial.cost_usd == Decimal("0.50")
     assert _agent_error_message(success) is None
     assert _agent_error_message(empty_success) == "Agent 'empty' completed without producing output"
+    assert _agent_error_message(empty_with_runner_error) == (
+        "Agent 'empty' completed without producing output"
+    )
     assert _agent_error_message(exit_failure) == "Agent 'beta' exited with code 2"
     assert synthetic.error == "launch failed (phase='analysis', agent='gamma')"
     assert synthetic.error_category is AgentErrorCategory.OS_ERROR
     assert partial.error_messages == ["Agent 'beta' exited with code 2"]
+    assert empty_failure.error_messages == ["Agent 'empty' completed without producing output"]
     assert _exception_message(RuntimeError()) == "RuntimeError"
     assert _path_component(" !!! ") == "unnamed"
 
@@ -767,6 +783,87 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
     assert setup.ui_callback.rate_limit_waits == [("codex", 0.25)]
     assert setup.ui_callback.retries == [("codex", 1, 2)]
     assert setup.ui_callback.git_recoveries == []
+
+
+@pytest.mark.asyncio
+async def test_run_with_semaphore_passes_typed_rate_limit_reset_to_backoff(
+    retry_test_setup: _RetryTestSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = retry_test_setup
+    marker_path = setup.output_path.with_suffix(".marker")
+    script = textwrap.dedent(
+        f"""
+        import json
+        from pathlib import Path
+
+        marker = Path({str(marker_path)!r})
+        if not marker.exists():
+            marker.write_text("rate-limited", encoding="utf-8")
+            print(json.dumps({{
+                "type": "system",
+                "subtype": "rate_limit",
+                "retry_after_ms": 5000,
+            }}), flush=True)
+        else:
+            print(json.dumps({{
+                "type": "assistant",
+                "message": {{"content": [{{"type": "text", "text": "ok"}}]}},
+            }}), flush=True)
+            print(json.dumps({{"type": "result", "exit_code": 0}}), flush=True)
+        """
+    ).strip()
+    agent = setup.agent.model_copy(
+        update={
+            "binary": sys.executable,
+            "subcommand": "-c",
+            "flags": {AgentMode.PLAN: []},
+            "version_command": (),
+        }
+    )
+    wait_inputs: list[tuple[int, int | None]] = []
+    sleep_calls: list[float] = []
+
+    async def fake_is_tree_dirty(self: object) -> bool:
+        del self
+        return False
+
+    async def fake_auto_commit(self: object, *, no_verify: bool = False) -> bool:
+        del self, no_verify
+        return False
+
+    def fake_compute_wait(self: object, attempt: int, reset_seconds: int | None = None) -> float:
+        del self
+        wait_inputs.append((attempt, reset_seconds))
+        return 0.0
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.is_tree_dirty", fake_is_tree_dirty)
+    monkeypatch.setattr("orchcore.pipeline.engine.GitRecovery.auto_commit", fake_auto_commit)
+    monkeypatch.setattr(
+        "orchcore.pipeline.engine.BackoffStrategy.compute_wait",
+        fake_compute_wait,
+    )
+    monkeypatch.setattr("orchcore.pipeline.engine.asyncio.sleep", fake_sleep)
+
+    result = await setup.phase_runner._run_with_semaphore(
+        agent=agent,
+        prompt=script,
+        output_path=setup.output_path,
+        phase_name="analysis",
+        ui_callback=setup.ui_callback,
+        mode=AgentMode.PLAN,
+        phase_failure_mode=FailureMode.FAIL_FAST,
+        retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
+    )
+
+    assert result.exit_code == 0
+    assert result.error is None
+    assert wait_inputs == [(1, 5)]
+    assert sleep_calls == [0.0]
+    assert setup.output_path.read_text(encoding="utf-8") == "ok"
 
 
 @pytest.mark.asyncio

@@ -194,7 +194,7 @@ def evaluate_compatibility(
             )
     if any(_spec_matches(spec, version) for spec in compatible_versions):
         return CompatibilityVerdict(status=CompatibilityStatus.COMPATIBLE)
-    if compatible_versions:
+    if compatible_versions or incompatible_versions:
         return CompatibilityVerdict(status=CompatibilityStatus.UNKNOWN)
     return CompatibilityVerdict(status=CompatibilityStatus.UNDECLARED)
 

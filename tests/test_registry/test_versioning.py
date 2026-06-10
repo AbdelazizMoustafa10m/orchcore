@@ -160,6 +160,18 @@ def test_evaluate_unknown_outside_declared_ranges() -> None:
     assert verdict.status is CompatibilityStatus.UNKNOWN
 
 
+def test_evaluate_unknown_when_incompatible_only_range_does_not_match() -> None:
+    verdict = evaluate_compatibility(
+        "2.5",
+        compatible_versions=[],
+        incompatible_versions=[
+            IncompatibleVersionSpec(spec="<=2.0.0", reason="stream-json v1 format")
+        ],
+    )
+
+    assert verdict.status is CompatibilityStatus.UNKNOWN
+
+
 def test_evaluate_undeclared_when_no_ranges() -> None:
     verdict = evaluate_compatibility("1.0", compatible_versions=[], incompatible_versions=[])
 

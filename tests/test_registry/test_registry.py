@@ -210,6 +210,16 @@ stream_format = "nonsense"
 strategy = "stdout_capture"
 """
 
+_MALFORMED_OUTPUT_EXTRACTION_TOML = """
+[agents.bad_nested]
+binary = "echo"
+model = "bad-nested-model"
+subcommand = "-p"
+stream_format = "claude"
+flags = { plan = [] }
+output_extraction = "stdout_capture"
+"""
+
 _MISSING_FIELDS_TOML = """
 [agents.incomplete]
 binary = "echo"
@@ -251,6 +261,28 @@ def test_load_from_toml_raise_reports_all_invalid_entries(tmp_path: Path) -> Non
     assert registry.list_agents() == []
 
 
+def test_load_from_toml_aggregates_malformed_nested_shapes_atomically(
+    tmp_path: Path,
+    sample_agent_config: AgentConfig,
+) -> None:
+    path = tmp_path / "agents.toml"
+    path.write_text(
+        _VALID_AGENT_TOML + _MALFORMED_OUTPUT_EXTRACTION_TOML + _INVALID_FORMAT_TOML,
+        encoding="utf-8",
+    )
+    registry = AgentRegistry({"existing": sample_agent_config})
+
+    with pytest.raises(ValueError) as exc_info:
+        registry.load_from_toml(path)
+
+    message = str(exc_info.value)
+    assert "bad_nested" in message
+    assert "output_extraction must be a TOML table" in message
+    assert "broken" in message
+    assert "nonsense" in message
+    assert registry.list_agents() == ["existing"]
+
+
 def test_load_from_toml_skip_mode_registers_valid_and_warns(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -268,6 +300,22 @@ def test_load_from_toml_skip_mode_registers_valid_and_warns(
     assert registry.list_agents() == ["good"]
     assert "Skipping invalid agent entry 'broken'" in caplog.text
     assert "Skipping invalid agent entry 'not_a_table'" in caplog.text
+
+
+def test_load_from_toml_skip_mode_handles_malformed_nested_shape(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    path = tmp_path / "agents.toml"
+    path.write_text(_VALID_AGENT_TOML + _MALFORMED_OUTPUT_EXTRACTION_TOML, encoding="utf-8")
+    registry = AgentRegistry()
+
+    with caplog.at_level("WARNING", logger="orchcore.registry.registry"):
+        registry.load_from_toml(path, on_error="skip")
+
+    assert registry.list_agents() == ["good"]
+    assert "Skipping invalid agent entry 'bad_nested'" in caplog.text
+    assert "output_extraction must be a TOML table" in caplog.text
 
 
 def test_load_from_toml_valid_file_loads_identically_in_both_modes(tmp_path: Path) -> None:

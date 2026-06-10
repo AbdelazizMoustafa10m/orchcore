@@ -231,7 +231,10 @@ async def _detect_agent_version(agent: AgentConfig, cwd: Path | None) -> str | N
     """
     key = shutil.which(agent.binary) or agent.binary
     if key in _VERSION_CACHE:
-        return _VERSION_CACHE[key]
+        cached_version = _VERSION_CACHE[key]
+        if cached_version is not None:
+            _log_version_compatibility(agent, cached_version)
+        return cached_version
     version = await _run_version_command(agent, cwd)
     _VERSION_CACHE[key] = version
     if version is None:
@@ -431,6 +434,7 @@ class AgentRunner:
         text_buffer = _LineBuffer()
         stream_error: str | None = None
         stream_error_category: AgentErrorCategory | None = None
+        stream_rate_limit_retry_delay_ms: int | None = None
         stall_idle_seconds: float | None = None
         stall_abort = asyncio.Event()
         # Prefer the explicit on_stall parameter; fall back to introspecting
@@ -440,6 +444,7 @@ class AgentRunner:
 
         def _collecting_on_event(event: StreamEvent) -> None:
             nonlocal stall_idle_seconds, stream_error, stream_error_category
+            nonlocal stream_rate_limit_retry_delay_ms
             if event.event_type == StreamEventType.TEXT:
                 full = event.text_full or event.text_preview
                 if full is not None:
@@ -471,6 +476,8 @@ class AgentRunner:
                     or "agent reported a rate limit"
                 )
                 stream_error_category = AgentErrorCategory.RATE_LIMIT
+                if event.retry_delay_ms is not None:
+                    stream_rate_limit_retry_delay_ms = event.retry_delay_ms
             if (
                 event.event_type == StreamEventType.STALL
                 and event.idle_seconds is not None
@@ -603,12 +610,14 @@ class AgentRunner:
                 max_runtime=agent.max_runtime,
                 stalled_out=stalled_out,
                 stall_idle_seconds=stall_idle_seconds,
+                stream_rate_limit_retry_delay_ms=stream_rate_limit_retry_delay_ms,
             )
             if on_snapshot is not None:
                 on_snapshot(snap)
 
             output_empty = await asyncio.to_thread(_check_output_empty, output_path)
             if result_error is None and error_category is None and output_empty:
+                result_error = f"Agent {agent.name!r} completed without producing output"
                 error_category = AgentErrorCategory.EMPTY_OUTPUT
 
             result = AgentResult(
@@ -1035,6 +1044,7 @@ def _resolve_result_state(
     max_runtime: float | None,
     stalled_out: bool,
     stall_idle_seconds: float | None,
+    stream_rate_limit_retry_delay_ms: int | None = None,
 ) -> tuple[str | None, AgentErrorCategory | None, int | None]:
     """Resolve AgentResult error, category, and rate-limit reset from run state.
 
@@ -1077,11 +1087,22 @@ def _resolve_result_state(
 
     reset_seconds: int | None = None
     if category is AgentErrorCategory.RATE_LIMIT:
-        parser = ResetTimeParser()
-        reset_seconds = parser.parse(error)
-        if reset_seconds is None and stream_error is not None and stream_error != error:
-            reset_seconds = parser.parse(stream_error)
+        reset_seconds = _retry_delay_ms_to_seconds(stream_rate_limit_retry_delay_ms)
+        if reset_seconds is None:
+            parser = ResetTimeParser()
+            reset_seconds = parser.parse(error)
+            if reset_seconds is None and stream_error is not None and stream_error != error:
+                reset_seconds = parser.parse(stream_error)
     return error, category, reset_seconds
+
+
+def _retry_delay_ms_to_seconds(retry_delay_ms: int | None) -> int | None:
+    """Convert typed retry-delay milliseconds into whole seconds for AgentResult."""
+    if retry_delay_ms is None:
+        return None
+    if retry_delay_ms <= 0:
+        return 0
+    return (retry_delay_ms + 999) // 1000
 
 
 def _derive_error(

@@ -92,7 +92,7 @@ class AgentRegistry:
                 continue
             try:
                 parsed.append(_parse_agent_entry(name, agent_data))
-            except (ValueError, ValidationError) as exc:
+            except (TypeError, ValueError, ValidationError) as exc:
                 errors[name] = str(exc)
 
         if errors and on_error == "raise":
@@ -145,12 +145,23 @@ def _parse_agent_entry(name: str, agent_data: dict[str, Any]) -> AgentConfig:
     entry: dict[str, Any] = {**agent_data, "name": name}
     # Parse nested models
     if "output_extraction" in entry:
-        entry["output_extraction"] = OutputExtraction(**entry["output_extraction"])
+        entry["output_extraction"] = OutputExtraction(
+            **_require_toml_table("output_extraction", entry["output_extraction"])
+        )
     if "stream_format" in entry:
         entry["stream_format"] = StreamFormat(entry["stream_format"])
     if "flags" in entry:
-        entry["flags"] = {AgentMode(key): value for key, value in entry["flags"].items()}
+        flags = _require_toml_table("flags", entry["flags"])
+        entry["flags"] = {AgentMode(key): value for key, value in flags.items()}
     return AgentConfig(**entry)
+
+
+def _require_toml_table(field_name: str, value: object) -> dict[str, Any]:
+    """Return a nested TOML table or raise a per-entry parser error."""
+    if not isinstance(value, dict):
+        msg = f"{field_name} must be a TOML table, got {type(value).__name__}"
+        raise TypeError(msg)
+    return value
 
 
 __all__ = ["AgentRegistry"]
