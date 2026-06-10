@@ -1,6 +1,7 @@
 """orchcore.stream -- Composable stream processing pipeline."""
 
 from orchcore.stream.events import (
+    AgentErrorCategory,
     AgentMonitorSnapshot,
     AgentResult,
     AgentState,
@@ -16,6 +17,7 @@ from orchcore.stream.parser import StreamParser
 from orchcore.stream.stall import StallDetector
 
 __all__ = [
+    "AgentErrorCategory",
     "AgentMonitor",
     "AgentMonitorSnapshot",
     "AgentResult",

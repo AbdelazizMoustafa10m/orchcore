@@ -66,8 +66,12 @@ JSON_DICT_STRATEGY: SearchStrategy[dict[str, object]] = st.dictionaries(
     JSON_SCALAR_STRATEGY,
     max_size=6,
 )
-HELPER_INPUT_SCALAR_STRATEGY: SearchStrategy[object] = st.from_type(
-    str | int | float | bool | NoneType
+HELPER_INPUT_SCALAR_STRATEGY: SearchStrategy[object] = st.one_of(
+    st.from_type(str),
+    st.from_type(int),
+    st.from_type(float),
+    st.from_type(bool),
+    st.from_type(NoneType),
 )
 DECIMAL_INPUT_STRATEGY: SearchStrategy[object] = st.one_of(
     HELPER_INPUT_SCALAR_STRATEGY,

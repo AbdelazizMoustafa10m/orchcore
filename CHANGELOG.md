@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.0.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v0.2.1...v1.0.0) (2026-06-10)
+
+
+### Breaking Changes
+
+* harden public contracts, keyword-only constructors, immutable nested configuration models, stream parsing, and pipeline success semantics for the 1.0 release ([3317191](https://github.com/AbdelazizMoustafa10m/orchcore/commit/3317191), [d4fde59](https://github.com/AbdelazizMoustafa10m/orchcore/commit/d4fde59))
+
+
+### Features
+
+* harden dynamic workflow execution with safer subprocess boundaries, explicit working directories, retry recovery controls, and path containment ([4eeda32](https://github.com/AbdelazizMoustafa10m/orchcore/commit/4eeda32))
+* implement the phase 0 safety baseline across prompt loading, workspace handling, signal handling, and regression coverage ([e6b7f38](https://github.com/AbdelazizMoustafa10m/orchcore/commit/e6b7f38))
+* restructure stream parsing into format-specific Pydantic wire parsers with golden fixtures for Claude, Codex, Copilot, Gemini, and OpenCode ([d4fde59](https://github.com/AbdelazizMoustafa10m/orchcore/commit/d4fde59))
+* add advisory agent CLI version compatibility checks and typed registry support for known-good and known-bad versions ([3317191](https://github.com/AbdelazizMoustafa10m/orchcore/commit/3317191))
+
+
+### Bug Fixes
+
+* harden runner and registry behavior with filtered environments, stdin prompt transport, process-tree cleanup, typed error categories, bounded output buffering, and dist smoke gates ([d1f9558](https://github.com/AbdelazizMoustafa10m/orchcore/commit/d1f9558))
+
+
+### CI/CD
+
+* harden release gates with Python 3.12/3.13 linting, strict warnings, docs builds, coverage thresholds, README example checks, and wheel/sdist smoke tests ([e9acefa](https://github.com/AbdelazizMoustafa10m/orchcore/commit/e9acefa))
+
+
+### Documentation
+
+* refresh implementation documentation, ADRs, quickstart examples, registry guidance, flow control docs, and stream-event reference material for the 1.0 surface ([8e2a9b3](https://github.com/AbdelazizMoustafa10m/orchcore/commit/8e2a9b3))
+
 ## [0.2.1](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v0.2.0...v0.2.1) (2026-03-29)
 
 

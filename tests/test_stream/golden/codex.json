@@ -1,0 +1,476 @@
+{
+  "sessions": [
+    {
+      "name": "canonical",
+      "lines": [
+        {
+          "type": "thread.started",
+          "thread_id": "th-1"
+        },
+        {
+          "type": "item.started",
+          "item": {
+            "id": "call-1",
+            "type": "function_call"
+          }
+        },
+        {
+          "type": "item.started",
+          "item": {
+            "id": "agent-1",
+            "type": "agent_runner",
+            "description": "sub work"
+          }
+        },
+        {
+          "type": "response.output_item.delta"
+        },
+        {
+          "type": "item.completed",
+          "item": {
+            "id": "call-1",
+            "type": "function_call"
+          }
+        },
+        {
+          "type": "item.completed",
+          "item": {
+            "id": "msg-1",
+            "type": "agent_message",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Codex says hi"
+              }
+            ]
+          }
+        },
+        {
+          "type": "item.completed",
+          "item": {
+            "id": "msg-2",
+            "type": "agent_message",
+            "content": "plain string content"
+          }
+        },
+        {
+          "type": "turn.completed",
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 2
+          }
+        }
+      ],
+      "events": [
+        {
+          "event_type": "init",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": "th-1",
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "thread.started",
+            "thread_id": "th-1"
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "call-1",
+          "tool_name": "function_call",
+          "tool_detail": null,
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "item.started",
+            "item": {
+              "id": "call-1",
+              "type": "function_call"
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "agent-1",
+          "tool_name": "agent_runner",
+          "tool_detail": null,
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "item.started",
+            "item": {
+              "id": "agent-1",
+              "type": "agent_runner",
+              "description": "sub work"
+            }
+          }
+        },
+        {
+          "event_type": "subagent",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "sub work",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "item.started",
+            "item": {
+              "id": "agent-1",
+              "type": "agent_runner",
+              "description": "sub work"
+            }
+          }
+        },
+        {
+          "event_type": "tool_exec",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "response.output_item.delta"
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "call-1",
+          "tool_name": "function_call",
+          "tool_detail": null,
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "item.completed",
+            "item": {
+              "id": "call-1",
+              "type": "function_call"
+            }
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Codex says hi",
+          "text_full": "Codex says hi",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "item.completed",
+            "item": {
+              "id": "msg-1",
+              "type": "agent_message",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Codex says hi"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "plain string content",
+          "text_full": "plain string content",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "item.completed",
+            "item": {
+              "id": "msg-2",
+              "type": "agent_message",
+              "content": "plain string content"
+            }
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": {
+            "input_tokens": 10,
+            "output_tokens": 2
+          },
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "turn.completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "errors-and-unknowns",
+      "lines": [
+        {
+          "type": "turn.completed",
+          "error": "stream blew up",
+          "exit_code": 3
+        },
+        {
+          "type": "error",
+          "code": "rate_limit_exceeded",
+          "retry_after_ms": 5000
+        },
+        {
+          "type": "error",
+          "code": "internal_error",
+          "message": "boom",
+          "exit_code": 2
+        },
+        {
+          "type": "error",
+          "message": {
+            "text": "dict message"
+          }
+        },
+        {
+          "type": "unknown.evt"
+        }
+      ],
+      "events": [
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": 3,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "stream blew up",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "type": "turn.completed",
+            "error": "stream blew up",
+            "exit_code": 3
+          }
+        },
+        {
+          "event_type": "rate_limit",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": 5000,
+          "error_category": "rate_limit_exceeded",
+          "idle_seconds": null,
+          "raw": {
+            "type": "error",
+            "code": "rate_limit_exceeded",
+            "retry_after_ms": 5000
+          }
+        },
+        {
+          "event_type": "error",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": 2,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "boom",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": "internal_error",
+          "idle_seconds": null,
+          "raw": {
+            "type": "error",
+            "code": "internal_error",
+            "message": "boom",
+            "exit_code": 2
+          }
+        },
+        {
+          "event_type": "error",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "dict message",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": "error",
+          "idle_seconds": null,
+          "raw": {
+            "type": "error",
+            "message": {
+              "text": "dict message"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

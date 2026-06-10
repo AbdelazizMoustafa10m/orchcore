@@ -29,7 +29,7 @@ def test_phase_creation_uses_defaults() -> None:
     assert phase.name == "planning"
     assert not phase.parallel
     assert phase.required
-    assert phase.depends_on == []
+    assert phase.depends_on == ()
     assert phase.tools is None
     assert phase.agent_tools == {}
     assert phase.retry_policy is None
@@ -63,6 +63,9 @@ def test_phase_model_dump_serializes_retry_policy_and_failure_mode() -> None:
         "max_wait": 300,
         "failure_mode": "require_minimum",
         "min_count": 2,
+        "git_recovery": "off",
+        "git_recovery_cwd": None,
+        "git_recovery_no_verify": False,
     }
     assert dumped["failure_mode"] == "continue"
     assert restored == phase
@@ -78,7 +81,7 @@ def test_phase_creation_with_tools_and_agent_tools() -> None:
     )
 
     assert phase.tools == tools
-    assert phase.agent_tools["analyst"].internal == ["Edit"]
+    assert phase.agent_tools["analyst"].internal == ("Edit",)
 
 
 def test_phase_result_creation() -> None:

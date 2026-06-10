@@ -236,10 +236,11 @@ async def test_pipeline_stops_on_required_phase_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_pipeline_skips_phases_with_failed_dependencies() -> None:
-    # Arrange
+    # Arrange — implement is optional: a required dependency-blocked phase
+    # would fail and stop the pipeline instead (WP-20 / ADR-010).
     phases = [
         _phase("plan", required=False),
-        _phase("implement", depends_on=["plan"]),
+        _phase("implement", depends_on=["plan"], required=False),
         _phase("review"),
     ]
     phase_runner = MockPhaseRunner(

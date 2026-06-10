@@ -7,8 +7,10 @@ import gzip
 import re
 import shutil
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import TracebackType  # noqa: TC003
+
+from orchcore._pathsafe import resolve_within
 
 
 class WorkspaceManager:
@@ -22,11 +24,13 @@ class WorkspaceManager:
     def __init__(
         self,
         project_root: Path,
+        *,
         workspace_name: str = ".orchcore-workspace",
         reports_dir: Path | None = None,
         archive_subdir: str = "runs",
     ) -> None:
         self._project_root = project_root
+        _validate_workspace_name(project_root, workspace_name)
         self._workspace_name = workspace_name
         self._archive_subdir = archive_subdir
         # Relative paths are anchored to project_root; absolute paths are used as-is.
@@ -41,6 +45,11 @@ class WorkspaceManager:
     def workspace_dir(self) -> Path:
         """Active workspace: {project_root}/{workspace_name}/"""
         return self._project_root / self._workspace_name
+
+    @property
+    def project_root(self) -> Path:
+        """Directory agent subprocesses should treat as the project under work."""
+        return self._project_root
 
     @property
     def archive_dir(self) -> Path:
@@ -66,13 +75,14 @@ class WorkspaceManager:
 
     def write_file(self, name: str, content: str) -> Path:
         """Write a file to the workspace directory."""
-        path = self.workspace_dir / name
+        path = resolve_within(self.workspace_dir, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return path
 
     def read_file(self, name: str) -> str | None:
         """Read a file from the workspace directory. Returns None if missing."""
-        path = self.workspace_dir / name
+        path = resolve_within(self.workspace_dir, name)
         if not path.exists():
             return None
         return path.read_text(encoding="utf-8")
@@ -95,7 +105,7 @@ class WorkspaceManager:
         - Recursively walks the entire workspace tree
         - Compresses .stream files with gzip (anywhere in the tree)
         - All other files are stored uncompressed, preserving directory structure
-        - Creates 'latest' symlink
+        - Records the latest archive via 'latest' symlink or 'latest.txt' pointer file
         - Removes all .stream files from workspace after archival
         """
         archive = self._next_archive_dir()
@@ -115,17 +125,42 @@ class WorkspaceManager:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_file, dest)
 
-        # Create 'latest' symlink
-        latest = archive.parent / "latest"
-        if latest.is_symlink() or latest.exists():
-            latest.unlink()
-        latest.symlink_to(archive.name)
+        self._point_latest(archive)
 
         # Clean up all .stream files from the active workspace after archival
         for stream_file in self.workspace_dir.rglob("*.stream"):
             stream_file.unlink()
 
         return archive
+
+    def latest_path(self) -> Path | None:
+        """Resolve the most recent archive from the symlink or pointer file."""
+        base = self._reports_root / self._archive_subdir
+        latest = base / "latest"
+        if latest.is_symlink() or latest.is_dir():
+            return latest.resolve()
+
+        pointer = base / "latest.txt"
+        if pointer.exists():
+            candidate = base / pointer.read_text(encoding="utf-8").strip()
+            return candidate if candidate.exists() else None
+        return None
+
+    def _point_latest(self, archive: Path) -> None:
+        """Record the most recent archive as 'latest' or a portable pointer file."""
+        latest = archive.parent / "latest"
+        pointer = archive.parent / "latest.txt"
+        if latest.is_symlink() or latest.exists():
+            latest.unlink()
+        try:
+            latest.symlink_to(archive.name, target_is_directory=True)
+        except OSError:
+            # Stock Windows denies symlink creation without Developer Mode or
+            # SeCreateSymbolicLinkPrivilege; fall back to a pointer file.
+            pointer.write_text(archive.name, encoding="utf-8")
+            return
+        if pointer.exists():
+            pointer.unlink()
 
     def _next_archive_dir(self) -> Path:
         """Return the next unused archive directory for this run slug."""
@@ -156,3 +191,24 @@ class WorkspaceManager:
         """Preserve workspace on error, cleanup on success."""
         if exc_type is None:
             self.cleanup()
+
+
+def _validate_workspace_name(project_root: Path, workspace_name: str) -> None:
+    """Reject workspace names that do not point strictly inside project_root."""
+    workspace_path = Path(workspace_name)
+    windows_workspace_path = PureWindowsPath(workspace_name)
+    root_resolved = project_root.resolve()
+    workspace_resolved = (project_root / workspace_path).resolve()
+    invalid = (
+        not workspace_name
+        or workspace_path.is_absolute()
+        or windows_workspace_path.is_absolute()
+        or bool(windows_workspace_path.drive)
+        or workspace_resolved == root_resolved
+        or not workspace_resolved.is_relative_to(root_resolved)
+    )
+    if invalid:
+        raise ValueError(
+            f"workspace_name {workspace_name!r} must be a non-empty relative path "
+            f"strictly inside project_root ({root_resolved})"
+        )
