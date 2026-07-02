@@ -23,7 +23,6 @@ from orchcore.registry.agent import (
     DEFAULT_TOOLSET_MAX_TURNS,
     DEFAULT_TOOLSET_PERMISSION,
     AgentConfig,
-    AgentMode,
     OutputExtraction,
     ToolSet,
 )
@@ -334,7 +333,7 @@ class AgentRunner:
         prompt: str,
         output_path: Path,
         *,
-        mode: AgentMode = AgentMode.PLAN,
+        flag_profile: str | None = None,
         dry_run: bool = False,
         on_event: Callable[[StreamEvent], None] | None = None,
         on_snapshot: Callable[[AgentMonitorSnapshot], None] | None = None,
@@ -347,7 +346,7 @@ class AgentRunner:
         cwd: Path | None = None,
     ) -> AgentResult:
         """Run the agent subprocess and return a fully-populated AgentResult."""
-        cmd = self._build_command(agent, prompt, output_path, mode, toolset)
+        cmd = self._build_command(agent, prompt, output_path, flag_profile, toolset)
         _warn_if_missing_required_stream_flags(agent, cmd)
 
         env = build_agent_env(agent)
@@ -660,7 +659,7 @@ class AgentRunner:
         agent: AgentConfig,
         prompt: str,
         output_path: Path,
-        mode: AgentMode,
+        flag_profile: str | None,
         toolset: ToolSet | None = None,
     ) -> list[str]:
         """Build the subprocess command list.
@@ -669,6 +668,10 @@ class AgentRunner:
         literal ``''`` argv element). Under ``prompt_via="stdin"`` the prompt
         is omitted from argv; ``stdin_sentinel`` (e.g. ``"-"``) takes its
         place when the CLI requires a placeholder argument.
+
+        Flag profiles and ToolSets compose additively: profile flags come
+        first, the ToolSet translation last, so on last-flag-wins CLIs the
+        ToolSet's access-control flags take precedence over profile flags.
         """
         cmd = [agent.binary]
         if agent.subcommand:
@@ -679,17 +682,37 @@ class AgentRunner:
             cmd.append(agent.stdin_sentinel)
         cmd.extend(["--model", agent.model])
 
+        cmd.extend(_resolve_profile_flags(agent, flag_profile))
         if toolset is not None:
-            # ToolSet overrides mode-based flags
             cmd.extend(_translate_toolset(agent, toolset))
-        else:
-            # Fall back to mode-based flags
-            cmd.extend(agent.flags.get(mode, ()))
 
         # Codex uses -o flag for direct file output
         if agent.output_extraction.strategy == OutputExtraction.Strategy.DIRECT_FILE:
             cmd.extend(["-o", str(output_path)])
         return cmd
+
+
+def _resolve_profile_flags(agent: AgentConfig, flag_profile: str | None) -> tuple[str, ...]:
+    """Return the argv contribution of the selected flag profile.
+
+    ``None`` selects no profile and contributes nothing. A selected profile
+    missing from ``agent.flags`` logs a warning and contributes nothing —
+    the run proceeds so a partially-migrated registry degrades visibly
+    rather than fatally.
+    """
+    if flag_profile is None:
+        return ()
+    profile_flags = agent.flags.get(flag_profile)
+    if profile_flags is None:
+        available = ", ".join(sorted(agent.flags)) or "none defined"
+        logger.warning(
+            "Agent %r has no flags for profile %r (available: %s); applying no profile flags",
+            agent.name,
+            flag_profile,
+            available,
+        )
+        return ()
+    return profile_flags
 
 
 def _translate_toolset(agent: AgentConfig, toolset: ToolSet) -> list[str]:

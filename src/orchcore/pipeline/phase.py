@@ -41,6 +41,10 @@ class Phase(BaseModel):
     parallel: bool = False
     required: bool = True
     depends_on: tuple[str, ...] = ()
+    flag_profile: str | None = None
+    """Named flag profile to select from each agent's ``AgentConfig.flags``
+    for this phase. ``None`` defers to the pipeline-level default passed to
+    ``run_pipeline``/``run_phase``; a set value overrides it."""
     tools: ToolSet | None = None
     agent_tools: dict[str, ToolSet] = Field(default_factory=dict)
     retry_policy: RetryPolicy | None = Field(default=None)

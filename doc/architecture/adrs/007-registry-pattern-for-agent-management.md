@@ -20,6 +20,7 @@ related_decisions:
   - ADR-005
   - ADR-006
   - ADR-009
+  - ADR-011
 supersedes: []
 superseded_by: []
 ---
@@ -28,7 +29,7 @@ superseded_by: []
 
 ## Status
 
-ACCEPTED
+ACCEPTED — amended by [ADR-011](./011-consumer-defined-flag-profiles.md) (2026-07-02): the `AgentMode` enum referenced below was replaced by consumer-defined flag profile names (`AgentConfig.flags: dict[str, ...]`). Historical mentions of `AgentMode`/`flags[mode]` in this record are preserved as written.
 
 ## Context and Problem Statement
 
@@ -272,3 +273,4 @@ This separation means:
 | 1.0 | 2026-03-25 | Abdelaziz Abdelrasol | Initial version (ACCEPTED) |
 | 1.1 | 2026-03-25 | Abdelaziz Abdelrasol | Added relationship to tool assignment (ADR-009); added ADR-009 to related decisions |
 | 1.2 | 2026-06-10 | Abdelaziz Abdelrasol | Refreshed implementation details for registry-as-data, atomic TOML loading, and `with_overrides()` |
+| 1.3 | 2026-07-02 | Abdelaziz Abdelrasol | Amendment note: ADR-011 replaced `AgentMode` with consumer-defined flag profiles |

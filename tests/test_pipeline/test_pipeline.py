@@ -19,7 +19,7 @@ from orchcore.pipeline import (
     PipelineValidationError,
     UnknownAgentError,
 )
-from orchcore.registry.agent import AgentMode, ToolSet
+from orchcore.registry.agent import ToolSet
 from orchcore.registry.registry import AgentRegistry
 from orchcore.runner.subprocess import AgentRunner
 from orchcore.ui.callback import NullCallback
@@ -36,7 +36,7 @@ class PhaseCall:
     method: str
     phase_name: str
     prompt: str
-    mode: AgentMode
+    flag_profile: str | None
     toolset: ToolSet | None
 
 
@@ -51,7 +51,7 @@ class StubPhaseRunner(PhaseRunner):
         phase: Phase,
         prompt: str,
         ui_callback: UICallback,
-        mode: AgentMode,
+        flag_profile: str | None = None,
         toolset: ToolSet | None = None,
     ) -> PhaseResult:
         del ui_callback
@@ -59,7 +59,7 @@ class StubPhaseRunner(PhaseRunner):
             method="run_phase",
             phase=phase,
             prompt=prompt,
-            mode=mode,
+            flag_profile=flag_profile,
             toolset=toolset,
         )
 
@@ -68,7 +68,7 @@ class StubPhaseRunner(PhaseRunner):
         phase: Phase,
         prompt: str,
         ui_callback: UICallback,
-        mode: AgentMode,
+        flag_profile: str | None = None,
         toolset: ToolSet | None = None,
     ) -> PhaseResult:
         del ui_callback
@@ -76,7 +76,7 @@ class StubPhaseRunner(PhaseRunner):
             method="run_parallel",
             phase=phase,
             prompt=prompt,
-            mode=mode,
+            flag_profile=flag_profile,
             toolset=toolset,
         )
 
@@ -86,7 +86,7 @@ class StubPhaseRunner(PhaseRunner):
         method: str,
         phase: Phase,
         prompt: str,
-        mode: AgentMode,
+        flag_profile: str | None = None,
         toolset: ToolSet | None,
     ) -> PhaseResult:
         self.calls.append(
@@ -94,7 +94,7 @@ class StubPhaseRunner(PhaseRunner):
                 method=method,
                 phase_name=phase.name,
                 prompt=prompt,
-                mode=mode,
+                flag_profile=flag_profile,
                 toolset=toolset,
             )
         )
@@ -165,7 +165,7 @@ async def test_run_pipeline_runs_single_phase(ui_callback: NullCallback) -> None
             method="run_phase",
             phase_name="planning",
             prompt="Draft the plan",
-            mode=AgentMode.PLAN,
+            flag_profile=None,
             toolset=shared_tools,
         )
     ]
@@ -289,14 +289,14 @@ async def test_run_pipeline_prompt_validation_matches_effective_execution_set(
             method="run_phase",
             phase_name="review",
             prompt="Review the work",
-            mode=AgentMode.PLAN,
+            flag_profile=None,
             toolset=None,
         ),
         PhaseCall(
             method="run_phase",
             phase_name="notes",
             prompt="",
-            mode=AgentMode.PLAN,
+            flag_profile=None,
             toolset=None,
         ),
     ]
@@ -663,7 +663,7 @@ async def test_run_pipeline_runs_only_selected_phase(ui_callback: NullCallback) 
             method="run_phase",
             phase_name="implementation",
             prompt="Build it",
-            mode=AgentMode.PLAN,
+            flag_profile=None,
             toolset=None,
         )
     ]

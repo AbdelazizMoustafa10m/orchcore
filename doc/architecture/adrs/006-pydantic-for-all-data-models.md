@@ -164,7 +164,7 @@ The lack of consistent type safety across the source systems has been a recurrin
 ### Implementation Details
 
 - All models use `pydantic.BaseModel` with explicit type annotations for all fields
-- Enums use `StrEnum` for string-based enumerations (AgentState, StreamEventType, PhaseStatus, StreamFormat, AgentMode)
+- Enums use `StrEnum` for string-based enumerations (AgentState, StreamEventType, PhaseStatus, StreamFormat)
 - Immutable models use `model_config = ConfigDict(frozen=True)` for models that should not be mutated after creation (AgentConfig, Phase, StreamEvent)
 - Mutable models (AgentMonitor internals, WorkspaceManager state) use regular BaseModel
 - mypy configuration in `pyproject.toml`:

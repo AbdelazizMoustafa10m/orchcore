@@ -46,7 +46,7 @@ def main() -> None:
         "py.typed missing from installed distribution",
     )
 
-    from orchcore.registry import AgentMode, AgentRegistry
+    from orchcore.registry import AgentRegistry
     from orchcore.runner import AgentRunner
 
     with tempfile.TemporaryDirectory(prefix="orchcore-smoke-") as tmp:
@@ -77,7 +77,7 @@ def main() -> None:
                 agent=registry.get("fake"),
                 prompt="Smoke prompt",
                 output_path=tmp_path / "out.md",
-                mode=AgentMode.PLAN,
+                flag_profile="plan",
                 dry_run=True,
             )
         )

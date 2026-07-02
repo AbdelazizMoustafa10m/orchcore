@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction
+from orchcore.registry.agent import AgentConfig, OutputExtraction
 from orchcore.runner.subprocess import AgentRunner
 from orchcore.stream.events import (
     AgentErrorCategory,
@@ -81,7 +81,7 @@ def _mock_agent(
         binary=sys.executable,
         subcommand=str(MOCK_AGENT),
         model="mock-model",
-        flags={AgentMode.PLAN: ["--format", stream_format.value, "--scenario", scenario]},
+        flags={"plan": ["--format", stream_format.value, "--scenario", scenario]},
         stream_format=stream_format,
         output_extraction=OutputExtraction(strategy=strategy),
         # The advisory version check has dedicated runner tests; keep the
@@ -96,7 +96,7 @@ async def _run(agent: AgentConfig, tmp_path: Path) -> tuple[AgentResult, list[St
         agent,
         "run integration matrix",
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         on_event=events.append,
     )
     return result, events

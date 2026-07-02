@@ -24,7 +24,7 @@ from orchcore.stream.events import AgentErrorCategory, AgentResult
 
 if TYPE_CHECKING:
     from orchcore.pipeline.phase import Phase
-    from orchcore.registry.agent import AgentConfig, AgentMode, ToolSet
+    from orchcore.registry.agent import AgentConfig, ToolSet
     from orchcore.registry.registry import AgentRegistry
     from orchcore.runner.subprocess import AgentRunner
     from orchcore.ui.callback import UICallback
@@ -172,10 +172,14 @@ class PhaseRunner:
         phase: Phase,
         prompt: str,
         ui_callback: UICallback,
-        mode: AgentMode,
+        flag_profile: str | None = None,
         toolset: ToolSet | None = None,
     ) -> PhaseResult:
-        """Execute all agents in a phase sequentially."""
+        """Execute all agents in a phase sequentially.
+
+        ``flag_profile`` is the fallback profile for agents in this phase;
+        ``Phase.flag_profile`` overrides it when set.
+        """
         self._install_signal_handlers()
         self._ui_callback = ui_callback
 
@@ -183,6 +187,7 @@ class PhaseRunner:
         if early_result is not None:
             return early_result
 
+        effective_profile = phase.flag_profile if phase.flag_profile is not None else flag_profile
         ui_callback.on_phase_start(phase)
         started_at = datetime.now(UTC)
         agent_results: list[AgentResult] = []
@@ -204,7 +209,7 @@ class PhaseRunner:
                         output_path=output_path,
                         phase_name=phase.name,
                         ui_callback=ui_callback,
-                        mode=mode,
+                        flag_profile=effective_profile,
                         phase_failure_mode=phase.failure_mode,
                         retry_policy=phase.retry_policy,
                         toolset=self._resolve_toolset(
@@ -255,10 +260,14 @@ class PhaseRunner:
         phase: Phase,
         prompt: str,
         ui_callback: UICallback,
-        mode: AgentMode,
+        flag_profile: str | None = None,
         toolset: ToolSet | None = None,
     ) -> PhaseResult:
-        """Execute all agents in a phase concurrently."""
+        """Execute all agents in a phase concurrently.
+
+        ``flag_profile`` is the fallback profile for agents in this phase;
+        ``Phase.flag_profile`` overrides it when set.
+        """
         self._install_signal_handlers()
         self._ui_callback = ui_callback
 
@@ -266,6 +275,7 @@ class PhaseRunner:
         if early_result is not None:
             return early_result
 
+        effective_profile = phase.flag_profile if phase.flag_profile is not None else flag_profile
         ui_callback.on_phase_start(phase)
         started_at = datetime.now(UTC)
         current_agent_name = ""
@@ -317,7 +327,7 @@ class PhaseRunner:
                             output_path=output_path,
                             phase_name=phase.name,
                             ui_callback=ui_callback,
-                            mode=mode,
+                            flag_profile=effective_profile,
                             phase_failure_mode=phase.failure_mode,
                             retry_policy=policy,
                             toolset=effective_toolset,
@@ -392,7 +402,7 @@ class PhaseRunner:
                         output_path=output_path,
                         phase_name=phase.name,
                         ui_callback=ui_callback,
-                        mode=mode,
+                        flag_profile=effective_profile,
                         phase_failure_mode=phase.failure_mode,
                         retry_policy=policy,
                         toolset=effective_toolset,
@@ -473,7 +483,7 @@ class PhaseRunner:
         output_path: Path,
         phase_name: str,
         ui_callback: UICallback,
-        mode: AgentMode,
+        flag_profile: str | None,
         phase_failure_mode: FailureMode,
         retry_policy: RetryPolicy | None = None,
         toolset: ToolSet | None = None,
@@ -504,7 +514,7 @@ class PhaseRunner:
                             agent=agent,
                             prompt=prompt,
                             output_path=output_path,
-                            mode=mode,
+                            flag_profile=flag_profile,
                             on_event=ui_callback.on_agent_event,
                             snapshot_interval=self._snapshot_interval,
                             stall_check_interval=self._stall_check_interval,
@@ -605,7 +615,8 @@ class PhaseRunner:
         1. ``Phase.agent_tools[agent_name]``
         2. ``explicit_toolset``
         3. ``Phase.tools``
-        4. ``None`` -> ``AgentRunner`` falls back to ``AgentConfig.flags[mode]``
+        4. ``None`` -> no ToolSet translation. Flag profiles are independent
+           of this resolution: a selected profile's flags always apply.
         """
         if agent_name in phase.agent_tools:
             return phase.agent_tools[agent_name]

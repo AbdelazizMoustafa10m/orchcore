@@ -72,7 +72,7 @@ src/orchcore/
 ├── runner/          # Async subprocess management
 │   └── subprocess.py  # AgentRunner
 ├── registry/        # Agent configuration
-│   ├── agent.py     # AgentConfig, AgentMode, ToolSet models
+│   ├── agent.py     # AgentConfig, ToolSet models
 │   └── registry.py  # AgentRegistry — TOML/dict lookup
 ├── config/          # Layered configuration
 │   ├── settings.py  # OrchcoreSettings, load_settings_with_profile
@@ -185,10 +185,15 @@ See [Stream Pipeline](stream-pipeline.md) for the deep-dive.
 Tools available to an agent within a phase are resolved via a layered lookup:
 
 ```
-Phase.agent_tools[agent]  >  explicit toolset  >  Phase.tools  >  AgentConfig.flags[mode]  >  defaults
+Phase.agent_tools[agent]  >  explicit toolset  >  Phase.tools  >  none
 ```
 
-See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-as-phase-level-concern.md).
+Flag profiles (`AgentConfig.flags`, selected via `Phase.flag_profile` or the
+`run_pipeline` fallback) are independent of this resolution: a selected
+profile's flags are always applied, and the ToolSet translation (when one
+resolves) is appended after them.
+
+See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-as-phase-level-concern.md) and [ADR-011: Consumer-defined flag profiles](adrs/011-consumer-defined-flag-profiles.md).
 
 ## Design Principles
 

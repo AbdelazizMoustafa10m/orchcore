@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, StreamFormat
+from orchcore.registry.agent import AgentConfig, OutputExtraction, StreamFormat
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -151,8 +151,8 @@ def _parse_agent_entry(name: str, agent_data: dict[str, Any]) -> AgentConfig:
     if "stream_format" in entry:
         entry["stream_format"] = StreamFormat(entry["stream_format"])
     if "flags" in entry:
-        flags = _require_toml_table("flags", entry["flags"])
-        entry["flags"] = {AgentMode(key): value for key, value in flags.items()}
+        # Profile names are consumer-defined; AgentConfig validates them.
+        entry["flags"] = _require_toml_table("flags", entry["flags"])
     return AgentConfig(**entry)
 
 

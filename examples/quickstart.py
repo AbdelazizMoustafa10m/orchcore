@@ -11,7 +11,7 @@ import asyncio
 from pathlib import Path
 
 from orchcore.pipeline import Phase, PhaseRunner, PipelineRunner
-from orchcore.registry import AgentMode, AgentRegistry, ToolSet
+from orchcore.registry import AgentRegistry, ToolSet
 from orchcore.runner import AgentRunner
 from orchcore.ui import NullCallback
 
@@ -23,6 +23,8 @@ async def main() -> None:
     phase = Phase(
         name="planning",
         agents=("claude",),
+        # Selects [agents.<name>.flags].plan — a name YOUR project defines.
+        flag_profile="plan",
         tools=ToolSet(internal=("Read", "Glob", "Grep"), permission="read-only"),
     )
 
@@ -34,7 +36,6 @@ async def main() -> None:
         phases=[phase],
         prompts={"planning": "Analyze the codebase and create a plan."},
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
     )
 
     print(f"Success: {result.success} | Cost: ${result.total_cost_usd}")

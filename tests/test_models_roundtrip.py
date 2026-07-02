@@ -9,7 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus, PipelineResult
 from orchcore.recovery.retry import RetryPolicy
-from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
+from orchcore.registry.agent import AgentConfig, OutputExtraction, ToolSet
 from orchcore.stream.events import (
     AgentErrorCategory,
     AgentResult,
@@ -29,7 +29,7 @@ from orchcore.stream.events import (
                 "binary": "echo",
                 "model": "test-model",
                 "subcommand": "-p",
-                "flags": {AgentMode.PLAN: ["--verbose"]},
+                "flags": {"plan": ["--verbose"]},
                 "stream_format": StreamFormat.CLAUDE,
                 "env_vars": {"ORCHCORE_ENV": "test"},
                 "output_extraction": OutputExtraction(
@@ -132,7 +132,7 @@ def test_model_round_trip(model_cls: type[BaseModel], kwargs: dict[str, object])
                 binary="echo",
                 model="test-model",
                 subcommand="-p",
-                flags={AgentMode.PLAN: ["--verbose"]},
+                flags={"plan": ["--verbose"]},
                 stream_format=StreamFormat.CLAUDE,
                 output_extraction=OutputExtraction(
                     strategy=OutputExtraction.Strategy.STDOUT_CAPTURE
@@ -169,7 +169,7 @@ def _frozen_agent_config() -> AgentConfig:
         binary="echo",
         model="test-model",
         subcommand="-p",
-        flags={AgentMode.PLAN: ["--verbose"]},
+        flags={"plan": ["--verbose"]},
         stream_format=StreamFormat.CLAUDE,
         env_vars={"ORCHCORE_ENV": "test"},
         output_extraction=OutputExtraction(strategy=OutputExtraction.Strategy.STDOUT_CAPTURE),
@@ -187,7 +187,7 @@ def test_sequence_fields_coerce_lists_to_tuples() -> None:
     assert toolset.internal == ("Read",)
     assert toolset.mcp == ("exa",)
     assert policy.backoff_schedule == (1, 2, 3)
-    assert agent.flags[AgentMode.PLAN] == ("--verbose",)
+    assert agent.flags["plan"] == ("--verbose",)
 
 
 def test_tuple_fields_reject_nested_mutation() -> None:
@@ -203,7 +203,7 @@ def test_tuple_fields_reject_nested_mutation() -> None:
         toolset.internal,
         toolset.mcp,
         policy.backoff_schedule,
-        agent.flags[AgentMode.PLAN],
+        agent.flags["plan"],
     ):
         with pytest.raises(AttributeError):
             sequence.append("mutated")  # type: ignore[union-attr]
@@ -216,11 +216,11 @@ def test_dict_fields_remain_shallow_mutable_documented_boundary() -> None:
     phase = Phase(name="plan", agents=["claude"])
 
     agent.env_vars["INJECTED"] = "still-mutable"
-    agent.flags[AgentMode.FIX] = ("--new",)
+    agent.flags["fix"] = ("--new",)
     phase.agent_tools["claude"] = ToolSet()
 
     assert agent.env_vars["INJECTED"] == "still-mutable"
-    assert agent.flags[AgentMode.FIX] == ("--new",)
+    assert agent.flags["fix"] == ("--new",)
     assert "claude" in phase.agent_tools
 
 

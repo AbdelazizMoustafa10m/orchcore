@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction
+from orchcore.registry.agent import AgentConfig, OutputExtraction
 from orchcore.stream.events import StreamFormat
 from tests.fixtures.sessions import CANONICAL_SESSIONS
 
@@ -17,7 +17,7 @@ def sample_agent_config() -> AgentConfig:
         binary="echo",
         model="test-model",
         subcommand="-p",
-        flags={AgentMode.PLAN: ["--verbose"], AgentMode.FIX: []},
+        flags={"plan": ["--verbose"], "fix": []},
         stream_format=StreamFormat.CLAUDE,
         output_extraction=OutputExtraction(
             strategy=OutputExtraction.Strategy.STDOUT_CAPTURE,

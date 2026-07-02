@@ -9,7 +9,7 @@ import pytest
 from orchcore.pipeline.engine import PhaseRunner
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus
 from orchcore.pipeline.pipeline import PipelineRunner
-from orchcore.registry.agent import AgentMode, ToolSet
+from orchcore.registry.agent import ToolSet
 from orchcore.registry.registry import AgentRegistry
 from orchcore.runner.subprocess import AgentRunner
 from orchcore.stream import (
@@ -35,7 +35,7 @@ class PhaseInvocation:
     method: str
     phase_name: str
     prompt: str
-    mode: AgentMode
+    flag_profile: str | None
     toolset: ToolSet | None
 
 
@@ -52,7 +52,7 @@ class MockPhaseRunner(PhaseRunner):
         phase: Phase,
         prompt: str,
         ui_callback: UICallback,
-        mode: AgentMode,
+        flag_profile: str | None = None,
         toolset: ToolSet | None = None,
     ) -> PhaseResult:
         del ui_callback
@@ -60,7 +60,7 @@ class MockPhaseRunner(PhaseRunner):
             method="run_phase",
             phase=phase,
             prompt=prompt,
-            mode=mode,
+            flag_profile=flag_profile,
             toolset=toolset,
         )
 
@@ -69,7 +69,7 @@ class MockPhaseRunner(PhaseRunner):
         phase: Phase,
         prompt: str,
         ui_callback: UICallback,
-        mode: AgentMode,
+        flag_profile: str | None = None,
         toolset: ToolSet | None = None,
     ) -> PhaseResult:
         del ui_callback
@@ -77,7 +77,7 @@ class MockPhaseRunner(PhaseRunner):
             method="run_parallel",
             phase=phase,
             prompt=prompt,
-            mode=mode,
+            flag_profile=flag_profile,
             toolset=toolset,
         )
 
@@ -87,7 +87,7 @@ class MockPhaseRunner(PhaseRunner):
         method: str,
         phase: Phase,
         prompt: str,
-        mode: AgentMode,
+        flag_profile: str | None = None,
         toolset: ToolSet | None,
     ) -> PhaseResult:
         self.calls.append(
@@ -95,7 +95,7 @@ class MockPhaseRunner(PhaseRunner):
                 method=method,
                 phase_name=phase.name,
                 prompt=prompt,
-                mode=mode,
+                flag_profile=flag_profile,
                 toolset=toolset,
             )
         )
@@ -198,7 +198,7 @@ async def test_pipeline_uses_parallel_runner_for_parallel_phase() -> None:
             method="run_parallel",
             phase_name="review",
             prompt="parallel review",
-            mode=AgentMode.PLAN,
+            flag_profile=None,
             toolset=None,
         )
     ]
@@ -324,7 +324,7 @@ async def test_pipeline_only_phase_parameter() -> None:
             method="run_phase",
             phase_name="implement",
             prompt="implement only",
-            mode=AgentMode.PLAN,
+            flag_profile=None,
             toolset=None,
         )
     ]
@@ -343,7 +343,7 @@ async def test_pipeline_passes_toolset_through_to_phase_runner() -> None:
         phases=[phase],
         prompts={"implement": "use tools"},
         ui_callback=NullCallback(),
-        mode=AgentMode.FIX,
+        flag_profile="fix",
     )
 
     # Assert
@@ -352,7 +352,7 @@ async def test_pipeline_passes_toolset_through_to_phase_runner() -> None:
             method="run_phase",
             phase_name="implement",
             prompt="use tools",
-            mode=AgentMode.FIX,
+            flag_profile="fix",
             toolset=tools,
         )
     ]

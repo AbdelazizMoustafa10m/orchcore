@@ -40,7 +40,7 @@ fix = ["--approval-mode", "full-auto"]
 strategy = "stdout_capture"
 ```
 
-Each `[agents.<name>]` section defines an agent's binary path, model, prompt-passing subcommand, CLI flags per mode, stream format for output parsing, and how to extract final output.
+Each `[agents.<name>]` section defines an agent's binary path, model, prompt-passing subcommand, named flag profiles, stream format for output parsing, and how to extract final output. The profile names under `[agents.<name>.flags]` (`plan`/`fix` here) are **your** project's workflow vocabulary, not an orchcore concept — see [Flag Profiles](../guides/agent-registry.md#flag-profiles).
 
 See the [Agent Registry guide](../guides/agent-registry.md) for all configuration options.
 
@@ -56,6 +56,7 @@ planning = Phase(
     name="planning",
     agents=["claude"],
     parallel=False,
+    flag_profile="plan",  # selects [agents.<name>.flags].plan for each agent
     tools=ToolSet(
         internal=["Read", "Glob", "Grep"],
         mcp=[],
@@ -69,6 +70,7 @@ execution = Phase(
     agents=["claude", "codex"],
     parallel=True,
     depends_on=["planning"],
+    flag_profile="fix",
     tools=ToolSet(
         internal=["Read", "Write", "Edit", "Bash"],
         mcp=[],
@@ -86,7 +88,7 @@ Wire up the registry, runner, and pipeline engine:
 import asyncio
 from pathlib import Path
 from orchcore.pipeline import PipelineRunner, PhaseRunner
-from orchcore.registry import AgentRegistry, AgentMode
+from orchcore.registry import AgentRegistry
 from orchcore.runner import AgentRunner
 from orchcore.ui import NullCallback
 
@@ -108,7 +110,6 @@ async def main() -> None:
             "execution": "Implement the changes from the planning phase.",
         },
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
     )
 
     print(f"Success: {result.success}")
