@@ -196,6 +196,45 @@ def test_build_command_strips_toolset_managed_flags_from_profile(
     assert any("ToolSet-managed" in record.getMessage() for record in caplog.records)
 
 
+def test_build_command_strips_variadic_tool_flags_without_stray_values(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """Claude's --allowedTools is variadic (space-separated values); stripping
+    must consume every value token so no stray bare token (which the CLI
+    would misparse as a positional) survives in argv."""
+    agent = sample_agent_config.model_copy(
+        update={"flags": {"plan": ("--allowedTools", "Read", "Edit", "--think")}}
+    )
+    toolset = ToolSet(internal=["Read"], permission="read-only", max_turns=2)
+
+    command = AgentRunner._build_command(
+        agent,
+        "write tests",
+        tmp_path / "output.md",
+        "plan",
+        toolset,
+    )
+
+    assert "Edit" not in command
+    assert command == [
+        "echo",
+        "-p",
+        "write tests",
+        "--model",
+        "test-model",
+        "--think",
+        "--allowedTools",
+        "Read",
+        "--max-turns",
+        "2",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--include-partial-messages",
+    ]
+
+
 def test_build_command_strips_bypass_flags_under_toolset(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
