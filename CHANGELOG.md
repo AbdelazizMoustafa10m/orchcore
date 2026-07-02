@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.0.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v1.0.0...v2.0.0) (2026-07-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* with both a flag profile and a ToolSet configured, ToolSet-domain flags inside the profile are no longer emitted at all (they are dropped with a warning); malformed flag_profile values raise instead of being passed through.
+* orchcore.registry.AgentMode is removed. Migrate flags={AgentMode.PLAN: [...]} to flags={"plan": [...]}, and the mode= parameter of run_pipeline/run_phase/run_parallel/AgentRunner.run to flag_profile=. Calls relying on the implicit PLAN default must pass flag_profile="plan" explicitly. TOML registry files need no changes. A ToolSet no longer suppresses profile flags: keep tool-restriction flags in ToolSets only, or they will be emitted alongside the translation.
+
+### Features
+
+* replace AgentMode enum with consumer-defined flag profiles ([05d001d](https://github.com/AbdelazizMoustafa10m/orchcore/commit/05d001de510ab782f736cb5eae6ef4a375bacaaa))
+
+
+### Bug Fixes
+
+* consume variadic tool-flag values when stripping profiles ([7431649](https://github.com/AbdelazizMoustafa10m/orchcore/commit/7431649989ff5fa657d5548e360a328250a4b49f))
+* strip clap attached short-option values in managed-flag filter ([db45f28](https://github.com/AbdelazizMoustafa10m/orchcore/commit/db45f283f8c001fa0047a5e40058e70026088659))
+* strip ToolSet-managed flags from profiles and validate profile names ([26fb935](https://github.com/AbdelazizMoustafa10m/orchcore/commit/26fb935c675deac7ebefc1312a91d26743425bf0))
+
+
+### Build System
+
+* bump idna from 3.11 to 3.15 ([#17](https://github.com/AbdelazizMoustafa10m/orchcore/issues/17)) ([3a9eccc](https://github.com/AbdelazizMoustafa10m/orchcore/commit/3a9eccc07d13302dc3b2eb1a0b657eb39798801c))
+* bump pygments from 2.19.2 to 2.20.0 ([#7](https://github.com/AbdelazizMoustafa10m/orchcore/issues/7)) ([89c53a0](https://github.com/AbdelazizMoustafa10m/orchcore/commit/89c53a01ee7fb1a634089ff6a6becf6371cc42eb))
+* bump pytest from 9.0.2 to 9.0.3 ([#13](https://github.com/AbdelazizMoustafa10m/orchcore/issues/13)) ([bbcd21c](https://github.com/AbdelazizMoustafa10m/orchcore/commit/bbcd21c9700e235156079940cba888bf4e6bfe0d))
+* bump urllib3 from 2.6.3 to 2.7.0 ([#16](https://github.com/AbdelazizMoustafa10m/orchcore/issues/16)) ([ead6811](https://github.com/AbdelazizMoustafa10m/orchcore/commit/ead68110d9dfc416838bf50ad828fa0bf67e41b4))
+
+
+### CI/CD
+
+* bump the github-actions group across 1 directory with 12 updates ([#14](https://github.com/AbdelazizMoustafa10m/orchcore/issues/14)) ([8e24477](https://github.com/AbdelazizMoustafa10m/orchcore/commit/8e244772be6b04d91d17cf71fe1ca1821341bd01))
+
 ## [1.0.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v0.2.1...v1.0.0) (2026-06-10)
 
 
