@@ -797,13 +797,13 @@ def _strip_toolset_managed_flags(
     index = 0
     while index < len(profile_flags):
         token = profile_flags[index]
-        arity = managed.get(token.split("=", 1)[0])
+        arity, value_attached = _match_managed_flag(managed, token)
         if arity is None:
             kept.append(token)
             index += 1
             continue
         end = index + 1
-        if "=" not in token:
+        if not value_attached:
             if arity == "one" and end < len(profile_flags):
                 end += 1
             elif arity == "greedy":
@@ -824,6 +824,25 @@ def _strip_toolset_managed_flags(
             dropped,
         )
     return tuple(kept)
+
+
+def _match_managed_flag(
+    managed: dict[str, _FlagArity], token: str
+) -> tuple[_FlagArity | None, bool]:
+    """Match a profile token against the managed-flag set.
+
+    Returns the flag's arity and whether its value is attached to the same
+    token: the ``--flag=value`` form, or clap's attached short-option form
+    (``-sread-only`` parses as ``-s read-only`` and still collides with a
+    later ``-s``). Returns ``(None, False)`` for unmanaged tokens.
+    """
+    name = token.split("=", 1)[0]
+    if (arity := managed.get(name)) is not None:
+        return arity, name != token
+    is_short_with_value = len(token) > 2 and token.startswith("-") and not token.startswith("--")
+    if is_short_with_value and (arity := managed.get(token[:2])) is not None:
+        return arity, True
+    return None, False
 
 
 def _translate_toolset(agent: AgentConfig, toolset: ToolSet) -> list[str]:
