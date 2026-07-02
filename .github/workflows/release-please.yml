@@ -6,6 +6,7 @@ on:
       - main
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -15,6 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c # v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Trigger CI on the release PR branch
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        run: gh workflow run ci.yml --ref release-please--branches--main
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Trigger PyPI publish for the new tag
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: gh workflow run publish.yml --ref "${{ steps.release.outputs.tag_name }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
