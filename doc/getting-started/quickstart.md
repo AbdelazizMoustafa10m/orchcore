@@ -32,9 +32,12 @@ model = "o3"
 subcommand = "exec"
 stream_format = "codex"
 
+# Keep only behavioral flags in profiles; tool access, permissions, and
+# approval modes belong in each phase's ToolSet (they are dropped from
+# profiles, with a warning, whenever a ToolSet is in effect).
 [agents.codex.flags]
-plan = ["--approval-mode", "suggest"]
-fix = ["--approval-mode", "full-auto"]
+plan = ["-c", "model_reasoning_effort=high"]
+fix = []
 
 [agents.codex.output_extraction]
 strategy = "stdout_capture"

@@ -1,9 +1,11 @@
 """orchcore.registry -- Agent configuration and registry."""
 
 from orchcore.registry.agent import (
+    FLAG_PROFILE_NAME_PATTERN,
     AgentConfig,
     OutputExtraction,
     ToolSet,
+    is_valid_flag_profile_name,
 )
 from orchcore.registry.registry import AgentRegistry
 from orchcore.registry.versioning import (
@@ -17,6 +19,7 @@ from orchcore.registry.versioning import (
 from orchcore.stream.events import StreamFormat
 
 __all__ = [
+    "FLAG_PROFILE_NAME_PATTERN",
     "AgentConfig",
     "AgentRegistry",
     "CompatibilityStatus",
@@ -28,4 +31,5 @@ __all__ = [
     "VersionSpecifier",
     "VersionSpecifierError",
     "evaluate_compatibility",
+    "is_valid_flag_profile_name",
 ]

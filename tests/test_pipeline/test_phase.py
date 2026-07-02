@@ -4,6 +4,9 @@ from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from orchcore.pipeline import Phase, PhaseResult, PhaseStatus, PipelineResult
 from orchcore.recovery.retry import FailureMode, RetryPolicy
 from orchcore.registry.agent import ToolSet
@@ -115,3 +118,14 @@ def test_pipeline_result_creation() -> None:
     assert pipeline_result.total_duration == timedelta(minutes=5)
     assert pipeline_result.total_cost_usd == Decimal("2.50")
     assert pipeline_result.success
+
+
+def test_phase_accepts_valid_flag_profile_and_defaults_to_none() -> None:
+    assert Phase(name="p", agents=("a",)).flag_profile is None
+    assert Phase(name="p", agents=("a",), flag_profile="research").flag_profile == "research"
+
+
+def test_phase_rejects_malformed_flag_profile_names() -> None:
+    for bad_name in ("", "--think", "-s", "has space"):
+        with pytest.raises(ValidationError):
+            Phase(name="p", agents=("a",), flag_profile=bad_name)

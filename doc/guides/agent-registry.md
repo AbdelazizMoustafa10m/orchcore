@@ -80,9 +80,15 @@ flags for that agent.
 
 Keep behavioral flags (thinking, verbosity, effort) in profiles; tool access
 and permissions belong in a [`ToolSet`](#toolset--phase-level-tool-configuration),
-which composes *with* profiles rather than replacing them — profile flags are
-emitted first and the ToolSet translation last, so access-control flags win
-on last-flag-wins CLIs.
+which composes *with* profiles rather than replacing them. When a ToolSet is
+in effect, profile flags in the ToolSet-managed domain — tool allowlists,
+sandbox/permission/approval flags (including bypasses like `--yolo` or
+`--dangerously-skip-permissions`), and stream-output format — are **dropped
+with a warning**, because several CLIs hard-fail on duplicated singleton
+flags and a bypass flag cannot be neutralized by flags appended after it.
+Without a ToolSet, profile flags pass through verbatim. Malformed profile
+names (empty or flag-like, e.g. `"--think"`) are rejected at the API
+boundary rather than warned about at runtime.
 
 Projects that want compile-time safety over their vocabulary can define their
 own enum — `StrEnum` members are strings and pass straight through:
@@ -200,9 +206,11 @@ model = "o3"
 subcommand = "exec"
 stream_format = "codex"
 
+# Behavioral flags only — tool access, sandbox, and approval flags belong
+# in each phase's ToolSet.
 [agents.codex.flags]
-plan = ["--approval-mode", "suggest"]
-fix = ["--approval-mode", "full-auto"]
+plan = ["-c", "model_reasoning_effort=high"]
+fix = []
 
 [agents.codex.output_extraction]
 strategy = "stdout_capture"
