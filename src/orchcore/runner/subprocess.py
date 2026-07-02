@@ -15,7 +15,7 @@ import warnings
 from collections import deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path  # noqa: TC003 — used at runtime in path operations
-from typing import IO, TYPE_CHECKING, Any
+from typing import IO, TYPE_CHECKING, Any, Literal
 
 from orchcore.recovery.rate_limit import RateLimitDetector, ResetTimeParser
 from orchcore.registry.agent import (
@@ -60,45 +60,54 @@ _REQUIRED_STREAM_FLAG_CHECKS: dict[StreamFormat, tuple[RequiredFlagCheck, ...]] 
 }
 
 # Flags the ToolSet owns per stream format: everything the ToolSet translation
-# can emit, plus known permission/approval-bypass flags in the same domain.
-# When a ToolSet is in effect it is the single authority for tool access,
-# permissions, and stream-output flags, so profile flags in this domain are
-# dropped (with a warning). Appending the translation last is NOT enough:
-# clap-based CLIs such as Codex hard-fail on a duplicated singleton flag
-# (e.g. two ``-s`` values), and a bypass flag like ``--yolo`` cannot be
-# neutralized by later flags at all. The mapping value records whether the
-# flag consumes a following value token.
-_TOOLSET_MANAGED_FLAGS: dict[StreamFormat, dict[str, bool]] = {
+# can emit (including CLI aliases), plus known permission/approval-bypass
+# flags in the same domain. When a ToolSet is in effect it is the single
+# authority for tool access, permissions, and stream-output flags, so profile
+# flags in this domain are dropped (with a warning). Appending the translation
+# last is NOT enough: clap-based CLIs such as Codex hard-fail on a duplicated
+# singleton flag (e.g. two ``-s`` values), and a bypass flag like ``--yolo``
+# cannot be neutralized by later flags at all.
+#
+# The mapping value is the flag's value arity: ``"none"`` (boolean flag),
+# ``"one"`` (consumes one following value token), or ``"greedy"`` (variadic —
+# consumes following tokens until the next ``-``-prefixed token, e.g. Claude's
+# space-separated ``--allowedTools Read Edit``).
+type _FlagArity = Literal["none", "one", "greedy"]
+
+_TOOLSET_MANAGED_FLAGS: dict[StreamFormat, dict[str, _FlagArity]] = {
     StreamFormat.CLAUDE: {
-        "--allowedTools": True,
-        "--disallowedTools": True,
-        "--max-turns": True,
-        "--verbose": False,
-        "--output-format": True,
-        "--include-partial-messages": False,
-        "--permission-mode": True,
-        "--dangerously-skip-permissions": False,
+        "--allowedTools": "greedy",
+        "--allowed-tools": "greedy",
+        "--disallowedTools": "greedy",
+        "--disallowed-tools": "greedy",
+        "--tools": "greedy",
+        "--max-turns": "one",
+        "--verbose": "none",
+        "--output-format": "one",
+        "--include-partial-messages": "none",
+        "--permission-mode": "one",
+        "--dangerously-skip-permissions": "none",
     },
     StreamFormat.CODEX: {
-        "-s": True,
-        "--sandbox": True,
-        "--json": False,
-        "-a": True,
-        "--ask-for-approval": True,
-        "--full-auto": False,
-        "--dangerously-bypass-approvals-and-sandbox": False,
+        "-s": "one",
+        "--sandbox": "one",
+        "--json": "none",
+        "-a": "one",
+        "--ask-for-approval": "one",
+        "--full-auto": "none",
+        "--dangerously-bypass-approvals-and-sandbox": "none",
     },
     StreamFormat.GEMINI: {
-        "--yolo": False,
-        "--approval-mode": True,
+        "--yolo": "none",
+        "--approval-mode": "one",
     },
     StreamFormat.COPILOT: {
-        "--allow-tool": True,
-        "--deny-tool": True,
-        "--allow-all-tools": False,
+        "--allow-tool": "one",
+        "--deny-tool": "one",
+        "--allow-all-tools": "none",
     },
     StreamFormat.OPENCODE: {
-        "--format": True,
+        "--format": "one",
     },
 }
 
@@ -788,14 +797,22 @@ def _strip_toolset_managed_flags(
     index = 0
     while index < len(profile_flags):
         token = profile_flags[index]
-        takes_value = managed.get(token.split("=", 1)[0])
-        if takes_value is None:
+        arity = managed.get(token.split("=", 1)[0])
+        if arity is None:
             kept.append(token)
             index += 1
             continue
-        consumed = 2 if takes_value and "=" not in token and index + 1 < len(profile_flags) else 1
-        dropped.extend(profile_flags[index : index + consumed])
-        index += consumed
+        end = index + 1
+        if "=" not in token:
+            if arity == "one" and end < len(profile_flags):
+                end += 1
+            elif arity == "greedy":
+                # Variadic flags (e.g. --allowedTools Read Edit) own every
+                # following token up to the next flag-like token.
+                while end < len(profile_flags) and not profile_flags[end].startswith("-"):
+                    end += 1
+        dropped.extend(profile_flags[index:end])
+        index = end
 
     if dropped:
         logger.warning(
