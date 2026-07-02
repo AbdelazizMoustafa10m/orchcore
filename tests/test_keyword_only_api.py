@@ -8,7 +8,6 @@ import pytest
 
 from orchcore.observability.telemetry import OrchcoreTelemetry
 from orchcore.pipeline.engine import PhaseRunner
-from orchcore.registry.agent import AgentMode
 from orchcore.registry.registry import AgentRegistry
 from orchcore.runner.subprocess import AgentRunner
 from orchcore.workspace.manager import WorkspaceManager
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.asyncio
-async def test_agent_runner_run_rejects_positional_mode(
+async def test_agent_runner_run_rejects_positional_flag_profile(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
 ) -> None:
@@ -29,7 +28,7 @@ async def test_agent_runner_run_rejects_positional_mode(
             sample_agent_config,
             "prompt",
             tmp_path / "output.md",
-            AgentMode.PLAN,
+            "plan",
         )
 
 

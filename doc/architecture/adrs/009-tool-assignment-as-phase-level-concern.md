@@ -18,6 +18,7 @@ tags:
 related_decisions:
   - ADR-001
   - ADR-007
+  - ADR-011
 supersedes: []
 superseded_by: []
 ---
@@ -26,7 +27,7 @@ superseded_by: []
 
 ## Status
 
-ACCEPTED
+ACCEPTED — amended by [ADR-011](./011-consumer-defined-flag-profiles.md) (2026-07-02): the premise below that "agent modes are an intrinsic property of the agent" was corrected (mode names are consumer workflow vocabulary, now modeled as flag profiles), and the ToolSet-replaces-mode-flags fallback became additive composition (profile flags first, ToolSet translation last). Historical text is preserved as written.
 
 ## Context and Problem Statement
 
@@ -316,3 +317,4 @@ This is a deliberate design boundary: orchcore orchestrates agent invocations an
 | Version | Date | Author | Changes |
 |---|---|---|---|
 | 1.0 | 2026-03-25 | Abdelaziz Abdelrasol | Initial version (ACCEPTED) |
+| 1.1 | 2026-07-02 | Abdelaziz Abdelrasol | Amendment note: ADR-011 corrected the modes-are-intrinsic premise and made profile flags compose additively with ToolSet translation |

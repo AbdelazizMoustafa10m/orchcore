@@ -2,7 +2,6 @@
 
 from orchcore.registry.agent import (
     AgentConfig,
-    AgentMode,
     OutputExtraction,
     ToolSet,
 )
@@ -19,7 +18,6 @@ from orchcore.stream.events import StreamFormat
 
 __all__ = [
     "AgentConfig",
-    "AgentMode",
     "AgentRegistry",
     "CompatibilityStatus",
     "CompatibilityVerdict",

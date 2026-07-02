@@ -27,7 +27,7 @@ from orchcore.pipeline.engine import (
 )
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus
 from orchcore.recovery import FailureMode, GitRecovery, RetryPolicy
-from orchcore.registry.agent import AgentConfig, AgentMode, ToolSet
+from orchcore.registry.agent import AgentConfig, ToolSet
 from orchcore.registry.registry import AgentRegistry
 from orchcore.runner.subprocess import AgentRunner
 from orchcore.stream.events import AgentErrorCategory, AgentResult
@@ -382,7 +382,7 @@ async def test_run_phase_short_circuits_when_shutdown_or_no_agents() -> None:
         phase=Phase(name="analysis", agents=["codex"]),
         prompt="run",
         ui_callback=callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     phase_runner._shutting_down = False
@@ -390,7 +390,7 @@ async def test_run_phase_short_circuits_when_shutdown_or_no_agents() -> None:
         phase=Phase(name="notes", agents=[]),
         prompt="run",
         ui_callback=callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert shutdown_result.status is PhaseStatus.FAILED
@@ -410,7 +410,7 @@ async def test_run_phase_reports_unknown_agent_and_output_path_errors(
         phase=Phase(name="analysis", agents=["missing"]),
         prompt="run",
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     registry = AgentRegistry({"codex": sample_agent_config.model_copy(update={"name": "codex"})})
@@ -425,7 +425,7 @@ async def test_run_phase_reports_unknown_agent_and_output_path_errors(
         phase=Phase(name="analysis", agents=["codex"]),
         prompt="run",
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert unknown_result.status is PhaseStatus.FAILED
@@ -445,7 +445,7 @@ async def test_run_parallel_reports_unknown_agent_and_output_path_errors(
         phase=Phase(name="analysis", agents=["missing"], parallel=True),
         prompt="run",
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     registry = AgentRegistry({"codex": sample_agent_config.model_copy(update={"name": "codex"})})
@@ -460,7 +460,7 @@ async def test_run_parallel_reports_unknown_agent_and_output_path_errors(
         phase=Phase(name="analysis", agents=["codex"], parallel=True),
         prompt="run",
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert unknown_result.status is PhaseStatus.FAILED
@@ -766,7 +766,7 @@ async def test_run_with_semaphore_retries_rate_limit_then_succeeds(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -817,7 +817,7 @@ async def test_run_with_semaphore_passes_typed_rate_limit_reset_to_backoff(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
             "version_command": (),
         }
     )
@@ -854,7 +854,7 @@ async def test_run_with_semaphore_passes_typed_rate_limit_reset_to_backoff(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -904,7 +904,7 @@ async def test_run_with_semaphore_returns_synthetic_launch_errors(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
     )
 
@@ -943,7 +943,7 @@ async def test_run_with_semaphore_returns_immediately_when_retry_policy_disallow
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=0, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -994,7 +994,7 @@ async def test_run_with_semaphore_uses_fallback_rate_limit_message(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=1, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -1029,7 +1029,7 @@ async def test_run_with_semaphore_passes_explicit_stall_callback(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
     )
 
@@ -1056,7 +1056,7 @@ async def test_run_with_semaphore_avoids_legacy_stall_callback_resolution(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
         }
     )
 
@@ -1075,7 +1075,7 @@ async def test_run_with_semaphore_avoids_legacy_stall_callback_resolution(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
     )
 
@@ -1116,7 +1116,7 @@ async def test_run_with_semaphore_does_not_retry_non_rate_limit_failures(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=3, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -1191,7 +1191,7 @@ async def test_run_with_semaphore_emits_git_recovery_callback_before_retry(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(
             max_retries=2,
@@ -1252,7 +1252,7 @@ async def test_run_with_semaphore_default_git_recovery_runs_no_git_commands(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -1302,7 +1302,7 @@ async def test_run_with_semaphore_retries_exit_zero_stream_rate_limit(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -1361,7 +1361,7 @@ async def test_run_with_semaphore_retries_on_category_without_string_matching(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=2, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -1402,7 +1402,7 @@ async def test_run_with_semaphore_does_not_retry_rate_limit_prose_without_catego
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=3, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -1447,7 +1447,7 @@ async def test_run_with_semaphore_passes_workspace_project_root_as_cwd(
         output_path=tmp_path / "codex.md",
         phase_name="analysis",
         ui_callback=_RecordingCallback(),
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
     )
 
@@ -1480,7 +1480,7 @@ async def test_run_with_semaphore_leaves_cwd_none_without_workspace_or_override(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
     )
 
@@ -1544,7 +1544,7 @@ async def test_run_with_semaphore_uses_policy_git_recovery_cwd(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(
             max_retries=2,
@@ -1615,7 +1615,7 @@ async def test_run_with_semaphore_stashes_and_restores_before_retry(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(
             max_retries=2,
@@ -1686,7 +1686,7 @@ async def test_run_with_semaphore_restores_stash_when_shutdown_happens_before_sl
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(
             max_retries=2,
@@ -1751,7 +1751,7 @@ async def test_run_with_semaphore_skips_git_recovery_without_cwd(
             output_path=setup.output_path,
             phase_name="analysis",
             ui_callback=setup.ui_callback,
-            mode=AgentMode.PLAN,
+            flag_profile="plan",
             phase_failure_mode=FailureMode.FAIL_FAST,
             retry_policy=RetryPolicy(
                 max_retries=2,
@@ -1799,7 +1799,7 @@ async def test_run_phase_treats_exit_zero_agent_error_as_failed_phase(
         phase=Phase(name="analysis", agents=["codex"]),
         prompt="run",
         ui_callback=ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.status is PhaseStatus.FAILED
@@ -1864,7 +1864,7 @@ async def test_run_parallel_cancels_pending_agents_in_fail_fast_mode(
         ),
         prompt="run",
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     # Assert
@@ -1972,7 +1972,7 @@ async def test_run_parallel_evaluates_continue_and_require_minimum_statuses(
         ),
         prompt="run",
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     # Assert
@@ -2019,7 +2019,7 @@ async def test_run_phase_aborts_remaining_agents_on_shutdown(
         phase=Phase(name="analysis", agents=["agent-one", "agent-two"]),
         prompt="run",
         ui_callback=NullCallback(),
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     # Assert — only agent-one ran; agent-two was skipped because shutdown was set
@@ -2084,7 +2084,7 @@ async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
         output_path=setup.output_path,
         phase_name="analysis",
         ui_callback=setup.ui_callback,
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         phase_failure_mode=FailureMode.FAIL_FAST,
         retry_policy=RetryPolicy(max_retries=3, failure_mode=FailureMode.FAIL_FAST),
     )
@@ -2095,3 +2095,60 @@ async def test_run_with_semaphore_aborts_on_shutdown_before_retry(
     assert result.error == "rate limit exceeded"
     assert sleep_calls == []
     assert setup.ui_callback.retries == [("codex", 1, 3)]
+
+
+@pytest.mark.asyncio
+async def test_phase_flag_profile_overrides_fallback_profile(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``Phase.flag_profile`` wins over the ``run_phase`` fallback; a phase
+    without one defers to the fallback, and no fallback means no profile."""
+    from pathlib import Path
+
+    from orchcore.workspace.manager import WorkspaceManager
+
+    registry = AgentRegistry()
+    _register_agents(registry, sample_agent_config, "claude")
+    runner = AgentRunner()
+    phase_runner = PhaseRunner(
+        runner=runner,
+        registry=registry,
+        workspace=WorkspaceManager(project_root=tmp_path),
+    )
+
+    captured: list[object] = []
+
+    async def fake_run(**kwargs: object) -> AgentResult:
+        captured.append(kwargs["flag_profile"])
+        output_path = kwargs["output_path"]
+        assert isinstance(output_path, Path)
+        return _build_agent_result(
+            agent_name="claude",
+            output_path=output_path,
+            exit_code=0,
+            output_empty=False,
+        )
+
+    monkeypatch.setattr(runner, "run", fake_run)
+
+    await phase_runner.run_phase(
+        phase=Phase(name="apply", agents=["claude"], flag_profile="fix"),
+        prompt="apply the plan",
+        ui_callback=NullCallback(),
+        flag_profile="plan",
+    )
+    await phase_runner.run_phase(
+        phase=Phase(name="draft", agents=["claude"]),
+        prompt="draft",
+        ui_callback=NullCallback(),
+        flag_profile="plan",
+    )
+    await phase_runner.run_phase(
+        phase=Phase(name="notes", agents=["claude"]),
+        prompt="notes",
+        ui_callback=NullCallback(),
+    )
+
+    assert captured == ["fix", "plan", None]

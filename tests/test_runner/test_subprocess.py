@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from orchcore.registry.agent import AgentConfig, AgentMode, OutputExtraction, ToolSet
+from orchcore.registry.agent import AgentConfig, OutputExtraction, ToolSet
 from orchcore.registry.versioning import IncompatibleVersionSpec
 from orchcore.runner.subprocess import (
     AgentRunner,
@@ -53,7 +53,7 @@ class _RecordingUICallback:
         self.stalls.append((agent_name, duration))
 
 
-def test_build_command_uses_mode_flags(
+def test_build_command_applies_selected_flag_profile(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
 ) -> None:
@@ -61,7 +61,7 @@ def test_build_command_uses_mode_flags(
         sample_agent_config,
         "write tests",
         tmp_path / "output.md",
-        AgentMode.PLAN,
+        "plan",
     )
 
     assert command == [
@@ -71,6 +71,87 @@ def test_build_command_uses_mode_flags(
         "--model",
         "test-model",
         "--verbose",
+    ]
+
+
+def test_build_command_no_profile_selects_no_profile_flags(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """``flag_profile=None`` is not a silent default: no profile flags apply."""
+    command = AgentRunner._build_command(
+        sample_agent_config,
+        "write tests",
+        tmp_path / "output.md",
+        None,
+    )
+
+    assert command == [
+        "echo",
+        "-p",
+        "write tests",
+        "--model",
+        "test-model",
+    ]
+
+
+def test_build_command_warns_on_unknown_flag_profile(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A selected profile missing from ``agent.flags`` warns and adds nothing."""
+    with caplog.at_level(logging.WARNING, logger="orchcore.runner.subprocess"):
+        command = AgentRunner._build_command(
+            sample_agent_config,
+            "write tests",
+            tmp_path / "output.md",
+            "research",
+        )
+
+    assert command == [
+        "echo",
+        "-p",
+        "write tests",
+        "--model",
+        "test-model",
+    ]
+    assert any(
+        "no flags for profile 'research'" in record.getMessage() for record in caplog.records
+    )
+
+
+def test_build_command_composes_profile_flags_before_toolset_translation(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """Profile flags and ToolSet translation are additive, profile first,
+    so the ToolSet's access-control flags win on last-flag-wins CLIs."""
+    toolset = ToolSet(internal=["Read"], permission="read-only", max_turns=2)
+
+    command = AgentRunner._build_command(
+        sample_agent_config,
+        "write tests",
+        tmp_path / "output.md",
+        "plan",
+        toolset,
+    )
+
+    assert command == [
+        "echo",
+        "-p",
+        "write tests",
+        "--model",
+        "test-model",
+        "--verbose",
+        "--allowedTools",
+        "Read",
+        "--max-turns",
+        "2",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--include-partial-messages",
     ]
 
 
@@ -86,7 +167,7 @@ def test_empty_subcommand_omitted_from_argv(
         agent,
         "write tests",
         tmp_path / "output.md",
-        AgentMode.PLAN,
+        "plan",
     )
 
     assert "" not in command
@@ -109,7 +190,7 @@ def test_build_command_stdin_omits_prompt_from_argv(
         agent,
         "write tests",
         tmp_path / "output.md",
-        AgentMode.PLAN,
+        "plan",
     )
 
     assert "write tests" not in command
@@ -135,7 +216,7 @@ def test_build_command_stdin_appends_sentinel_in_place_of_prompt(
         agent,
         "write tests",
         tmp_path / "output.md",
-        AgentMode.PLAN,
+        "plan",
     )
 
     assert "write tests" not in command
@@ -158,7 +239,7 @@ def test_build_command_appends_direct_file_output_flag(
         agent,
         "write tests",
         tmp_path / "output.md",
-        AgentMode.FIX,
+        "fix",
     )
 
     assert command[-2:] == ["-o", str(tmp_path / "output.md")]
@@ -307,7 +388,7 @@ def test_build_command_uses_translated_toolset_for_each_agent_format(
         agent,
         "write tests",
         tmp_path / "output.md",
-        AgentMode.PLAN,
+        None,
         toolset,
     )
 
@@ -486,7 +567,7 @@ async def test_run_warns_when_mode_flags_lack_required_stream_flags(
     agent = sample_agent_config.model_copy(
         update={
             "stream_format": stream_format,
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
         }
     )
 
@@ -495,7 +576,7 @@ async def test_run_warns_when_mode_flags_lack_required_stream_flags(
             agent,
             "write tests",
             tmp_path / "output.md",
-            mode=AgentMode.PLAN,
+            flag_profile="plan",
             dry_run=True,
         )
 
@@ -539,7 +620,7 @@ async def test_run_emits_stall_callback_from_bound_ui_handler(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
         }
     )
     callback = _RecordingUICallback()
@@ -550,7 +631,7 @@ async def test_run_emits_stall_callback_from_bound_ui_handler(
             agent,
             script,
             tmp_path / "output.md",
-            mode=AgentMode.PLAN,
+            flag_profile="plan",
             on_event=callback.on_agent_event,
             stall_check_interval=0.01,
         )
@@ -585,14 +666,14 @@ async def test_run_captures_exit_zero_stream_result_error(
         """
     ).strip()
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {"plan": []}}
     )
 
     result = await AgentRunner().run(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.exit_code == 0
@@ -619,14 +700,14 @@ async def test_run_lets_last_successful_result_clear_prior_rate_limit(
         """
     ).strip()
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {"plan": []}}
     )
 
     result = await AgentRunner().run(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.exit_code == 0
@@ -656,14 +737,14 @@ async def test_run_filters_sensitive_environment_by_default(
         """
     ).strip()
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {"plan": []}}
     )
 
     result = await AgentRunner().run(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.error is None
@@ -691,14 +772,14 @@ async def test_run_passes_explicit_cwd_to_subprocess(
         """
     ).strip()
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {"plan": []}}
     )
 
     result = await AgentRunner().run(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         cwd=workdir,
     )
 
@@ -738,7 +819,7 @@ async def test_run_kills_process_on_stall_when_configured(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
             "kill_on_stall": True,
         }
     )
@@ -748,7 +829,7 @@ async def test_run_kills_process_on_stall_when_configured(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         on_event=callback.on_agent_event,
         on_stall=callback.on_stall_detected,
     )
@@ -767,7 +848,7 @@ async def test_run_enforces_max_runtime(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
             "max_runtime": 0.05,
         }
     )
@@ -777,7 +858,7 @@ async def test_run_enforces_max_runtime(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert time.monotonic() - started < 2.0
@@ -1022,7 +1103,7 @@ async def test_run_uses_stdout_fallback_for_error_when_stderr_is_empty(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
         }
     )
 
@@ -1031,7 +1112,7 @@ async def test_run_uses_stdout_fallback_for_error_when_stderr_is_empty(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     # Assert
@@ -1067,7 +1148,7 @@ async def test_run_writes_full_text_not_truncated_preview(
         update={
             "binary": sys.executable,
             "subcommand": str(script_path),
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
         }
     )
 
@@ -1076,7 +1157,7 @@ async def test_run_writes_full_text_not_truncated_preview(
         agent,
         "",
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     # Assert — persisted output contains the full 250-char text, not just the 200-char preview
@@ -1101,7 +1182,7 @@ async def test_run_emits_failed_snapshot_when_process_exits_nonzero(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
         }
     )
     snapshots: list[AgentMonitorSnapshot] = []
@@ -1111,7 +1192,7 @@ async def test_run_emits_failed_snapshot_when_process_exits_nonzero(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         on_snapshot=snapshots.append,
     )
 
@@ -1292,7 +1373,7 @@ async def test_run_populates_rate_limit_reset_from_typed_stream_event(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
             "stream_format": stream_format,
         }
     )
@@ -1301,7 +1382,7 @@ async def test_run_populates_rate_limit_reset_from_typed_stream_event(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.exit_code == 0
@@ -1328,14 +1409,14 @@ async def test_run_upgrades_nonzero_exit_to_rate_limit_and_parses_reset(
         """
     ).strip()
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {"plan": []}}
     )
 
     result = await AgentRunner().run(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.exit_code == 1
@@ -1364,14 +1445,14 @@ async def test_run_counts_malformed_json_lines_on_result(
         """
     ).strip()
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {"plan": []}}
     )
 
     result = await AgentRunner().run(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.exit_code == 0
@@ -1385,14 +1466,14 @@ async def test_run_flags_empty_output_category_on_clean_exit(
     tmp_path: Path,
 ) -> None:
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {"plan": []}}
     )
 
     result = await AgentRunner().run(
         agent,
         "pass",
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.exit_code == 0
@@ -1431,7 +1512,7 @@ def _stdin_agent(sample_agent_config: AgentConfig, script_path: Path) -> AgentCo
         update={
             "binary": sys.executable,
             "subcommand": str(script_path),
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
             "prompt_via": "stdin",
         }
     )
@@ -1448,12 +1529,12 @@ async def test_run_delivers_prompt_via_stdin_not_argv(
     agent = _stdin_agent(sample_agent_config, script_path)
     prompt = "secret prompt that must stay out of argv"
 
-    command = AgentRunner._build_command(agent, prompt, tmp_path / "output.md", AgentMode.PLAN)
+    command = AgentRunner._build_command(agent, prompt, tmp_path / "output.md", "plan")
     result = await AgentRunner().run(
         agent,
         prompt,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert prompt not in command
@@ -1478,7 +1559,7 @@ async def test_run_stdin_large_prompt_completes_without_deadlock(
         agent,
         prompt,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.exit_code == 0
@@ -1507,7 +1588,7 @@ async def test_run_stdin_dead_child_consumes_pipe_error(
             agent,
             prompt,
             tmp_path / "output.md",
-            mode=AgentMode.PLAN,
+            flag_profile="plan",
         )
         import gc
 
@@ -1537,7 +1618,7 @@ def _version_agent(**overrides: object) -> AgentConfig:
         "binary": sys.executable,
         "model": "test-model",
         "subcommand": "-c",
-        "flags": {AgentMode.PLAN: []},
+        "flags": {"plan": []},
         "stream_format": StreamFormat.CLAUDE,
         "output_extraction": OutputExtraction(
             strategy=OutputExtraction.Strategy.STDOUT_CAPTURE,
@@ -1617,14 +1698,14 @@ async def test_run_populates_agent_version_on_result(
 ) -> None:
     script = 'import json; print(json.dumps({"type": "result", "exit_code": 0}), flush=True)'
     agent = sample_agent_config.model_copy(
-        update={"binary": sys.executable, "subcommand": "-c", "flags": {AgentMode.PLAN: []}}
+        update={"binary": sys.executable, "subcommand": "-c", "flags": {"plan": []}}
     )
 
     result = await AgentRunner().run(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     # Default version_command ("--version",) against the Python interpreter.
@@ -1648,7 +1729,7 @@ async def test_run_skips_version_check_when_disabled_or_dry_run(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
             "version_command": (),
         }
     )
@@ -1656,7 +1737,7 @@ async def test_run_skips_version_check_when_disabled_or_dry_run(
         disabled,
         'import json; print(json.dumps({"type": "result", "exit_code": 0}), flush=True)',
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
     assert result.agent_version is None
 
@@ -1665,7 +1746,7 @@ async def test_run_skips_version_check_when_disabled_or_dry_run(
         dry,
         "ignored",
         tmp_path / "dry.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
         dry_run=True,
     )
     assert dry_result.agent_version is None
@@ -1867,7 +1948,7 @@ async def test_run_chatty_agent_completes_with_spilled_buffers(
         update={
             "binary": sys.executable,
             "subcommand": "-c",
-            "flags": {AgentMode.PLAN: []},
+            "flags": {"plan": []},
             "version_command": (),
         }
     )
@@ -1876,7 +1957,7 @@ async def test_run_chatty_agent_completes_with_spilled_buffers(
         agent,
         script,
         tmp_path / "output.md",
-        mode=AgentMode.PLAN,
+        flag_profile="plan",
     )
 
     assert result.exit_code == 0

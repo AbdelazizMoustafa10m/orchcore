@@ -45,6 +45,7 @@ nav = [
     { "008 — Partial Failure & Retry" = "architecture/adrs/008-partial-failure-semantics-with-retry.md" },
     { "009 — Phase-Level Tools" = "architecture/adrs/009-tool-assignment-as-phase-level-concern.md" },
     { "010 — Topological Ordering & Success" = "architecture/adrs/010-topological-phase-ordering-and-success-semantics.md" },
+    { "011 — Consumer-Defined Flag Profiles" = "architecture/adrs/011-consumer-defined-flag-profiles.md" },
   ] },
 ]
 

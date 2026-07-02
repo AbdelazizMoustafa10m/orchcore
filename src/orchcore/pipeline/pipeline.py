@@ -10,7 +10,6 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, TypedDict
 
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus, PipelineResult
-from orchcore.registry.agent import AgentMode
 
 if TYPE_CHECKING:
     from orchcore.pipeline.control import FlowControl
@@ -46,7 +45,7 @@ class PipelineRunner:
         phases: list[Phase],
         prompts: dict[str, str],
         ui_callback: UICallback,
-        mode: AgentMode | None = None,
+        flag_profile: str | None = None,
         resume_from: str | None = None,
         skip_phases: list[str] | None = None,
         only_phase: str | None = None,
@@ -60,6 +59,10 @@ class PipelineRunner:
         the pipeline (``success=False``), and stops further execution —
         mirroring the required-phase failure rule. Optional phases skip
         freely without affecting ``success``.
+
+        ``flag_profile`` is the pipeline-wide default flag profile; a phase
+        with ``Phase.flag_profile`` set overrides it for that phase. ``None``
+        selects no profile flags.
         """
         skip_set = set(skip_phases or [])
         ordered_phases = _validate_pipeline_request(
@@ -71,7 +74,6 @@ class PipelineRunner:
             allow_empty_prompts=allow_empty_prompts,
         )
 
-        effective_mode = AgentMode.PLAN if mode is None else mode
         started_at = datetime.now(UTC)
         phase_results: list[PhaseResult] = []
         completed_phases = await self._load_state() if resume_from is not None else set()
@@ -144,7 +146,7 @@ class PipelineRunner:
                     phase=phase,
                     prompt=prompt,
                     ui_callback=ui_callback,
-                    mode=effective_mode,
+                    flag_profile=flag_profile,
                     toolset=phase.tools,
                 )
             else:
@@ -152,7 +154,7 @@ class PipelineRunner:
                     phase=phase,
                     prompt=prompt,
                     ui_callback=ui_callback,
-                    mode=effective_mode,
+                    flag_profile=flag_profile,
                     toolset=phase.tools,
                 )
 

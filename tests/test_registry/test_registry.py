@@ -7,10 +7,11 @@ from pydantic import ValidationError
 
 from orchcore.config import AgentOverrideConfig
 from orchcore.registry import AgentRegistry
-from orchcore.registry.agent import AgentConfig, AgentMode
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from orchcore.registry.agent import AgentConfig
 
 
 def test_empty_registry_raises_key_error() -> None:
@@ -181,8 +182,65 @@ strategy = "stdout_capture"
     agent = registry.get("demo")
     assert agent.binary == "echo"
     assert agent.model == "demo-model"
-    assert agent.flags[AgentMode.PLAN] == ("--verbose",)
+    assert agent.flags["plan"] == ("--verbose",)
     assert agent.output_extraction.strategy.value == "stdout_capture"
+
+
+def test_load_from_toml_accepts_consumer_defined_profile_names(tmp_path: Path) -> None:
+    """Flag profile names are consumer vocabulary, not a fixed orchcore set."""
+    path = tmp_path / "agents.toml"
+    path.write_text(
+        """
+[agents.writer]
+binary = "echo"
+model = "writer-model"
+subcommand = "-p"
+stream_format = "claude"
+
+[agents.writer.flags]
+research = ["--think"]
+draft = []
+art-generation = ["--verbose"]
+
+[agents.writer.output_extraction]
+strategy = "stdout_capture"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    registry = AgentRegistry()
+    registry.load_from_toml(path)
+
+    agent = registry.get("writer")
+    assert agent.flags["research"] == ("--think",)
+    assert agent.flags["draft"] == ()
+    assert agent.flags["art-generation"] == ("--verbose",)
+
+
+def test_load_from_toml_rejects_profile_names_that_look_like_flags(tmp_path: Path) -> None:
+    """A profile name starting with ``-`` is almost certainly a mistake."""
+    path = tmp_path / "agents.toml"
+    path.write_text(
+        """
+[agents.broken]
+binary = "echo"
+model = "broken-model"
+subcommand = "-p"
+stream_format = "claude"
+
+[agents.broken.flags]
+"--verbose" = ["--verbose"]
+
+[agents.broken.output_extraction]
+strategy = "stdout_capture"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    registry = AgentRegistry()
+    with pytest.raises(ValueError, match="Invalid flag profile name"):
+        registry.load_from_toml(path)
+    assert registry.list_agents() == []
 
 
 _VALID_AGENT_TOML = """

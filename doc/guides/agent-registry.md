@@ -23,11 +23,11 @@ kill_on_stall = false
 env_policy = "filtered"
 env_passlist = ["ANTHROPIC_API_KEY"]
 
+# Flag profiles: the names below are YOUR project's workflow vocabulary,
+# not an orchcore concept — "plan"/"fix" are examples, not a fixed set.
 [agents.claude.flags]
 plan = ["--think", "--verbose"]
 fix = ["--fix-mode"]
-audit = ["--think", "--verbose"]
-review = ["--think", "--verbose"]
 
 # Optional: env_vars values are literal TOML strings. orchcore does not
 # expand ${VAR}; load secrets in your own config layer before passing them.
@@ -56,21 +56,46 @@ jq_expression = ".content[0].text"
 | `version_command` | `list[str]` | No | Arguments that print the CLI version (default: `["--version"]`; `[]` disables the check) |
 | `compatible_versions` | `list[str]` | No | Version specifiers declared as known good (e.g. `[">=2.1.112,<3"]`) |
 | `incompatible_versions` | `list[table]` | No | Known-bad ranges, each `{ spec = "...", reason = "..." }` |
-| `flags.<mode>` | `list[str]` | No | Mode-specific CLI flags (modes: `plan`, `fix`, `audit`, `review`) |
+| `flags.<profile>` | `list[str]` | No | Named flag profile: a consumer-defined name mapped to this agent's CLI flags (see [Flag Profiles](#flag-profiles)) |
 | `env_vars` | `dict` | No | Environment variables to set for the subprocess |
 | `output_extraction.strategy` | `str` | Yes | How to extract output: `jq_filter`, `direct_file`, `stdout_capture` |
 | `output_extraction.jq_expression` | `str` | No | jq expression for `jq_filter` strategy |
 
-### Agent Modes
+### Flag Profiles
 
-Each agent supports four execution modes with mode-specific CLI flags:
+A flag profile is a named bundle of CLI flags on an agent. The *names* are
+defined entirely by the consuming project — they are workflow vocabulary
+(`plan`/`fix` in a planning tool, `research`/`draft`/`art` in a publishing
+pipeline, `audit` in a compliance tool), and orchcore attaches no meaning to
+them beyond looking them up ([ADR-011](../architecture/adrs/011-consumer-defined-flag-profiles.md)).
+The profile mapping is the translation table from your vocabulary to each
+CLI's dialect: the same profile name can map to `["--think"]` for Claude and
+`["--reasoning", "high"]` for Codex.
 
-| Mode | Purpose | Typical Flags |
-|------|---------|---------------|
-| `plan` | Implementation planning | `["--think", "--verbose"]` |
-| `fix` | Applying fixes autonomously | `["--fix-mode"]` |
-| `audit` | Code audit and analysis | `["--think", "--verbose"]` |
-| `review` | Code review | `["--think", "--verbose"]` |
+A profile is selected per phase (`Phase.flag_profile`) or as a pipeline-wide
+default (`run_pipeline(flag_profile=...)`); the phase value wins. With no
+selection, **no** profile flags are applied — there is no implicit default.
+Selecting a profile an agent does not define logs a warning and applies no
+flags for that agent.
+
+Keep behavioral flags (thinking, verbosity, effort) in profiles; tool access
+and permissions belong in a [`ToolSet`](#toolset--phase-level-tool-configuration),
+which composes *with* profiles rather than replacing them — profile flags are
+emitted first and the ToolSet translation last, so access-control flags win
+on last-flag-wins CLIs.
+
+Projects that want compile-time safety over their vocabulary can define their
+own enum — `StrEnum` members are strings and pass straight through:
+
+```python
+from enum import StrEnum
+
+class Mode(StrEnum):          # lives in YOUR project, not orchcore
+    PLAN = "plan"
+    FIX = "fix"
+
+phase = Phase(name="planning", agents=("claude",), flag_profile=Mode.PLAN)
+```
 
 ### Output Extraction Strategies
 
@@ -228,7 +253,7 @@ or resolve values in your own configuration layer before registering.
 ### Programmatic Registration
 
 ```python
-from orchcore.registry import AgentConfig, AgentMode, OutputExtraction
+from orchcore.registry import AgentConfig, OutputExtraction
 from orchcore.stream import StreamFormat
 
 config = AgentConfig(
@@ -236,7 +261,7 @@ config = AgentConfig(
     binary="/usr/local/bin/my-agent",
     model="my-model-v1",
     subcommand="--prompt",
-    flags={AgentMode.PLAN: ["--verbose"], AgentMode.FIX: ["--auto"]},
+    flags={"plan": ["--verbose"], "fix": ["--auto"]},  # your project's vocabulary
     stream_format=StreamFormat.CLAUDE,  # If compatible with Claude's JSONL format
     output_extraction=OutputExtraction(strategy=OutputExtraction.Strategy.STDOUT_CAPTURE),
 )
@@ -296,10 +321,14 @@ execution_tools = ToolSet(
 When running an agent within a phase, the effective toolset is resolved via:
 
 ```
-Phase.agent_tools[agent]  >  explicit toolset arg  >  Phase.tools  >  AgentConfig.flags[mode]  >  defaults
+Phase.agent_tools[agent]  >  explicit toolset arg  >  Phase.tools  >  none
 ```
 
 This allows fine-grained control: the planning phase can be read-only while the execution phase gets write access, and within a phase, different agents can have different tool sets.
+
+Flag profiles are independent of this resolution: a selected profile's flags
+are always applied, and the ToolSet translation (when one resolves) is
+appended after them.
 
 ## Adding a New Agent CLI
 
