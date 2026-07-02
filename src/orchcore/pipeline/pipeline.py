@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, TypedDict
 
 from orchcore.pipeline.phase import Phase, PhaseResult, PhaseStatus, PipelineResult
+from orchcore.registry.agent import is_valid_flag_profile_name
 
 if TYPE_CHECKING:
     from orchcore.pipeline.control import FlowControl
@@ -64,6 +65,12 @@ class PipelineRunner:
         with ``Phase.flag_profile`` set overrides it for that phase. ``None``
         selects no profile flags.
         """
+        if flag_profile is not None and not is_valid_flag_profile_name(flag_profile):
+            raise PipelineValidationError(
+                f"Invalid flag_profile {flag_profile!r}: profile names must start "
+                "with an alphanumeric character and contain only alphanumerics, "
+                "'.', '_', or '-'"
+            )
         skip_set = set(skip_phases or [])
         ordered_phases = _validate_pipeline_request(
             phases=phases,

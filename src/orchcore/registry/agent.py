@@ -18,7 +18,19 @@ CODEX_PERMISSION_VALUES = frozenset({"read-only", "workspace-write", "full-acces
 
 # Flag profile names must not be mistakable for CLI flags (no leading "-")
 # and must be single unquoted TOML-key-friendly tokens.
-_FLAG_PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+FLAG_PROFILE_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+_FLAG_PROFILE_NAME_RE = re.compile(FLAG_PROFILE_NAME_PATTERN)
+
+
+def is_valid_flag_profile_name(name: str) -> bool:
+    """Return whether ``name`` is a syntactically valid flag profile name.
+
+    Shared by ``AgentConfig`` validation and the selection boundaries
+    (``Phase.flag_profile``, ``run_pipeline``, ``run_phase``/``run_parallel``,
+    ``AgentRunner.run``) so a malformed selection fails fast instead of
+    degrading into an unknown-profile warning at command build time.
+    """
+    return _FLAG_PROFILE_NAME_RE.match(name) is not None
 
 
 class OutputExtraction(BaseModel):
@@ -55,8 +67,10 @@ class AgentConfig(BaseModel):
     (``plan``/``fix`` in one project, ``research``/``draft`` in another);
     orchcore attaches no meaning to a name beyond looking it up. A profile
     holds behavioral flags (e.g. ``--think``); tool access and permissions
-    belong in a :class:`ToolSet`, whose translation is appended after
-    profile flags and therefore wins on last-flag-wins CLIs."""
+    belong in a :class:`ToolSet`. When a ToolSet is in effect, profile flags
+    in the ToolSet-managed domain (tool allowlists, permission/approval
+    flags, stream-output format) are dropped with a warning so they cannot
+    duplicate or conflict with the ToolSet translation."""
     stream_format: StreamFormat
     env_vars: dict[str, str] = Field(default_factory=dict)
     env_policy: Literal["inherit", "filtered", "clean"] = "filtered"
@@ -128,9 +142,11 @@ class ToolSet(BaseModel):
 
 
 __all__ = [
+    "FLAG_PROFILE_NAME_PATTERN",
     "AgentConfig",
     "IncompatibleVersionSpec",
     "OutputExtraction",
     "StreamFormat",
     "ToolSet",
+    "is_valid_flag_profile_name",
 ]

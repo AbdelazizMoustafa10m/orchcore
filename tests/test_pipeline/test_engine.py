@@ -2152,3 +2152,16 @@ async def test_phase_flag_profile_overrides_fallback_profile(
     )
 
     assert captured == ["fix", "plan", None]
+
+
+@pytest.mark.asyncio
+async def test_run_phase_rejects_malformed_flag_profile_fallback() -> None:
+    phase_runner = PhaseRunner(runner=AgentRunner(), registry=AgentRegistry())
+
+    with pytest.raises(ValueError, match="Invalid flag profile name"):
+        await phase_runner.run_phase(
+            phase=Phase(name="analysis", agents=["codex"]),
+            prompt="run",
+            ui_callback=NullCallback(),
+            flag_profile="",
+        )

@@ -25,6 +25,7 @@ from orchcore.registry.agent import (
     AgentConfig,
     OutputExtraction,
     ToolSet,
+    is_valid_flag_profile_name,
 )
 from orchcore.registry.versioning import (
     VERSION_OUTPUT_RE,
@@ -56,6 +57,49 @@ type RequiredFlagCheck = tuple[str, tuple[str, ...]]
 _REQUIRED_STREAM_FLAG_CHECKS: dict[StreamFormat, tuple[RequiredFlagCheck, ...]] = {
     StreamFormat.CODEX: (("--json", ("--json",)),),
     StreamFormat.OPENCODE: (("--format json", ("--format", "json")),),
+}
+
+# Flags the ToolSet owns per stream format: everything the ToolSet translation
+# can emit, plus known permission/approval-bypass flags in the same domain.
+# When a ToolSet is in effect it is the single authority for tool access,
+# permissions, and stream-output flags, so profile flags in this domain are
+# dropped (with a warning). Appending the translation last is NOT enough:
+# clap-based CLIs such as Codex hard-fail on a duplicated singleton flag
+# (e.g. two ``-s`` values), and a bypass flag like ``--yolo`` cannot be
+# neutralized by later flags at all. The mapping value records whether the
+# flag consumes a following value token.
+_TOOLSET_MANAGED_FLAGS: dict[StreamFormat, dict[str, bool]] = {
+    StreamFormat.CLAUDE: {
+        "--allowedTools": True,
+        "--disallowedTools": True,
+        "--max-turns": True,
+        "--verbose": False,
+        "--output-format": True,
+        "--include-partial-messages": False,
+        "--permission-mode": True,
+        "--dangerously-skip-permissions": False,
+    },
+    StreamFormat.CODEX: {
+        "-s": True,
+        "--sandbox": True,
+        "--json": False,
+        "-a": True,
+        "--ask-for-approval": True,
+        "--full-auto": False,
+        "--dangerously-bypass-approvals-and-sandbox": False,
+    },
+    StreamFormat.GEMINI: {
+        "--yolo": False,
+        "--approval-mode": True,
+    },
+    StreamFormat.COPILOT: {
+        "--allow-tool": True,
+        "--deny-tool": True,
+        "--allow-all-tools": False,
+    },
+    StreamFormat.OPENCODE: {
+        "--format": True,
+    },
 }
 
 _DEFAULT_EXCLUDED_ENV_PATTERNS: tuple[str, ...] = (
@@ -346,6 +390,9 @@ class AgentRunner:
         cwd: Path | None = None,
     ) -> AgentResult:
         """Run the agent subprocess and return a fully-populated AgentResult."""
+        if flag_profile is not None and not is_valid_flag_profile_name(flag_profile):
+            msg = f"Invalid flag profile name {flag_profile!r}"
+            raise ValueError(msg)
         cmd = self._build_command(agent, prompt, output_path, flag_profile, toolset)
         _warn_if_missing_required_stream_flags(agent, cmd)
 
@@ -670,8 +717,10 @@ class AgentRunner:
         place when the CLI requires a placeholder argument.
 
         Flag profiles and ToolSets compose additively: profile flags come
-        first, the ToolSet translation last, so on last-flag-wins CLIs the
-        ToolSet's access-control flags take precedence over profile flags.
+        first, the ToolSet translation last. When a ToolSet is in effect,
+        profile flags in the ToolSet-managed domain (tool access, permissions,
+        stream-output format) are dropped with a warning — see
+        ``_strip_toolset_managed_flags``.
         """
         cmd = [agent.binary]
         if agent.subcommand:
@@ -682,7 +731,10 @@ class AgentRunner:
             cmd.append(agent.stdin_sentinel)
         cmd.extend(["--model", agent.model])
 
-        cmd.extend(_resolve_profile_flags(agent, flag_profile))
+        profile_flags = _resolve_profile_flags(agent, flag_profile)
+        if toolset is not None:
+            profile_flags = _strip_toolset_managed_flags(agent, profile_flags)
+        cmd.extend(profile_flags)
         if toolset is not None:
             cmd.extend(_translate_toolset(agent, toolset))
 
@@ -713,6 +765,48 @@ def _resolve_profile_flags(agent: AgentConfig, flag_profile: str | None) -> tupl
         )
         return ()
     return profile_flags
+
+
+def _strip_toolset_managed_flags(
+    agent: AgentConfig, profile_flags: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Drop profile flags that belong to the ToolSet-managed domain.
+
+    Called only when a ToolSet is in effect. Without this, registry data
+    that keeps tool/permission flags in profiles (the 1.x fallback style)
+    would emit duplicate or conflicting argv next to the ToolSet translation
+    — clap-based CLIs reject duplicated singleton flags outright — or smuggle
+    in bypass flags (``--yolo``) that the translation cannot neutralize.
+    Value-taking flags consume their following value token as well.
+    """
+    managed = _TOOLSET_MANAGED_FLAGS.get(agent.stream_format)
+    if not managed or not profile_flags:
+        return profile_flags
+
+    kept: list[str] = []
+    dropped: list[str] = []
+    index = 0
+    while index < len(profile_flags):
+        token = profile_flags[index]
+        takes_value = managed.get(token.split("=", 1)[0])
+        if takes_value is None:
+            kept.append(token)
+            index += 1
+            continue
+        consumed = 2 if takes_value and "=" not in token and index + 1 < len(profile_flags) else 1
+        dropped.extend(profile_flags[index : index + consumed])
+        index += consumed
+
+    if dropped:
+        logger.warning(
+            "Agent %r: dropping ToolSet-managed flag(s) %s from the selected flag "
+            "profile; tool access, permissions, and stream-output flags are owned "
+            "by the ToolSet when one is in effect. Keep only behavioral flags in "
+            "profiles.",
+            agent.name,
+            dropped,
+        )
+    return tuple(kept)
 
 
 def _translate_toolset(agent: AgentConfig, toolset: ToolSet) -> list[str]:

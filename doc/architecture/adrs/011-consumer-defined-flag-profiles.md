@@ -179,13 +179,29 @@ backward-compatibility fallback for tool restriction). With profiles holding
 behavioral flags, replacement is wrong: a phase that declares tool access
 would silently lose `--think`. In 2.0.0:
 
-- Profile flags are appended first, the ToolSet translation last, so on
-  last-flag-wins CLIs the ToolSet's access-control flags take precedence.
+- Profile flags are appended first, the ToolSet translation last.
+- Ordering alone is **not** sufficient for safety: clap-based CLIs (Codex)
+  hard-fail on duplicated singleton flags (verified: `codex exec -s
+  read-only -s workspace-write` and `--json --json` are argument errors,
+  not last-wins), and bypass flags such as `--yolo` or
+  `--dangerously-skip-permissions` cannot be neutralized by later flags.
+  Therefore, when a ToolSet is in effect, profile flags in the
+  ToolSet-managed domain (per-format `_TOOLSET_MANAGED_FLAGS`: everything
+  the translation can emit plus known permission/approval-bypass flags) are
+  **dropped with a warning**. Without a ToolSet, profile flags pass through
+  verbatim — full parity with the 1.x mode-flags fallback.
 - Ownership guidance: profiles hold *behavioral* flags (thinking, verbosity,
   effort); tool access, permissions, and turn limits belong in ToolSets.
-  Registry data should not duplicate ToolSet-managed flags inside profiles.
 - ToolSet resolution itself is unchanged:
   `Phase.agent_tools[agent] > explicit toolset > Phase.tools > none`.
+
+Malformed profile *selections* (empty or flag-like names) are rejected at
+every API boundary — `Phase.flag_profile` (pydantic pattern),
+`run_pipeline` (`PipelineValidationError`), `run_phase`/`run_parallel` and
+`AgentRunner.run` (`ValueError`) — while selecting a *well-formed but
+undefined* profile stays a per-agent warning, because sparse registries
+(a profile defined for some agents only) are legitimate, matching 1.x's
+`flags.get(mode, ())` semantics but visibly.
 
 ### Implementation Details
 
@@ -247,9 +263,9 @@ would silently lose `--think`. In 2.0.0:
   the migration table)
 - Core no longer statically rejects misspelled profile names at TOML load;
   the check moves to runtime (warning) and to consumer-side enums
-- Additive composition can emit duplicate flags if registry data repeats
-  ToolSet-managed flags inside profiles (documented ownership guidance;
-  last-flag-wins ordering keeps access control authoritative)
+- The ToolSet-managed flag list is maintained per stream format and can lag
+  new CLI flags; an unlisted bypass flag in a profile would pass through
+  (mitigated by ownership guidance and the warning on every drop)
 
 ### Neutral
 
@@ -267,7 +283,10 @@ would silently lose `--think`. In 2.0.0:
 | Flag-like names rejected | Names failing the pattern fail the load atomically | `test_load_from_toml_rejects_profile_names_that_look_like_flags` |
 | No implicit default | `flag_profile=None` adds no profile flags | `test_build_command_no_profile_selects_no_profile_flags` |
 | Unknown profile is visible | WARNING log naming agent, profile, available names | `test_build_command_warns_on_unknown_flag_profile` |
-| Additive composition | Profile flags precede ToolSet translation | `test_build_command_composes_profile_flags_before_toolset_translation` |
+| Additive composition | Behavioral profile flags precede ToolSet translation | `test_build_command_composes_profile_flags_before_toolset_translation` |
+| Managed-flag stripping | ToolSet-domain flags dropped from profiles under a ToolSet (incl. bypasses) | `test_build_command_strips_toolset_managed_flags_from_profile`, `test_build_command_strips_bypass_flags_under_toolset` |
+| 1.x fallback parity | Without a ToolSet, profile flags pass through verbatim | `test_build_command_profile_flags_untouched_without_toolset` |
+| Malformed selection fails fast | Empty/flag-like names rejected at Phase/run_pipeline/run_phase/run boundaries | `test_phase_rejects_malformed_flag_profile_names`, `test_run_pipeline_rejects_malformed_flag_profile`, `test_run_phase_rejects_malformed_flag_profile_fallback`, `test_run_rejects_malformed_flag_profile` |
 | Per-phase override | `Phase.flag_profile` beats the pipeline fallback | `test_phase_flag_profile_overrides_fallback_profile` |
 
 **Review Schedule:**

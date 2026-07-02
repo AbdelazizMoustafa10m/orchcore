@@ -19,6 +19,7 @@ from orchcore.recovery import (
     GitRecovery,
     RetryPolicy,
 )
+from orchcore.registry.agent import is_valid_flag_profile_name
 from orchcore.runner.subprocess import kill_process_tree, terminate_process_tree
 from orchcore.stream.events import AgentErrorCategory, AgentResult
 
@@ -36,6 +37,17 @@ _OUTPUT_EXTENSION = ".md"
 _PATH_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _validate_flag_profile_argument(flag_profile: str | None) -> None:
+    """Reject malformed flag-profile fallback names at the call boundary.
+
+    ``Phase.flag_profile`` is validated by the Phase model; this covers the
+    plain-parameter path so a malformed name fails fast instead of degrading
+    into a per-agent unknown-profile warning at command build time.
+    """
+    if flag_profile is not None and not is_valid_flag_profile_name(flag_profile):
+        raise ValueError(f"Invalid flag profile name {flag_profile!r}")
 
 
 class TelemetryProtocol(Protocol):
@@ -180,6 +192,7 @@ class PhaseRunner:
         ``flag_profile`` is the fallback profile for agents in this phase;
         ``Phase.flag_profile`` overrides it when set.
         """
+        _validate_flag_profile_argument(flag_profile)
         self._install_signal_handlers()
         self._ui_callback = ui_callback
 
@@ -268,6 +281,7 @@ class PhaseRunner:
         ``flag_profile`` is the fallback profile for agents in this phase;
         ``Phase.flag_profile`` overrides it when set.
         """
+        _validate_flag_profile_argument(flag_profile)
         self._install_signal_handlers()
         self._ui_callback = ui_callback
 

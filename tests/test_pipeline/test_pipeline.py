@@ -1056,3 +1056,21 @@ async def test_run_pipeline_on_phase_skip_called_for_phases_before_resume_from()
     assert recording_callback.phase_skips == [
         ("planning", "Skipped (resuming from later phase)"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_rejects_malformed_flag_profile(
+    ui_callback: NullCallback,
+) -> None:
+    """A malformed pipeline-wide profile fails fast, before any phase runs."""
+    phase_runner = StubPhaseRunner({})
+    pipeline_runner = PipelineRunner(phase_runner=phase_runner)
+
+    with pytest.raises(PipelineValidationError, match="Invalid flag_profile"):
+        await pipeline_runner.run_pipeline(
+            phases=[Phase(name="planning", agents=("claude",))],
+            prompts={"planning": "Draft the plan"},
+            ui_callback=ui_callback,
+            flag_profile="--bad",
+        )
+    assert phase_runner.calls == []

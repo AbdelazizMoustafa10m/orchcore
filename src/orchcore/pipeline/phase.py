@@ -11,7 +11,7 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from orchcore.recovery.retry import FailureMode, RetryPolicy
-from orchcore.registry.agent import ToolSet  # noqa: TC001
+from orchcore.registry.agent import FLAG_PROFILE_NAME_PATTERN, ToolSet
 from orchcore.stream.events import AgentResult  # noqa: TC001
 
 
@@ -41,10 +41,11 @@ class Phase(BaseModel):
     parallel: bool = False
     required: bool = True
     depends_on: tuple[str, ...] = ()
-    flag_profile: str | None = None
+    flag_profile: str | None = Field(default=None, pattern=FLAG_PROFILE_NAME_PATTERN)
     """Named flag profile to select from each agent's ``AgentConfig.flags``
     for this phase. ``None`` defers to the pipeline-level default passed to
-    ``run_pipeline``/``run_phase``; a set value overrides it."""
+    ``run_pipeline``/``run_phase``; a set value overrides it. Malformed names
+    (empty, whitespace, or flag-like ``--x``) are rejected at construction."""
     tools: ToolSet | None = None
     agent_tools: dict[str, ToolSet] = Field(default_factory=dict)
     retry_policy: RetryPolicy | None = Field(default=None)

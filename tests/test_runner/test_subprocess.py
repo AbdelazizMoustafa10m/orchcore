@@ -125,15 +125,16 @@ def test_build_command_composes_profile_flags_before_toolset_translation(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
 ) -> None:
-    """Profile flags and ToolSet translation are additive, profile first,
-    so the ToolSet's access-control flags win on last-flag-wins CLIs."""
+    """Behavioral profile flags and the ToolSet translation are additive,
+    profile first, translation last."""
+    agent = sample_agent_config.model_copy(update={"flags": {"deep": ("--think",)}})
     toolset = ToolSet(internal=["Read"], permission="read-only", max_turns=2)
 
     command = AgentRunner._build_command(
-        sample_agent_config,
+        agent,
         "write tests",
         tmp_path / "output.md",
-        "plan",
+        "deep",
         toolset,
     )
 
@@ -143,7 +144,7 @@ def test_build_command_composes_profile_flags_before_toolset_translation(
         "write tests",
         "--model",
         "test-model",
-        "--verbose",
+        "--think",
         "--allowedTools",
         "Read",
         "--max-turns",
@@ -153,6 +154,115 @@ def test_build_command_composes_profile_flags_before_toolset_translation(
         "stream-json",
         "--include-partial-messages",
     ]
+
+
+def test_build_command_strips_toolset_managed_flags_from_profile(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """1.x-style registries kept tool/permission flags in mode flags; with a
+    ToolSet in effect those are dropped (clap-based CLIs such as Codex reject
+    a duplicated singleton flag like ``-s`` outright) and only behavioral
+    flags pass through."""
+    agent = sample_agent_config.model_copy(
+        update={
+            "stream_format": StreamFormat.CODEX,
+            "flags": {"plan": ("-s", "read-only", "--json", "--think")},
+        }
+    )
+    toolset = ToolSet(permission="workspace-write")
+
+    with caplog.at_level(logging.WARNING, logger="orchcore.runner.subprocess"):
+        command = AgentRunner._build_command(
+            agent,
+            "write tests",
+            tmp_path / "output.md",
+            "plan",
+            toolset,
+        )
+
+    assert command == [
+        "echo",
+        "-p",
+        "write tests",
+        "--model",
+        "test-model",
+        "--think",
+        "-s",
+        "workspace-write",
+        "--json",
+    ]
+    assert any("ToolSet-managed" in record.getMessage() for record in caplog.records)
+
+
+def test_build_command_strips_bypass_flags_under_toolset(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """A profile cannot smuggle a permission bypass past a ToolSet."""
+    agent = sample_agent_config.model_copy(
+        update={"stream_format": StreamFormat.GEMINI, "flags": {"fast": ("--yolo",)}}
+    )
+    toolset = ToolSet(permission="read-only")
+
+    command = AgentRunner._build_command(
+        agent,
+        "write tests",
+        tmp_path / "output.md",
+        "fast",
+        toolset,
+    )
+
+    assert "--yolo" not in command
+
+
+def test_build_command_profile_flags_untouched_without_toolset(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """Without a ToolSet, profile flags pass through verbatim — full parity
+    with the 1.x mode-flags fallback."""
+    agent = sample_agent_config.model_copy(
+        update={
+            "stream_format": StreamFormat.CODEX,
+            "flags": {"plan": ("-s", "read-only", "--json")},
+        }
+    )
+
+    command = AgentRunner._build_command(
+        agent,
+        "write tests",
+        tmp_path / "output.md",
+        "plan",
+    )
+
+    assert command == [
+        "echo",
+        "-p",
+        "write tests",
+        "--model",
+        "test-model",
+        "-s",
+        "read-only",
+        "--json",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_rejects_malformed_flag_profile(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """A flag-like or empty profile name is a programming error, not data."""
+    with pytest.raises(ValueError, match="Invalid flag profile name"):
+        await AgentRunner().run(
+            sample_agent_config,
+            "prompt",
+            tmp_path / "output.md",
+            flag_profile="--bad",
+            dry_run=True,
+        )
 
 
 def test_empty_subcommand_omitted_from_argv(
