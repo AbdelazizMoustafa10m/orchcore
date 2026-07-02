@@ -196,6 +196,42 @@ def test_build_command_strips_toolset_managed_flags_from_profile(
     assert any("ToolSet-managed" in record.getMessage() for record in caplog.records)
 
 
+def test_build_command_strips_attached_short_option_values(
+    sample_agent_config: AgentConfig,
+    tmp_path: Path,
+) -> None:
+    """clap's attached short-option form (``-sread-only`` == ``-s read-only``)
+    is valid Codex syntax and collides with the ToolSet's ``-s``; it must be
+    stripped like the separated form."""
+    agent = sample_agent_config.model_copy(
+        update={
+            "stream_format": StreamFormat.CODEX,
+            "flags": {"plan": ("-sread-only", "--think")},
+        }
+    )
+    toolset = ToolSet(permission="workspace-write")
+
+    command = AgentRunner._build_command(
+        agent,
+        "write tests",
+        tmp_path / "output.md",
+        "plan",
+        toolset,
+    )
+
+    assert command == [
+        "echo",
+        "-p",
+        "write tests",
+        "--model",
+        "test-model",
+        "--think",
+        "-s",
+        "workspace-write",
+        "--json",
+    ]
+
+
 def test_build_command_strips_variadic_tool_flags_without_stray_values(
     sample_agent_config: AgentConfig,
     tmp_path: Path,
