@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v2.0.0...v2.0.1) (2026-07-02)
+
+
+### CI/CD
+
+* give gh workflow run a repo in the release job ([75c04f2](https://github.com/AbdelazizMoustafa10m/orchcore/commit/75c04f24c2956b56b44959293f141078a11a5ea7))
+* make release pipeline self-triggering without a PAT ([5137fb0](https://github.com/AbdelazizMoustafa10m/orchcore/commit/5137fb06508638a0c588ddd4a3334729559e2447))
+
 ## [2.0.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v1.0.0...v2.0.0) (2026-07-02)
 
 
