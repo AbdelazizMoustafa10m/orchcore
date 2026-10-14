@@ -25,12 +25,7 @@ from orchcore.stream.parser import StreamParser
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
 # Inputs per format. Sessions are parsed with a fresh parser each (stateful
-# formats: Copilot implicit INIT, Gemini line counter / tool ids).
-#
-# Gemini sessions deliberately avoid *overlapping* tool calls and orphaned
-# functionResponse lines: their pairing was wrong pre-WP-25 (global counter)
-# and is fixed by the FIFO correlation; the new pairing is covered by targeted
-# regression tests in test_parser.py, not by goldens.
+# formats: Copilot implicit INIT, Antigravity open tool steps).
 GOLDEN_SESSIONS: dict[StreamFormat, list[tuple[str, list[dict[str, object]]]]] = {
     StreamFormat.CLAUDE: [
         (
@@ -220,47 +215,291 @@ GOLDEN_SESSIONS: dict[StreamFormat, list[tuple[str, list[dict[str, object]]]]] =
             ],
         ),
     ],
-    StreamFormat.GEMINI: [
+    StreamFormat.ANTIGRAVITY: [
         (
+            # Shapes captured from agy 1.2.17 / 1.3.5 --output-format stream-json.
             "canonical",
             [
-                {"functionCall": {"name": "web_search_exa", "args": {"query": "orchcore"}}},
-                {"functionResponse": {"name": "web_search_exa", "response": {"ok": True}}},
-                {"functionCall": {"name": "agent_tool", "args": {"description": "sub"}}},
-                {"functionResponse": {"name": "agent_tool"}},
                 {
-                    "tool_calls": [
-                        {"name": "Read", "args": {"file_path": "a.py"}},
-                        {"name": "Grep", "args": {"pattern": "x"}},
-                    ]
+                    "event": "init",
+                    "conversation_id": "conv-1",
+                    "init": {
+                        "model": "gemini-3.8-flash-low",
+                        "cwd": "/repo",
+                        "tools": ["view_file", "run_command"],
+                        "permission_mode": "always-proceed",
+                    },
                 },
                 {
-                    "candidates": [
-                        {
-                            "content": {"parts": [{"text": "Gemini answer"}]},
-                            "finishReason": "STOP",
-                        }
-                    ],
-                    "usageMetadata": {"promptTokenCount": 5},
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 0,
+                        "state": "DONE",
+                        "step_type": "user_input",
+                    },
                 },
                 {
-                    "candidates": [
-                        {
-                            "content": {"parts": [{"text": "partial"}]},
-                            "finishReason": "MAX_TOKENS",
-                        }
-                    ]
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 1,
+                        "state": "DONE",
+                        "step_type": "agent_response",
+                        "duration_seconds": 3.67,
+                        "usage": {"input_tokens": 11849, "output_tokens": 48},
+                    },
                 },
                 {
-                    "error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota"},
-                    "retry_after_ms": 60000,
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 2,
+                        "state": "ACTIVE",
+                        "step_type": "tool",
+                        "tool_name": "view_file",
+                        "tool_info": {
+                            "name": "view_file",
+                            "parameters": {"AbsolutePath": "/repo/note.txt"},
+                        },
+                    },
                 },
-                {"error": {"code": 500, "status": "INTERNAL", "message": "server"}},
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 2,
+                        "state": "DONE",
+                        "step_type": "tool",
+                        "tool_name": "view_file",
+                        "duration_seconds": 0.120576,
+                        "tool_info": {
+                            "name": "view_file",
+                            "parameters": {"AbsolutePath": "/repo/note.txt"},
+                            "output": "2 lines, 15 bytes",
+                        },
+                    },
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 3,
+                        "state": "ACTIVE",
+                        "step_type": "tool",
+                        "tool_name": "run_command",
+                        "tool_info": {
+                            "name": "run_command",
+                            "parameters": {"CommandLine": "pytest -q"},
+                        },
+                    },
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 3,
+                        "state": "ACTIVE",
+                        "step_type": "tool",
+                        "tool_name": "run_command",
+                        "tool_info": {
+                            "name": "run_command",
+                            "parameters": {"CommandLine": "pytest -q"},
+                        },
+                    },
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 3,
+                        "state": "DONE",
+                        "step_type": "tool",
+                        "tool_name": "run_command",
+                        "duration_seconds": 1.5,
+                        "tool_info": {
+                            "name": "run_command",
+                            "parameters": {"CommandLine": "pytest -q"},
+                            "output": "3 passed",
+                        },
+                    },
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {"step_index": 4, "step_type": "checkpoint"},
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 5,
+                        "state": "ACTIVE",
+                        "step_type": "agent_response",
+                        "text_delta": "hello orchcore",
+                    },
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-1",
+                        "step_index": 5,
+                        "state": "DONE",
+                        "step_type": "agent_response",
+                        "text_delta": "\n",
+                        "duration_seconds": 2.061067,
+                        "usage": {"input_tokens": 12088, "output_tokens": 3},
+                    },
+                },
+                {
+                    "event": "result",
+                    "result": {
+                        "conversation_id": "conv-1",
+                        "status": "SUCCESS",
+                        "response": "hello orchcore\n",
+                        "duration_seconds": 5.770875,
+                        "num_turns": 1,
+                        "usage": {
+                            "input_tokens": 23937,
+                            "output_tokens": 51,
+                            "thinking_tokens": 0,
+                            "cache_read_tokens": 0,
+                            "total_tokens": 23988,
+                        },
+                    },
+                },
             ],
         ),
         (
-            "fallback-init-heartbeat",
-            [{"blob": index} for index in range(11)],
+            "headless-permission-denied",
+            [
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-2",
+                        "step_index": 2,
+                        "state": "ERROR",
+                        "step_type": "tool",
+                        "tool_name": "run_command",
+                        "duration_seconds": 0.036907,
+                        "tool_info": {
+                            "name": "run_command",
+                            "parameters": {"CommandLine": "echo probe-ok"},
+                            "error": {
+                                "type": "TOOL_ERROR",
+                                "message": "permission check failed: user denied permission",
+                            },
+                        },
+                    },
+                },
+                {
+                    "event": "result",
+                    "result": {
+                        "conversation_id": "conv-2",
+                        "status": "SUCCESS",
+                        "response": "",
+                        "num_turns": 1,
+                        "denied_actions": [{"action": "command", "display_name": "RunCommand"}],
+                    },
+                },
+            ],
+        ),
+        (
+            "subagents",
+            [
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-3",
+                        "step_index": 1,
+                        "state": "ACTIVE",
+                        "step_type": "tool",
+                        "tool_name": "invoke_subagent",
+                        "tool_info": {"name": "invoke_subagent", "parameters": {}},
+                        "subagent_info": {
+                            "subagents": [{"type_name": "research", "role": "web researcher"}]
+                        },
+                    },
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "conversation_id": "conv-3",
+                        "step_index": 2,
+                        "state": "ACTIVE",
+                        "step_type": "tool",
+                        "tool_name": "browser_subagent",
+                        "tool_info": {
+                            "name": "browser_subagent",
+                            "parameters": {"Url": "https://example.com"},
+                        },
+                    },
+                },
+            ],
+        ),
+        (
+            "errors-and-unknowns",
+            [
+                {
+                    "event": "result",
+                    "result": {
+                        "conversation_id": "",
+                        "status": "ERROR",
+                        "response": "",
+                        "error": 'invalid model selection (--model "nope")',
+                        "duration_seconds": 0,
+                        "num_turns": 0,
+                    },
+                },
+                {
+                    "event": "result",
+                    "result": {
+                        "status": "ERROR",
+                        "error": (
+                            "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Individual "
+                            "quota reached. Resets in 2h39m52s."
+                        ),
+                    },
+                },
+                {"event": "result", "result": {"status": "CANCELLED"}},
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "step_index": 6,
+                        "state": "DONE",
+                        "step_type": "error_message",
+                        "error": {"message": "Agent execution terminated due to error."},
+                    },
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "step_index": 7,
+                        "state": "ERROR",
+                        "step_type": "agent_response",
+                        "error": "RESOURCE_EXHAUSTED: quota reached",
+                    },
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {"step_index": 8, "state": "ERROR", "step_type": "planner"},
+                },
+                {
+                    "event": "step_update",
+                    "step_update": {
+                        "step_index": 9,
+                        "state": "DONE",
+                        "step_type": "tool",
+                        "tool_name": "write_to_file",
+                        "tool_info": {"parameters": {"TargetFile": "/repo/out.txt"}},
+                    },
+                },
+                {"event": "step_update", "step_update": {"state": "ACTIVE", "step_type": "tool"}},
+                {"event": "step_update", "step_update": {"step_type": "future_step"}},
+                {"event": "step_update", "step_update": "not-an-object"},
+                {"event": "result", "result": None},
+                {"event": "future_event"},
+                {"blob": 1},
+            ],
         ),
     ],
 }

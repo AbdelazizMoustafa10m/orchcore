@@ -27,7 +27,7 @@ superseded_by: []
 
 ## Status
 
-ACCEPTED — amended by [ADR-011](./011-consumer-defined-flag-profiles.md) (2026-07-02): the premise below that "agent modes are an intrinsic property of the agent" was corrected (mode names are consumer workflow vocabulary, now modeled as flag profiles), and the ToolSet-replaces-mode-flags fallback became additive composition (profile flags first, ToolSet translation last). Historical text is preserved as written.
+ACCEPTED — amended by [ADR-011](./011-consumer-defined-flag-profiles.md) (2026-07-02): the premise below that "agent modes are an intrinsic property of the agent" was corrected (mode names are consumer workflow vocabulary, now modeled as flag profiles), and the ToolSet-replaces-mode-flags fallback became additive composition (profile flags first, ToolSet translation last). Amended again (2026-10-14): Gemini CLI support was replaced by the Antigravity CLI (`agy`), which translates `workspace-write` to `--mode accept-edits` and `full-access` to `--dangerously-skip-permissions`; references to Gemini below are historical. Historical text is preserved as written.
 
 ## Context and Problem Statement
 
@@ -318,3 +318,4 @@ This is a deliberate design boundary: orchcore orchestrates agent invocations an
 |---|---|---|---|
 | 1.0 | 2026-03-25 | Abdelaziz Abdelrasol | Initial version (ACCEPTED) |
 | 1.1 | 2026-07-02 | Abdelaziz Abdelrasol | Amendment note: ADR-011 corrected the modes-are-intrinsic premise and made profile flags compose additively with ToolSet translation |
+| 1.2 | 2026-10-14 | Abdelaziz Abdelrasol | Amendment note: Gemini CLI replaced by Antigravity CLI and its ToolSet translation |

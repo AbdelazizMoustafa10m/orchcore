@@ -31,9 +31,9 @@ from orchcore.recovery.rate_limit import (
             id="codex",
         ),
         pytest.param(
-            "Gemini returned RESOURCE_EXHAUSTED because the quota exceeded.",
+            "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Individual quota reached.",
             True,
-            id="gemini",
+            id="antigravity",
         ),
         pytest.param(
             "Request failed: rate limit exceeded by upstream service.",
@@ -88,6 +88,16 @@ def test_rate_limit_detector_handles_empty_and_multiline_fallback() -> None:
         pytest.param("Try again in 300 seconds.", 300, id="seconds"),
         pytest.param("Usage resets in 5 days 27 minutes.", 433620, id="days-and-minutes"),
         pytest.param("Please try again later.", None, id="unparseable"),
+        pytest.param(
+            "RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h39m52s.",
+            9592,
+            id="go-duration-hours-minutes-seconds",
+        ),
+        pytest.param("Resets in 45m.", 2700, id="go-duration-minutes"),
+        pytest.param("retry after 1.5s", 2, id="go-duration-fractional-seconds-round-up"),
+        pytest.param("retry in 500ms then 30 seconds", 30, id="go-duration-milliseconds-skipped"),
+        pytest.param("retry in 500ms, resets in 2h", 7200, id="go-duration-later-match"),
+        pytest.param("Resets in -, try again later", None, id="go-duration-without-digits"),
     ],
 )
 def test_reset_time_parser_parse_cases(output: str, expected: int | None) -> None:

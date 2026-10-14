@@ -57,6 +57,9 @@ type RequiredFlagCheck = tuple[str, tuple[str, ...]]
 _REQUIRED_STREAM_FLAG_CHECKS: dict[StreamFormat, tuple[RequiredFlagCheck, ...]] = {
     StreamFormat.CODEX: (("--json", ("--json",)),),
     StreamFormat.OPENCODE: (("--format json", ("--format", "json")),),
+    StreamFormat.ANTIGRAVITY: (
+        ("--output-format stream-json", ("--output-format", "stream-json")),
+    ),
 }
 
 # Flags the ToolSet owns per stream format: everything the ToolSet translation
@@ -97,9 +100,10 @@ _TOOLSET_MANAGED_FLAGS: dict[StreamFormat, dict[str, _FlagArity]] = {
         "--full-auto": "none",
         "--dangerously-bypass-approvals-and-sandbox": "none",
     },
-    StreamFormat.GEMINI: {
-        "--yolo": "none",
-        "--approval-mode": "one",
+    StreamFormat.ANTIGRAVITY: {
+        "--output-format": "one",
+        "--mode": "one",
+        "--dangerously-skip-permissions": "none",
     },
     StreamFormat.COPILOT: {
         "--allow-tool": "one",
@@ -111,11 +115,18 @@ _TOOLSET_MANAGED_FLAGS: dict[StreamFormat, dict[str, _FlagArity]] = {
     },
 }
 
+_ANTIGRAVITY_PERMISSION_FLAGS: dict[str, tuple[str, ...]] = {
+    "read-only": (),
+    "workspace-write": ("--mode", "accept-edits"),
+    "full-access": ("--dangerously-skip-permissions",),
+}
+
 _DEFAULT_EXCLUDED_ENV_PATTERNS: tuple[str, ...] = (
     r"ANTHROPIC_.*",
     r"OPENAI_.*",
     r"GEMINI_.*",
     r"GOOGLE_.*",
+    r"AGY_.*",
     r"COPILOT_.*",
     r"GH_.*",
     r"GITHUB_.*",
@@ -870,10 +881,17 @@ def _translate_toolset(agent: AgentConfig, toolset: ToolSet) -> list[str]:
         # Codex uses --sandbox for permission level
         _append_codex_permission_flag(flags, toolset.permission)
         flags.append("--json")
-    elif format_ == StreamFormat.GEMINI:
-        # Gemini uses --yolo for full access, default is sandboxed
-        if toolset.permission == "full-access":
-            flags.append("--yolo")
+    elif format_ == StreamFormat.ANTIGRAVITY:
+        # Antigravity has no tool allowlist flag (permissions.allow lives in
+        # its settings.json); permission maps to an execution mode.
+        if toolset.internal:
+            logger.debug(
+                "antigravity ignores ToolSet.internal on the command line; configure "
+                "permissions.allow in its settings.json: %s",
+                toolset.internal,
+            )
+        _append_antigravity_permission_flags(flags, toolset.permission)
+        flags.extend(["--output-format", "stream-json"])
     elif format_ == StreamFormat.COPILOT:
         # Copilot uses --allow-tool and --deny-tool
         if toolset.internal:
@@ -903,6 +921,28 @@ def _append_codex_permission_flag(flags: list[str], permission: str) -> None:
         return
 
     flags.extend(["-s", permission])
+
+
+def _append_antigravity_permission_flags(flags: list[str], permission: str) -> None:
+    """Append the Antigravity execution-mode flags for a ToolSet permission.
+
+    ``read-only`` adds nothing: the default mode asks before edits and
+    commands, and headless runs auto-deny what they cannot ask about.
+    """
+    if not permission:
+        return
+
+    permission_flags = _ANTIGRAVITY_PERMISSION_FLAGS.get(permission)
+    if permission_flags is None:
+        logger.warning(
+            "Antigravity received unknown ToolSet.permission=%r; expected one of %s. "
+            "Skipping permission flags.",
+            permission,
+            sorted(_ANTIGRAVITY_PERMISSION_FLAGS),
+        )
+        return
+
+    flags.extend(permission_flags)
 
 
 def _log_ignored_non_claude_toolset_fields(format_: StreamFormat, toolset: ToolSet) -> None:

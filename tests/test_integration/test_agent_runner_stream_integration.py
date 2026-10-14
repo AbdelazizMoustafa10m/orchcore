@@ -63,8 +63,11 @@ EXPECTED_OK_EVENT_TYPES: dict[StreamFormat, list[StreamEventType]] = {
         StreamEventType.TEXT,
         StreamEventType.RESULT,
     ],
-    StreamFormat.GEMINI: [
+    StreamFormat.ANTIGRAVITY: [
+        StreamEventType.INIT,
         StreamEventType.TOOL_START,
+        StreamEventType.TOOL_DONE,
+        StreamEventType.TEXT,
         StreamEventType.TEXT,
         StreamEventType.RESULT,
     ],
@@ -160,9 +163,9 @@ async def test_error_scenario_across_formats(
 ) -> None:
     """WP-15 regression net through a real subprocess for every format.
 
-    Claude/Codex/OpenCode can express a terminal in-stream error and exit 0:
-    the stream-reported failure must reach the result as STREAM_ERROR. The
-    Copilot and Gemini wire formats have no terminal error frame, so their
+    Claude/Codex/OpenCode/Antigravity can express a terminal in-stream error
+    and exit 0: the stream-reported failure must reach the result as
+    STREAM_ERROR. The Copilot wire format has no terminal error frame, so its
     mock fails like a real CLI (stderr + exit 1) -> NONZERO_EXIT.
     """
     agent = _mock_agent(stream_format, "error", OutputExtraction.Strategy.JQ_FILTER)
@@ -172,7 +175,7 @@ async def test_error_scenario_across_formats(
     assert events, "error scenario must still produce stream events"
     assert result.json_parse_error_count == 0
     assert result.wire_validation_error_count == 0
-    if stream_format in (StreamFormat.COPILOT, StreamFormat.GEMINI):
+    if stream_format is StreamFormat.COPILOT:
         assert result.exit_code == 1
         assert result.error_category is AgentErrorCategory.NONZERO_EXIT
         assert result.error is not None
@@ -189,7 +192,7 @@ async def test_rate_limit_scenario_across_formats(
     stream_format: StreamFormat,
     tmp_path: Path,
 ) -> None:
-    """Typed RATE_LIMIT frames (Claude/Codex/Gemini, exit 0) and the stderr
+    """Typed RATE_LIMIT frames (Claude/Codex/Antigravity, exit 0) and the stderr
     fallback classifier (Copilot/OpenCode, exit 1) both land as RATE_LIMIT."""
     agent = _mock_agent(stream_format, "rate-limit", OutputExtraction.Strategy.JQ_FILTER)
 
@@ -204,7 +207,8 @@ async def test_rate_limit_scenario_across_formats(
         assert result.rate_limit_reset_seconds == 60
     else:
         assert result.exit_code == 0
-        expected_reset = 60 if stream_format is StreamFormat.GEMINI else 5
+        # Antigravity's "Resets in 1m0s" is a Go duration string.
+        expected_reset = 60 if stream_format is StreamFormat.ANTIGRAVITY else 5
         assert result.rate_limit_reset_seconds == expected_reset
 
 

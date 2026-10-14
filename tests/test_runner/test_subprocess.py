@@ -277,7 +277,19 @@ def test_build_command_strips_bypass_flags_under_toolset(
 ) -> None:
     """A profile cannot smuggle a permission bypass past a ToolSet."""
     agent = sample_agent_config.model_copy(
-        update={"stream_format": StreamFormat.GEMINI, "flags": {"fast": ("--yolo",)}}
+        update={
+            "stream_format": StreamFormat.ANTIGRAVITY,
+            "flags": {
+                "fast": (
+                    "--dangerously-skip-permissions",
+                    "--mode=auto",
+                    "--output-format",
+                    "text",
+                    "--effort",
+                    "high",
+                )
+            },
+        }
     )
     toolset = ToolSet(permission="read-only")
 
@@ -289,7 +301,10 @@ def test_build_command_strips_bypass_flags_under_toolset(
         toolset,
     )
 
-    assert "--yolo" not in command
+    assert "--dangerously-skip-permissions" not in command
+    assert "--mode=auto" not in command
+    assert "text" not in command
+    assert command[-4:] == ["--effort", "high", "--output-format", "stream-json"]
 
 
 def test_build_command_profile_flags_untouched_without_toolset(
@@ -539,10 +554,10 @@ def test_build_agent_env_clean_matches_case_insensitively_on_windows(
             id="codex",
         ),
         pytest.param(
-            StreamFormat.GEMINI,
+            StreamFormat.ANTIGRAVITY,
             ToolSet(permission="full-access"),
-            ["--yolo"],
-            id="gemini",
+            ["--dangerously-skip-permissions", "--output-format", "stream-json"],
+            id="antigravity",
         ),
         pytest.param(
             StreamFormat.COPILOT,
@@ -611,9 +626,24 @@ def test_build_command_uses_translated_toolset_for_each_agent_format(
             ["-s", "full-access", "--json"],
         ),
         (
-            StreamFormat.GEMINI,
+            StreamFormat.ANTIGRAVITY,
             ToolSet(permission="full-access"),
-            ["--yolo"],
+            ["--dangerously-skip-permissions", "--output-format", "stream-json"],
+        ),
+        (
+            StreamFormat.ANTIGRAVITY,
+            ToolSet(permission="workspace-write"),
+            ["--mode", "accept-edits", "--output-format", "stream-json"],
+        ),
+        (
+            StreamFormat.ANTIGRAVITY,
+            ToolSet(permission="read-only"),
+            ["--output-format", "stream-json"],
+        ),
+        (
+            StreamFormat.ANTIGRAVITY,
+            ToolSet(permission=""),
+            ["--output-format", "stream-json"],
         ),
         (
             StreamFormat.COPILOT,
@@ -734,11 +764,38 @@ def test_translate_toolset_for_codex_warns_on_unknown_permission(
     assert "unknown ToolSet.permission='unknown'" in caplog.text
 
 
+def test_translate_toolset_for_antigravity_warns_on_unknown_permission(
+    sample_agent_config: AgentConfig,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    agent = sample_agent_config.model_copy(update={"stream_format": StreamFormat.ANTIGRAVITY})
+
+    with caplog.at_level(logging.WARNING, logger="orchcore.runner.subprocess"):
+        flags = _translate_toolset(agent, ToolSet(permission="yolo"))
+
+    assert flags == ["--output-format", "stream-json"]
+    assert "Antigravity received unknown ToolSet.permission='yolo'" in caplog.text
+
+
+def test_translate_toolset_for_antigravity_logs_ignored_internal_tools(
+    sample_agent_config: AgentConfig,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    agent = sample_agent_config.model_copy(update={"stream_format": StreamFormat.ANTIGRAVITY})
+
+    with caplog.at_level(logging.DEBUG, logger="orchcore.runner.subprocess"):
+        flags = _translate_toolset(agent, ToolSet(internal=("view_file",)))
+
+    assert flags == ["--output-format", "stream-json"]
+    assert "antigravity ignores ToolSet.internal" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("stream_format", "expected_flag"),
     [
         (StreamFormat.CODEX, "--json"),
         (StreamFormat.OPENCODE, "--format json"),
+        (StreamFormat.ANTIGRAVITY, "--output-format stream-json"),
     ],
 )
 @pytest.mark.asyncio
@@ -1536,13 +1593,17 @@ def test_resolve_result_state_category_matrix(
             id="codex",
         ),
         pytest.param(
-            StreamFormat.GEMINI,
+            StreamFormat.ANTIGRAVITY,
             {
-                "error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota"},
-                "retry_after_ms": 60000,
+                "event": "result",
+                "result": {
+                    "status": "ERROR",
+                    "error": "RESOURCE_EXHAUSTED (code 429): Individual quota reached. "
+                    "Resets in 2h39m52s.",
+                },
             },
-            60,
-            id="gemini",
+            9592,
+            id="antigravity",
         ),
     ],
 )

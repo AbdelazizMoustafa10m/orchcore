@@ -71,16 +71,24 @@ if TYPE_CHECKING:
             id="opencode-keep-text",
         ),
         pytest.param(
-            StreamFormat.GEMINI,
-            '{"promptFeedback":{"blockReason":"SAFETY"}}',
+            StreamFormat.ANTIGRAVITY,
+            '{"event":"step_update","step_update":{"step_index":0,"state":"DONE",'
+            '"step_type":"user_input"}}',
             False,
-            id="gemini-drop-prompt-feedback",
+            id="antigravity-drop-user-input",
         ),
         pytest.param(
-            StreamFormat.GEMINI,
-            '{"functionCall":{"name":"web_search_exa","args":{"query":"planora"}}}',
+            StreamFormat.ANTIGRAVITY,
+            '{"event": "step_update", "step_update": {"step_type": "user_input"}}',
+            False,
+            id="antigravity-drop-spaced-user-input",
+        ),
+        pytest.param(
+            StreamFormat.ANTIGRAVITY,
+            '{"event":"step_update","step_update":{"step_index":2,"state":"ACTIVE",'
+            '"step_type":"agent_response","text_delta":"step_type user_input"}}',
             True,
-            id="gemini-keep-function-call",
+            id="antigravity-keep-agent-response",
         ),
         pytest.param(
             StreamFormat.COPILOT,

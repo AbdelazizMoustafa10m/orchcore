@@ -45,7 +45,10 @@ class StreamFilter:
             ('"type":"text"', '"text":""'),
             ('"type": "text"', '"text": ""'),
         ),
-        StreamFormat.GEMINI: (('"promptFeedback"',),),
+        StreamFormat.ANTIGRAVITY: (
+            ('"step_type":"user_input"',),
+            ('"step_type": "user_input"',),
+        ),
         StreamFormat.COPILOT: (
             ('"text":""',),
             ('"text": ""',),
@@ -65,12 +68,12 @@ class StreamFilter:
         Fast-path: use string matching BEFORE json.loads() to drop high-volume events.
         This avoids parsing ~95% of lines that would be discarded anyway.
 
-        Supports all five formats: Claude, Codex, OpenCode, Gemini, and Copilot.
+        Supports all five formats: Claude, Codex, OpenCode, Antigravity, and Copilot.
         Each format has its own set of skip matchers defined in SKIP_MATCHERS:
           - Claude: content_block_stop, message_start, message_stop
           - Codex: response.output_text.delta, response.reasoning_summary.delta, turn.started
           - OpenCode: empty "text" events
-          - Gemini: promptFeedback lines
+          - Antigravity: user_input step echoes
           - Copilot: empty text/message/content fields
 
         Empty lines and whitespace-only lines are always dropped.

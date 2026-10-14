@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+import math
 import random
 import re
 from collections.abc import Sequence
@@ -25,9 +26,9 @@ class RateLimitDetector:
             re.compile(r"rate[_\s]?limit", re.IGNORECASE),
             re.compile(r"429", re.IGNORECASE),
         ],
-        "gemini": [
+        "antigravity": [
             re.compile(r"RESOURCE_EXHAUSTED", re.IGNORECASE),
-            re.compile(r"quota exceeded", re.IGNORECASE),
+            re.compile(r"quota (?:exceeded|reached)", re.IGNORECASE),
             re.compile(r"rate[_\s]?limit", re.IGNORECASE),
         ],
         "generic": [
@@ -88,8 +89,20 @@ class ResetTimeParser:
         r"\b(?P<seconds>\d+)\s*seconds?\b",
         re.IGNORECASE,
     )
+    # Go duration strings ("Resets in 2h39m52s"), as printed by Antigravity.
+    # The (?=\d) lookahead guarantees at least one component matches.
+    GO_DURATION_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
+        r"\b(?:resets?|retry|try again)\s+(?:in|after)\s+(?=\d)"
+        r"(?:(?P<hours>\d+)h)?(?:(?P<minutes>\d+)m(?!s))?(?:(?P<seconds>\d+(?:\.\d+)?)s)?"
+        r"(?![A-Za-z0-9])",
+        re.IGNORECASE,
+    )
 
     def parse(self, output: str) -> int | None:
+        go_duration_seconds = self._parse_go_duration(output)
+        if go_duration_seconds is not None:
+            return go_duration_seconds
+
         relative_seconds = self._parse_relative(output)
         if relative_seconds is not None:
             return relative_seconds
@@ -99,6 +112,14 @@ class ResetTimeParser:
             return int(seconds_match.group("seconds"))
 
         return self._parse_absolute(output)
+
+    def _parse_go_duration(self, output: str) -> int | None:
+        match = self.GO_DURATION_PATTERN.search(output)
+        if match is None:
+            return None
+        hours, minutes, seconds = match.group("hours", "minutes", "seconds")
+        total = int(hours or 0) * 3600 + int(minutes or 0) * 60 + float(seconds or 0)
+        return math.ceil(total)
 
     def _parse_relative(self, output: str) -> int | None:
         match = self.RELATIVE_PATTERN.search(output)

@@ -329,88 +329,134 @@ def codex_valid_line(draw: st.DrawFn) -> str:
     return _to_json_line(data)
 
 
+ANTIGRAVITY_TOOL_NAMES: tuple[str, ...] = (
+    "view_file",
+    "write_to_file",
+    "replace_file_content",
+    "run_command",
+    "grep_search",
+    "list_dir",
+    "search_web",
+    "invoke_subagent",
+    "browser_subagent",
+)
+ANTIGRAVITY_PARAMETER_STRATEGY: SearchStrategy[dict[str, object]] = st.dictionaries(
+    st.sampled_from(("AbsolutePath", "TargetFile", "CommandLine", "Query", "Url", "Other")),
+    st.one_of(MEDIUM_TEXT_STRATEGY, NUMERIC_VALUE_STRATEGY, st.none()),
+    max_size=3,
+)
+
+
 @st.composite
-def gemini_function_call_line(draw: st.DrawFn) -> str:
-    """Generate a Gemini functionCall line that always exercises tool-start parsing."""
+def antigravity_tool_step_line(draw: st.DrawFn) -> str:
+    """Generate an Antigravity tool step_update in any lifecycle state."""
 
-    data: dict[str, object] = {
-        "functionCall": {
-            "name": draw(
-                st.one_of(st.sampled_from(KNOWN_TOOL_NAMES), SHORT_TEXT_STRATEGY, st.none())
-            ),
-            "args": draw(st.one_of(st.none(), tool_input_strategy())),
-        }
-    }
-    return _to_json_line(data)
-
-
-@st.composite
-def gemini_valid_line(draw: st.DrawFn) -> str:
-    """Generate structurally valid Gemini JSONL events for tool, result, and error flows."""
-
-    variant = draw(
-        st.sampled_from(
-            ("function_call", "tool_calls", "function_response", "result", "error", "unknown")
-        )
+    tool_name = draw(
+        st.one_of(st.sampled_from(ANTIGRAVITY_TOOL_NAMES), SHORT_TEXT_STRATEGY, st.none())
     )
-    data: dict[str, object] = {}
-
-    if variant == "function_call":
-        return draw(gemini_function_call_line())
-
-    if variant == "tool_calls":
-        tool_calls: list[dict[str, object]] = []
-        for _ in range(draw(st.integers(min_value=1, max_value=3))):
-            tool_calls.append(
-                {
-                    "name": draw(
-                        st.one_of(st.sampled_from(KNOWN_TOOL_NAMES), SHORT_TEXT_STRATEGY, st.none())
-                    ),
-                    "args": draw(st.one_of(st.none(), tool_input_strategy())),
-                }
+    tool_info: dict[str, object] = {
+        "name": tool_name,
+        "parameters": draw(st.one_of(st.none(), ANTIGRAVITY_PARAMETER_STRATEGY)),
+    }
+    if draw(st.booleans()):
+        tool_info["error"] = draw(
+            st.one_of(
+                st.fixed_dictionaries(
+                    {"type": SHORT_TEXT_STRATEGY, "message": MEDIUM_TEXT_STRATEGY}
+                ),
+                JSON_SCALAR_STRATEGY,
             )
-        data["tool_calls"] = tool_calls
-        return _to_json_line(data)
-
-    if variant == "function_response":
-        data["functionResponse"] = {
-            "name": draw(
-                st.one_of(st.sampled_from(KNOWN_TOOL_NAMES), SHORT_TEXT_STRATEGY, st.none())
-            ),
-            "response": draw(JSON_VALUE_STRATEGY),
-        }
-        return _to_json_line(data)
-
-    if variant == "result":
-        candidate: dict[str, object] = {
-            "content": {"parts": [{"text": draw(LONG_TEXT_STRATEGY)}]},
-            "finishReason": draw(st.sampled_from(("STOP", "MAX_TOKENS", "OTHER"))),
-        }
-        data["candidates"] = [candidate]
-        if draw(st.booleans()):
-            data["usageMetadata"] = draw(
-                st.dictionaries(
-                    SHORT_TEXT_STRATEGY,
-                    st.one_of(NUMERIC_VALUE_STRATEGY, SHORT_TEXT_STRATEGY),
-                    max_size=4,
+        )
+    step: dict[str, object] = {
+        "conversation_id": draw(st.one_of(SHORT_TEXT_STRATEGY, st.none())),
+        "step_index": draw(st.one_of(st.integers(min_value=0, max_value=50), SHORT_TEXT_STRATEGY)),
+        "state": draw(st.sampled_from(("ACTIVE", "DONE", "ERROR", "OTHER"))),
+        "step_type": "tool",
+        "tool_name": tool_name,
+        "tool_info": draw(st.one_of(st.just(tool_info), JSON_SCALAR_STRATEGY)),
+        "duration_seconds": draw(st.one_of(NUMERIC_VALUE_STRATEGY, SHORT_TEXT_STRATEGY, st.none())),
+    }
+    if draw(st.booleans()):
+        step["subagent_info"] = {
+            "subagents": draw(
+                st.lists(
+                    st.fixed_dictionaries(
+                        {"type_name": SHORT_TEXT_STRATEGY, "role": SHORT_TEXT_STRATEGY}
+                    ),
+                    max_size=2,
                 )
             )
-        return _to_json_line(data)
-
-    if variant == "error":
-        data["error"] = {
-            "code": draw(st.one_of(st.integers(min_value=0, max_value=500), SHORT_TEXT_STRATEGY)),
-            "status": draw(
-                st.sampled_from(("RESOURCE_EXHAUSTED", "UNKNOWN", "FAILED_PRECONDITION"))
-            ),
-            "message": draw(MEDIUM_TEXT_STRATEGY),
         }
-        if draw(st.booleans()):
-            data["retry_after_ms"] = draw(
-                st.one_of(NUMERIC_VALUE_STRATEGY, SHORT_TEXT_STRATEGY, st.none())
-            )
-        return _to_json_line(data)
+    return _to_json_line({"event": "step_update", "step_update": step})
 
+
+@st.composite
+def antigravity_valid_line(draw: st.DrawFn) -> str:
+    """Generate structurally valid Antigravity stream-json events."""
+
+    variant = draw(
+        st.sampled_from(("init", "tool", "agent_response", "error_message", "result", "unknown"))
+    )
+
+    if variant == "init":
+        return _to_json_line(
+            {
+                "event": "init",
+                "conversation_id": draw(st.one_of(SHORT_TEXT_STRATEGY, st.none())),
+                "init": draw(JSON_DICT_STRATEGY),
+            }
+        )
+
+    if variant == "tool":
+        return draw(antigravity_tool_step_line())
+
+    if variant == "agent_response":
+        step: dict[str, object] = {
+            "step_index": draw(st.integers(min_value=0, max_value=50)),
+            "state": draw(st.sampled_from(("ACTIVE", "DONE", "ERROR"))),
+            "step_type": "agent_response",
+            "text_delta": draw(st.one_of(LONG_TEXT_STRATEGY, JSON_SCALAR_STRATEGY)),
+            "error": draw(st.one_of(st.none(), MEDIUM_TEXT_STRATEGY, JSON_DICT_STRATEGY)),
+        }
+        return _to_json_line({"event": "step_update", "step_update": step})
+
+    if variant == "error_message":
+        step = {
+            "step_type": "error_message",
+            "message": draw(st.one_of(MEDIUM_TEXT_STRATEGY, JSON_SCALAR_STRATEGY)),
+        }
+        return _to_json_line({"event": "step_update", "step_update": step})
+
+    if variant == "result":
+        result: dict[str, object] = {
+            "conversation_id": draw(st.one_of(SHORT_TEXT_STRATEGY, st.none())),
+            "status": draw(st.sampled_from(("SUCCESS", "ERROR", "CANCELLED", ""))),
+            "error": draw(
+                st.one_of(
+                    st.none(),
+                    MEDIUM_TEXT_STRATEGY,
+                    st.just("RESOURCE_EXHAUSTED (code 429): Resets in 1h2m3s."),
+                )
+            ),
+            "duration_seconds": draw(
+                st.one_of(NUMERIC_VALUE_STRATEGY, SHORT_TEXT_STRATEGY, st.none())
+            ),
+            "num_turns": draw(st.one_of(NUMERIC_VALUE_STRATEGY, SHORT_TEXT_STRATEGY, st.none())),
+            "usage": draw(
+                st.one_of(
+                    st.none(),
+                    st.dictionaries(
+                        SHORT_TEXT_STRATEGY,
+                        st.one_of(NUMERIC_VALUE_STRATEGY, SHORT_TEXT_STRATEGY),
+                        max_size=4,
+                    ),
+                )
+            ),
+            "denied_actions": draw(st.one_of(st.none(), st.lists(JSON_DICT_STRATEGY, max_size=2))),
+        }
+        return _to_json_line({"event": "result", "result": result})
+
+    data: dict[str, object] = {"event": draw(SHORT_TEXT_STRATEGY)}
     data.update(draw(JSON_DICT_STRATEGY))
     return _to_json_line(data)
 
@@ -493,7 +539,7 @@ def opencode_valid_line(draw: st.DrawFn) -> str:
 ANY_VALID_LINE_STRATEGY: SearchStrategy[str] = st.one_of(
     claude_valid_line(),
     codex_valid_line(),
-    gemini_valid_line(),
+    antigravity_valid_line(),
     copilot_valid_line(),
     opencode_valid_line(),
 )
@@ -613,16 +659,16 @@ def test_tool_start_events_always_have_running_status(
 
 @pytest.mark.parametrize("stream_format", ALL_STREAM_FORMATS)
 @given(line=ANY_VALID_LINE_STRATEGY)
-def test_tool_done_events_always_have_done_status(
+def test_tool_done_events_always_have_finished_status(
     stream_format: StreamFormat,
     line: str,
 ) -> None:
-    """Tool-done events must always advertise a done tool status."""
+    """Tool-done events must advertise a finished status: done, or error for a failed tool."""
 
     events = StreamParser(stream_format).parse_line(line)
 
     assert all(
-        event.tool_status == "done"
+        event.tool_status in ("done", "error")
         for event in events
         if event.event_type == StreamEventType.TOOL_DONE
     )
@@ -652,11 +698,11 @@ def test_codex_parser_handles_random_valid_structures(line: str) -> None:
 
 
 @settings(max_examples=200)
-@given(line=gemini_valid_line())
-def test_gemini_parser_handles_random_valid_structures(line: str) -> None:
-    """Gemini parser must accept random valid Gemini structures without crashing."""
+@given(line=antigravity_valid_line())
+def test_antigravity_parser_handles_random_valid_structures(line: str) -> None:
+    """Antigravity parser must accept random valid Antigravity structures without crashing."""
 
-    events = StreamParser(StreamFormat.GEMINI).parse_line(line)
+    events = StreamParser(StreamFormat.ANTIGRAVITY).parse_line(line)
 
     _assert_stream_event_list(events)
 
@@ -769,20 +815,31 @@ def test_copilot_first_object_always_emits_init(line: str) -> None:
     assert any(event.event_type == StreamEventType.INIT for event in events)
 
 
-@given(lines=st.lists(gemini_function_call_line(), min_size=1, max_size=10))
-def test_gemini_tool_ids_are_sequential(lines: list[str]) -> None:
-    """Gemini tool IDs must increment monotonically across function-call lines."""
+@given(step_indexes=st.lists(st.integers(min_value=0, max_value=500), unique=True, max_size=10))
+def test_antigravity_tool_ids_are_unique_per_step(step_indexes: list[int]) -> None:
+    """Each started Antigravity tool step must get its own conversation-scoped id."""
 
-    parser = StreamParser(StreamFormat.GEMINI)
+    parser = StreamParser(StreamFormat.ANTIGRAVITY)
     tool_start_events: list[StreamEvent] = []
-    for line in lines:
+    for step_index in step_indexes:
+        line = _to_json_line(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "conversation_id": "conv",
+                    "step_index": step_index,
+                    "state": "ACTIVE",
+                    "step_type": "tool",
+                    "tool_name": "view_file",
+                },
+            }
+        )
         tool_start_events.extend(
             event
             for event in parser.parse_line(line)
             if event.event_type == StreamEventType.TOOL_START
         )
 
-    assert len(tool_start_events) == len(lines)
     assert [event.tool_id for event in tool_start_events] == [
-        f"gemini-tool-{index}" for index in range(1, len(lines) + 1)
+        f"conv:{step_index}" for step_index in step_indexes
     ]

@@ -21,10 +21,10 @@ from orchcore.stream.formats._shared import (
     extract_tool_detail,
     to_decimal,
 )
+from orchcore.stream.formats.antigravity import AntigravityParser
 from orchcore.stream.formats.claude import ClaudeParser
 from orchcore.stream.formats.codex import CodexParser
 from orchcore.stream.formats.copilot import CopilotParser
-from orchcore.stream.formats.gemini import GeminiParser
 from orchcore.stream.formats.opencode import OpenCodeParser
 
 if TYPE_CHECKING:
@@ -35,16 +35,16 @@ PARSER_FACTORIES: dict[StreamFormat, Callable[[], FormatParser]] = {
     StreamFormat.CODEX: CodexParser,
     StreamFormat.COPILOT: CopilotParser,
     StreamFormat.OPENCODE: OpenCodeParser,
-    StreamFormat.GEMINI: GeminiParser,
+    StreamFormat.ANTIGRAVITY: AntigravityParser,
 }
 
 __all__ = [
     "PARSER_FACTORIES",
+    "AntigravityParser",
     "ClaudeParser",
     "CodexParser",
     "CopilotParser",
     "FormatParser",
-    "GeminiParser",
     "OpenCodeParser",
     "_WireValidationError",
     "extract_tool_detail",
