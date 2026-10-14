@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v2.0.1...v3.0.0) (2026-10-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* StreamFormat.GEMINI and GeminiParser are removed. Registries using stream_format = "gemini" fail validation. Migrate those agents to binary = "agy", subcommand = "-p", stream_format = "antigravity", and an Antigravity model slug (see `agy models`). Without a ToolSet, add `--output-format stream-json` to the agent's profile flags. Keep prompt_via = "argv": `agy -p` does not read the prompt from stdin.
+
+### Features
+
+* replace Gemini CLI support with Antigravity CLI ([fe3427d](https://github.com/AbdelazizMoustafa10m/orchcore/commit/fe3427de71bdc48a9ff2b8cb2b12b228697be8ce))
+
 ## [2.0.1](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v2.0.0...v2.0.1) (2026-07-02)
 
 
