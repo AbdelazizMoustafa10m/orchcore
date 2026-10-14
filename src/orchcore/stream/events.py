@@ -15,7 +15,7 @@ class StreamFormat(StrEnum):
     CLAUDE = "claude"
     CODEX = "codex"
     OPENCODE = "opencode"
-    GEMINI = "gemini"
+    ANTIGRAVITY = "antigravity"
     COPILOT = "copilot"
 
 

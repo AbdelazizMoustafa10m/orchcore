@@ -26,7 +26,7 @@ The `RateLimitDetector` uses regex patterns to identify rate-limit messages in a
 |-------|----------------|
 | Claude | `"You've hit your usage limit"` |
 | Codex | `"try again in 5 minutes"` |
-| Gemini | `"Resource exhausted"` |
+| Antigravity | `"RESOURCE_EXHAUSTED"`, `"Individual quota reached"` |
 | Generic | `"rate limit exceeded"`, `"429"`, `"too many requests"` |
 
 ```python
@@ -120,7 +120,7 @@ Run all agents regardless of individual failures. Report results per agent.
 ```python
 phase = Phase(
     name="review",
-    agents=["claude", "codex", "gemini"],
+    agents=["claude", "codex", "antigravity"],
     parallel=True,
     failure_mode=FailureMode.CONTINUE,
 )
@@ -135,7 +135,7 @@ from orchcore.recovery import RetryPolicy, FailureMode
 
 phase = Phase(
     name="review",
-    agents=["claude", "codex", "gemini"],
+    agents=["claude", "codex", "antigravity"],
     parallel=True,
     failure_mode=FailureMode.REQUIRE_MINIMUM,
     retry_policy=RetryPolicy(

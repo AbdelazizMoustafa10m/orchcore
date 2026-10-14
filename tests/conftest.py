@@ -61,6 +61,6 @@ def opencode_jsonl_lines() -> list[str]:
 
 
 @pytest.fixture
-def gemini_jsonl_lines() -> list[str]:
-    """Realistic Gemini format JSONL lines."""
-    return _session_lines("gemini")
+def antigravity_jsonl_lines() -> list[str]:
+    """Realistic Antigravity format JSONL lines."""
+    return _session_lines("antigravity")

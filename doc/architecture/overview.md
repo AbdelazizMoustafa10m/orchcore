@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-orchcore is a reusable Python package (>= 3.12, asyncio-first) that provides orchestration infrastructure for launching, monitoring, and managing multiple AI coding agent CLIs through phase-based pipelines. It is not an agent itself — it orchestrates external agent CLIs (Claude Code, Codex, Gemini, Copilot, OpenCode) as subprocesses.
+orchcore is a reusable Python package (>= 3.12, asyncio-first) that provides orchestration infrastructure for launching, monitoring, and managing multiple AI coding agent CLIs through phase-based pipelines. It is not an agent itself — it orchestrates external agent CLIs (Claude Code, Codex, Antigravity, Copilot, OpenCode) as subprocesses.
 
 The package was extracted by analyzing four production orchestration systems — Planora, Articles, Finvault, and Raven/Ralph — identifying the common infrastructure patterns (60-70% of code) that recurred across all four, and packaging them into a single reusable library. Domain-specific logic (prompt content, output interpretation, presentation) stays in each consuming project; orchcore provides the "how" of orchestration.
 
@@ -28,7 +28,7 @@ C4Context
 
     System_Ext(claude, "Claude Code CLI", "Anthropic")
     System_Ext(codex, "Codex CLI", "OpenAI")
-    System_Ext(gemini, "Gemini CLI", "Google")
+    System_Ext(antigravity, "Antigravity CLI", "Google")
     System_Ext(copilot, "Copilot CLI", "GitHub/Microsoft")
     System_Ext(opencode, "OpenCode CLI", "Open-source")
 
@@ -49,7 +49,7 @@ C4Context
 
     Rel(orchcore, claude, "Launches as subprocess")
     Rel(orchcore, codex, "Launches as subprocess")
-    Rel(orchcore, gemini, "Launches as subprocess")
+    Rel(orchcore, antigravity, "Launches as subprocess")
     Rel(orchcore, copilot, "Launches as subprocess")
     Rel(orchcore, opencode, "Launches as subprocess")
 ```

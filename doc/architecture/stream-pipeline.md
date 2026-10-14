@@ -24,7 +24,7 @@ The filter operates on raw strings *before* `json.loads()` is called, using simp
 |--------|-------------------|
 | Claude | `message_start`, `message_stop`, `content_block_stop`, `content_block_start` (non-tool), `ping` |
 | Codex | Heartbeat-only messages, empty delta events |
-| Gemini | Connection metadata, keep-alive pings |
+| Antigravity | `user_input` step echoes |
 | Copilot | Status polling responses, empty chunks |
 | OpenCode | Frame events without content |
 
@@ -44,12 +44,12 @@ for line in raw_jsonl_lines:
 
 Each agent CLI emits JSONL in a different schema. Format knowledge lives in one module per
 format under `orchcore/stream/formats/` (`claude.py`, `codex.py`, `copilot.py`, `opencode.py`,
-`gemini.py`), each validating lines into private Pydantic envelope models (`extra="allow"` for
+`antigravity.py`), each validating lines into private Pydantic envelope models (`extra="allow"` for
 forward compatibility) and producing zero or more normalized `StreamEvent` objects per line.
 `StreamParser` itself is a thin dispatcher that owns the shared infrastructure: line splitting
 and the two diagnostic counters.
 
-**Supported formats:** Claude, Codex, OpenCode, Gemini, Copilot
+**Supported formats:** Claude, Codex, OpenCode, Antigravity, Copilot
 
 **Key behaviors:**
 
@@ -60,8 +60,8 @@ and the two diagnostic counters.
 - Extracts tool invocations, text content, cost, tokens, and exit codes
 - Supports native text extraction (no `jq` binary required)
 - Maps format-specific event types to the unified `StreamEventType` enum
-- Gemini tool completions are paired to their starts via a FIFO of open synthetic
-  `gemini-tool-N` ids (Gemini emits no tool ids of its own)
+- Antigravity tool steps get `<conversation_id>:<step_index>` ids, so overlapping tools and
+  subagent steps pair exactly; a failed step finishes with `tool_status="error"`
 
 ```python
 from orchcore.stream import StreamParser, StreamFormat

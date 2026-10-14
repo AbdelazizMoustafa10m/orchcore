@@ -1,0 +1,1312 @@
+{
+  "sessions": [
+    {
+      "name": "canonical",
+      "lines": [
+        {
+          "event": "init",
+          "conversation_id": "conv-1",
+          "init": {
+            "model": "gemini-3.8-flash-low",
+            "cwd": "/repo",
+            "tools": [
+              "view_file",
+              "run_command"
+            ],
+            "permission_mode": "always-proceed"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 0,
+            "state": "DONE",
+            "step_type": "user_input"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 1,
+            "state": "DONE",
+            "step_type": "agent_response",
+            "duration_seconds": 3.67,
+            "usage": {
+              "input_tokens": 11849,
+              "output_tokens": 48
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 2,
+            "state": "ACTIVE",
+            "step_type": "tool",
+            "tool_name": "view_file",
+            "tool_info": {
+              "name": "view_file",
+              "parameters": {
+                "AbsolutePath": "/repo/note.txt"
+              }
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 2,
+            "state": "DONE",
+            "step_type": "tool",
+            "tool_name": "view_file",
+            "duration_seconds": 0.120576,
+            "tool_info": {
+              "name": "view_file",
+              "parameters": {
+                "AbsolutePath": "/repo/note.txt"
+              },
+              "output": "2 lines, 15 bytes"
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 3,
+            "state": "ACTIVE",
+            "step_type": "tool",
+            "tool_name": "run_command",
+            "tool_info": {
+              "name": "run_command",
+              "parameters": {
+                "CommandLine": "pytest -q"
+              }
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 3,
+            "state": "ACTIVE",
+            "step_type": "tool",
+            "tool_name": "run_command",
+            "tool_info": {
+              "name": "run_command",
+              "parameters": {
+                "CommandLine": "pytest -q"
+              }
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 3,
+            "state": "DONE",
+            "step_type": "tool",
+            "tool_name": "run_command",
+            "duration_seconds": 1.5,
+            "tool_info": {
+              "name": "run_command",
+              "parameters": {
+                "CommandLine": "pytest -q"
+              },
+              "output": "3 passed"
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "step_index": 4,
+            "step_type": "checkpoint"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 5,
+            "state": "ACTIVE",
+            "step_type": "agent_response",
+            "text_delta": "hello orchcore"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-1",
+            "step_index": 5,
+            "state": "DONE",
+            "step_type": "agent_response",
+            "text_delta": "\n",
+            "duration_seconds": 2.061067,
+            "usage": {
+              "input_tokens": 12088,
+              "output_tokens": 3
+            }
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "conversation_id": "conv-1",
+            "status": "SUCCESS",
+            "response": "hello orchcore\n",
+            "duration_seconds": 5.770875,
+            "num_turns": 1,
+            "usage": {
+              "input_tokens": 23937,
+              "output_tokens": 51,
+              "thinking_tokens": 0,
+              "cache_read_tokens": 0,
+              "total_tokens": 23988
+            }
+          }
+        }
+      ],
+      "events": [
+        {
+          "event_type": "init",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": "conv-1",
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "init",
+            "conversation_id": "conv-1",
+            "init": {
+              "model": "gemini-3.8-flash-low",
+              "cwd": "/repo",
+              "tools": [
+                "view_file",
+                "run_command"
+              ],
+              "permission_mode": "always-proceed"
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "conv-1:2",
+          "tool_name": "view_file",
+          "tool_detail": "/repo/note.txt",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-1",
+              "step_index": 2,
+              "state": "ACTIVE",
+              "step_type": "tool",
+              "tool_name": "view_file",
+              "tool_info": {
+                "name": "view_file",
+                "parameters": {
+                  "AbsolutePath": "/repo/note.txt"
+                }
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "conv-1:2",
+          "tool_name": "view_file",
+          "tool_detail": "/repo/note.txt",
+          "tool_status": "done",
+          "tool_duration_ms": 121,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-1",
+              "step_index": 2,
+              "state": "DONE",
+              "step_type": "tool",
+              "tool_name": "view_file",
+              "duration_seconds": 0.120576,
+              "tool_info": {
+                "name": "view_file",
+                "parameters": {
+                  "AbsolutePath": "/repo/note.txt"
+                },
+                "output": "2 lines, 15 bytes"
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "conv-1:3",
+          "tool_name": "run_command",
+          "tool_detail": "$ pytest -q",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-1",
+              "step_index": 3,
+              "state": "ACTIVE",
+              "step_type": "tool",
+              "tool_name": "run_command",
+              "tool_info": {
+                "name": "run_command",
+                "parameters": {
+                  "CommandLine": "pytest -q"
+                }
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_exec",
+          "tool_id": "conv-1:3",
+          "tool_name": "run_command",
+          "tool_detail": "$ pytest -q",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-1",
+              "step_index": 3,
+              "state": "ACTIVE",
+              "step_type": "tool",
+              "tool_name": "run_command",
+              "tool_info": {
+                "name": "run_command",
+                "parameters": {
+                  "CommandLine": "pytest -q"
+                }
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "conv-1:3",
+          "tool_name": "run_command",
+          "tool_detail": "$ pytest -q",
+          "tool_status": "done",
+          "tool_duration_ms": 1500,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-1",
+              "step_index": 3,
+              "state": "DONE",
+              "step_type": "tool",
+              "tool_name": "run_command",
+              "duration_seconds": 1.5,
+              "tool_info": {
+                "name": "run_command",
+                "parameters": {
+                  "CommandLine": "pytest -q"
+                },
+                "output": "3 passed"
+              }
+            }
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "hello orchcore",
+          "text_full": "hello orchcore",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-1",
+              "step_index": 5,
+              "state": "ACTIVE",
+              "step_type": "agent_response",
+              "text_delta": "hello orchcore"
+            }
+          }
+        },
+        {
+          "event_type": "text",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "\n",
+          "text_full": "\n",
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-1",
+              "step_index": 5,
+              "state": "DONE",
+              "step_type": "agent_response",
+              "text_delta": "\n",
+              "duration_seconds": 2.061067,
+              "usage": {
+                "input_tokens": 12088,
+                "output_tokens": 3
+              }
+            }
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": 5771,
+          "exit_code": null,
+          "num_turns": 1,
+          "session_id": "conv-1",
+          "token_usage": {
+            "input_tokens": 23937,
+            "output_tokens": 51,
+            "thinking_tokens": 0,
+            "cache_read_tokens": 0,
+            "total_tokens": 23988
+          },
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "result",
+            "result": {
+              "conversation_id": "conv-1",
+              "status": "SUCCESS",
+              "response": "hello orchcore\n",
+              "duration_seconds": 5.770875,
+              "num_turns": 1,
+              "usage": {
+                "input_tokens": 23937,
+                "output_tokens": 51,
+                "thinking_tokens": 0,
+                "cache_read_tokens": 0,
+                "total_tokens": 23988
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "headless-permission-denied",
+      "lines": [
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-2",
+            "step_index": 2,
+            "state": "ERROR",
+            "step_type": "tool",
+            "tool_name": "run_command",
+            "duration_seconds": 0.036907,
+            "tool_info": {
+              "name": "run_command",
+              "parameters": {
+                "CommandLine": "echo probe-ok"
+              },
+              "error": {
+                "type": "TOOL_ERROR",
+                "message": "permission check failed: user denied permission"
+              }
+            }
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "conversation_id": "conv-2",
+            "status": "SUCCESS",
+            "response": "",
+            "num_turns": 1,
+            "denied_actions": [
+              {
+                "action": "command",
+                "display_name": "RunCommand"
+              }
+            ]
+          }
+        }
+      ],
+      "events": [
+        {
+          "event_type": "tool_start",
+          "tool_id": "conv-2:2",
+          "tool_name": "run_command",
+          "tool_detail": "$ echo probe-ok",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-2",
+              "step_index": 2,
+              "state": "ERROR",
+              "step_type": "tool",
+              "tool_name": "run_command",
+              "duration_seconds": 0.036907,
+              "tool_info": {
+                "name": "run_command",
+                "parameters": {
+                  "CommandLine": "echo probe-ok"
+                },
+                "error": {
+                  "type": "TOOL_ERROR",
+                  "message": "permission check failed: user denied permission"
+                }
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "conv-2:2",
+          "tool_name": "run_command",
+          "tool_detail": "$ echo probe-ok",
+          "tool_status": "error",
+          "tool_duration_ms": 37,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "permission check failed: user denied permission",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-2",
+              "step_index": 2,
+              "state": "ERROR",
+              "step_type": "tool",
+              "tool_name": "run_command",
+              "duration_seconds": 0.036907,
+              "tool_info": {
+                "name": "run_command",
+                "parameters": {
+                  "CommandLine": "echo probe-ok"
+                },
+                "error": {
+                  "type": "TOOL_ERROR",
+                  "message": "permission check failed: user denied permission"
+                }
+              }
+            }
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": 1,
+          "session_id": "conv-2",
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "result",
+            "result": {
+              "conversation_id": "conv-2",
+              "status": "SUCCESS",
+              "response": "",
+              "num_turns": 1,
+              "denied_actions": [
+                {
+                  "action": "command",
+                  "display_name": "RunCommand"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "subagents",
+      "lines": [
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-3",
+            "step_index": 1,
+            "state": "ACTIVE",
+            "step_type": "tool",
+            "tool_name": "invoke_subagent",
+            "tool_info": {
+              "name": "invoke_subagent",
+              "parameters": {}
+            },
+            "subagent_info": {
+              "subagents": [
+                {
+                  "type_name": "research",
+                  "role": "web researcher"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "conversation_id": "conv-3",
+            "step_index": 2,
+            "state": "ACTIVE",
+            "step_type": "tool",
+            "tool_name": "browser_subagent",
+            "tool_info": {
+              "name": "browser_subagent",
+              "parameters": {
+                "Url": "https://example.com"
+              }
+            }
+          }
+        }
+      ],
+      "events": [
+        {
+          "event_type": "tool_start",
+          "tool_id": "conv-3:1",
+          "tool_name": "invoke_subagent",
+          "tool_detail": null,
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-3",
+              "step_index": 1,
+              "state": "ACTIVE",
+              "step_type": "tool",
+              "tool_name": "invoke_subagent",
+              "tool_info": {
+                "name": "invoke_subagent",
+                "parameters": {}
+              },
+              "subagent_info": {
+                "subagents": [
+                  {
+                    "type_name": "research",
+                    "role": "web researcher"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "event_type": "subagent",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Subagent: web researcher",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-3",
+              "step_index": 1,
+              "state": "ACTIVE",
+              "step_type": "tool",
+              "tool_name": "invoke_subagent",
+              "tool_info": {
+                "name": "invoke_subagent",
+                "parameters": {}
+              },
+              "subagent_info": {
+                "subagents": [
+                  {
+                    "type_name": "research",
+                    "role": "web researcher"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "conv-3:2",
+          "tool_name": "browser_subagent",
+          "tool_detail": "https://example.com",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-3",
+              "step_index": 2,
+              "state": "ACTIVE",
+              "step_type": "tool",
+              "tool_name": "browser_subagent",
+              "tool_info": {
+                "name": "browser_subagent",
+                "parameters": {
+                  "Url": "https://example.com"
+                }
+              }
+            }
+          }
+        },
+        {
+          "event_type": "subagent",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": "Subagent: https://example.com",
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "conversation_id": "conv-3",
+              "step_index": 2,
+              "state": "ACTIVE",
+              "step_type": "tool",
+              "tool_name": "browser_subagent",
+              "tool_info": {
+                "name": "browser_subagent",
+                "parameters": {
+                  "Url": "https://example.com"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "errors-and-unknowns",
+      "lines": [
+        {
+          "event": "result",
+          "result": {
+            "conversation_id": "",
+            "status": "ERROR",
+            "response": "",
+            "error": "invalid model selection (--model \"nope\")",
+            "duration_seconds": 0,
+            "num_turns": 0
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "status": "ERROR",
+            "error": "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h39m52s."
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "status": "CANCELLED"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "step_index": 6,
+            "state": "DONE",
+            "step_type": "error_message",
+            "error": {
+              "message": "Agent execution terminated due to error."
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "step_index": 7,
+            "state": "ERROR",
+            "step_type": "agent_response",
+            "error": "RESOURCE_EXHAUSTED: quota reached"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "step_index": 8,
+            "state": "ERROR",
+            "step_type": "planner"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "step_index": 9,
+            "state": "DONE",
+            "step_type": "tool",
+            "tool_name": "write_to_file",
+            "tool_info": {
+              "parameters": {
+                "TargetFile": "/repo/out.txt"
+              }
+            }
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "state": "ACTIVE",
+            "step_type": "tool"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": {
+            "step_type": "future_step"
+          }
+        },
+        {
+          "event": "step_update",
+          "step_update": "not-an-object"
+        },
+        {
+          "event": "result",
+          "result": null
+        },
+        {
+          "event": "future_event"
+        },
+        {
+          "blob": 1
+        }
+      ],
+      "events": [
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": 0,
+          "exit_code": null,
+          "num_turns": 0,
+          "session_id": null,
+          "token_usage": null,
+          "error": "invalid model selection (--model \"nope\")",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "result",
+            "result": {
+              "conversation_id": "",
+              "status": "ERROR",
+              "response": "",
+              "error": "invalid model selection (--model \"nope\")",
+              "duration_seconds": 0,
+              "num_turns": 0
+            }
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h39m52s.",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "result",
+            "result": {
+              "status": "ERROR",
+              "error": "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h39m52s."
+            }
+          }
+        },
+        {
+          "event_type": "rate_limit",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h39m52s.",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": "rate_limit",
+          "idle_seconds": null,
+          "raw": {
+            "event": "result",
+            "result": {
+              "status": "ERROR",
+              "error": "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h39m52s."
+            }
+          }
+        },
+        {
+          "event_type": "result",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "antigravity reported status CANCELLED",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "result",
+            "result": {
+              "status": "CANCELLED"
+            }
+          }
+        },
+        {
+          "event_type": "error",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "Agent execution terminated due to error.",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": "error",
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "step_index": 6,
+              "state": "DONE",
+              "step_type": "error_message",
+              "error": {
+                "message": "Agent execution terminated due to error."
+              }
+            }
+          }
+        },
+        {
+          "event_type": "rate_limit",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "RESOURCE_EXHAUSTED: quota reached",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": "rate_limit",
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "step_index": 7,
+              "state": "ERROR",
+              "step_type": "agent_response",
+              "error": "RESOURCE_EXHAUSTED: quota reached"
+            }
+          }
+        },
+        {
+          "event_type": "error",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": null,
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": "antigravity step failed",
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": "error",
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "step_index": 8,
+              "state": "ERROR",
+              "step_type": "planner"
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": "step:9",
+          "tool_name": "write_to_file",
+          "tool_detail": "/repo/out.txt",
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "step_index": 9,
+              "state": "DONE",
+              "step_type": "tool",
+              "tool_name": "write_to_file",
+              "tool_info": {
+                "parameters": {
+                  "TargetFile": "/repo/out.txt"
+                }
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_done",
+          "tool_id": "step:9",
+          "tool_name": "write_to_file",
+          "tool_detail": "/repo/out.txt",
+          "tool_status": "done",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "step_index": 9,
+              "state": "DONE",
+              "step_type": "tool",
+              "tool_name": "write_to_file",
+              "tool_info": {
+                "parameters": {
+                  "TargetFile": "/repo/out.txt"
+                }
+              }
+            }
+          }
+        },
+        {
+          "event_type": "tool_start",
+          "tool_id": null,
+          "tool_name": null,
+          "tool_detail": null,
+          "tool_status": "running",
+          "tool_duration_ms": null,
+          "text_preview": null,
+          "text_full": null,
+          "cost_usd": null,
+          "duration_ms": null,
+          "exit_code": null,
+          "num_turns": null,
+          "session_id": null,
+          "token_usage": null,
+          "error": null,
+          "retry_attempt": null,
+          "retry_max": null,
+          "retry_delay_ms": null,
+          "error_category": null,
+          "idle_seconds": null,
+          "raw": {
+            "event": "step_update",
+            "step_update": {
+              "state": "ACTIVE",
+              "step_type": "tool"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

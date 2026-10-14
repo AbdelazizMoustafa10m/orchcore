@@ -70,7 +70,7 @@ orchcore orchestrates external agent CLIs as subprocesses. You need at least one
 |-------|---------|------|
 | Claude Code | `npm install -g @anthropic-ai/claude-code` | [claude.ai/code](https://claude.ai/code) |
 | Codex | `npm install -g @openai/codex` | [OpenAI Codex](https://developers.openai.com/codex/cli) |
-| Gemini CLI | `npm install -g @google/gemini-cli` | [Gemini CLI](https://geminicli.com/docs/) |
+| Antigravity CLI (`agy`) | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` | [Antigravity CLI](https://antigravity.google/docs/cli/install) |
 
 orchcore itself does not handle agent authentication — each agent CLI manages its own login or API-key flow. By default, orchcore launches agent subprocesses with a filtered environment, so inherited provider variables such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY` may be omitted unless you passlist them with `env_passlist`, use `env_policy = "inherit"`, or supply explicit values through `env_vars`.
 

@@ -99,24 +99,82 @@ CANONICAL_SESSIONS: dict[str, list[dict[str, object]]] = {
         {"type": "text", "part": {"text": "OpenCode response text"}},
         {"type": "step_finish"},
     ],
-    "gemini": [
+    "antigravity": [
         {
-            "functionCall": {
-                "name": "web_search_exa",
-                "args": {"query": "planora tests"},
-            }
+            "event": "init",
+            "conversation_id": "conv-1",
+            "init": {"model": "gemini-3.8-flash-low", "permission_mode": "request-review"},
         },
         {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [
-                            {"text": "Gemini response text"},
-                        ]
-                    }
-                }
-            ],
-            "usageMetadata": {"promptTokenCount": 12, "candidatesTokenCount": 34},
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-1",
+                "step_index": 0,
+                "state": "DONE",
+                "step_type": "user_input",
+            },
+        },
+        {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-1",
+                "step_index": 1,
+                "state": "ACTIVE",
+                "step_type": "tool",
+                "tool_name": "view_file",
+                "tool_info": {
+                    "name": "view_file",
+                    "parameters": {"AbsolutePath": "/repo/README.md"},
+                },
+            },
+        },
+        {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-1",
+                "step_index": 1,
+                "state": "DONE",
+                "step_type": "tool",
+                "tool_name": "view_file",
+                "duration_seconds": 0.12,
+                "tool_info": {
+                    "name": "view_file",
+                    "parameters": {"AbsolutePath": "/repo/README.md"},
+                    "output": "12 lines, 340 bytes",
+                },
+            },
+        },
+        {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-1",
+                "step_index": 2,
+                "state": "ACTIVE",
+                "step_type": "agent_response",
+                "text_delta": "Antigravity response",
+            },
+        },
+        {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-1",
+                "step_index": 2,
+                "state": "DONE",
+                "step_type": "agent_response",
+                "text_delta": " text",
+                "duration_seconds": 2.06,
+            },
+        },
+        {
+            "event": "result",
+            "result": {
+                "conversation_id": "conv-1",
+                "status": "SUCCESS",
+                "response": "Antigravity response text",
+                "duration_seconds": 5.77,
+                "num_turns": 1,
+                "usage": {"input_tokens": 120, "output_tokens": 34, "total_tokens": 154},
+            },
         },
     ],
 }
@@ -128,12 +186,12 @@ EXPECTED_CANONICAL_TEXT: dict[str, str] = {
     "codex": "Codex summary",
     "copilot": "Copilot response text",
     "opencode": "OpenCode response text",
-    "gemini": "Gemini response text",
+    "antigravity": "Antigravity response text",
 }
 
 # -- Scenario "error" (WP-15 regression net): formats whose wire format can
-# express a terminal error end with it and exit 0. Copilot and Gemini have no
-# terminal error frame; their mock prints STDERR_ERROR_TEXT and exits 1. --
+# express a terminal error end with it and exit 0. Copilot has no terminal
+# error frame; its mock prints STDERR_ERROR_TEXT and exits 1. --
 
 STREAM_ERROR_SESSIONS: dict[str, list[dict[str, object]]] = {
     "claude": [
@@ -157,6 +215,27 @@ STREAM_ERROR_SESSIONS: dict[str, list[dict[str, object]]] = {
         {"type": "text", "part": {"text": "partial output"}},
         {"type": "step_finish", "error": "mock structured failure"},
     ],
+    "antigravity": [
+        {"event": "init", "conversation_id": "conv-err", "init": {}},
+        {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-err",
+                "step_index": 1,
+                "state": "ACTIVE",
+                "step_type": "agent_response",
+                "text_delta": "partial output",
+            },
+        },
+        {
+            "event": "result",
+            "result": {
+                "conversation_id": "conv-err",
+                "status": "ERROR",
+                "error": "mock structured failure",
+            },
+        },
+    ],
 }
 
 STDERR_ERROR_TEXT = "mock agent failure: simulated crash"
@@ -175,10 +254,18 @@ RATE_LIMIT_SESSIONS: dict[str, list[dict[str, object]]] = {
         {"type": "thread.started"},
         {"type": "error", "code": "rate_limit_exceeded", "retry_after_ms": 5000},
     ],
-    "gemini": [
+    "antigravity": [
+        {"event": "init", "conversation_id": "conv-rl", "init": {}},
         {
-            "error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota"},
-            "retry_after_ms": 60000,
+            "event": "result",
+            "result": {
+                "conversation_id": "conv-rl",
+                "status": "ERROR",
+                "error": (
+                    "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Individual quota "
+                    "reached. Resets in 1m0s."
+                ),
+            },
         },
     ],
 }
@@ -188,4 +275,4 @@ STDERR_RATE_LIMIT_TEXT = "429 rate limit exceeded, try again in 60 seconds"
 # Content the mock agent writes when invoked with -o (DIRECT_FILE strategy).
 DIRECT_FILE_CONTENT = "Codex direct output\n"
 
-ALL_FORMATS: tuple[str, ...] = ("claude", "codex", "copilot", "opencode", "gemini")
+ALL_FORMATS: tuple[str, ...] = ("claude", "codex", "copilot", "opencode", "antigravity")

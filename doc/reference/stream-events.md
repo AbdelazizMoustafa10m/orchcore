@@ -11,7 +11,7 @@ Identifies the JSONL output format of an agent CLI.
 | `claude` | Claude Code |
 | `codex` | Codex |
 | `opencode` | OpenCode |
-| `gemini` | Gemini CLI |
+| `antigravity` | Antigravity CLI (`agy`) |
 | `copilot` | Copilot CLI |
 
 ```python

@@ -91,7 +91,7 @@ def _patch_watch_timing(
                 ),
                 StreamEvent(
                     event_type=StreamEventType.HEARTBEAT,
-                    text_preview="Gemini processing (line 10)",
+                    text_preview="Agent processing (line 10)",
                 ),
                 StreamEvent(
                     event_type=StreamEventType.TOOL_DONE,

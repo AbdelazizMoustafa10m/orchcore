@@ -44,7 +44,7 @@ jq_expression = ".content[0].text"
 | `binary` | `str` | Yes | Path or name of the agent CLI executable |
 | `model` | `str` | Yes | Model identifier passed to the agent |
 | `subcommand` | `str` | Yes | Agent CLI argument used before the prompt (for example, `"-p"` for Claude or `"exec"` for Codex). An empty string is omitted from the command — it never becomes a literal `''` argument. |
-| `stream_format` | `str` | Yes | JSONL format: `claude`, `codex`, `opencode`, `gemini`, `copilot` |
+| `stream_format` | `str` | Yes | JSONL format: `claude`, `codex`, `opencode`, `antigravity`, `copilot` |
 | `prompt_via` | `"argv" \| "stdin"` | No | How the prompt reaches the CLI (default: `argv`). `stdin` keeps the prompt out of argv and pipes it to the child's stdin. |
 | `stdin_sentinel` | `str \| None` | No | Argv placeholder appended instead of the prompt under `prompt_via = "stdin"` (for example, `"-"` for `codex exec -`). |
 | `stall_timeout` | `float` | No | Seconds before stall detection (default: 300) |
@@ -167,6 +167,7 @@ Per-CLI stdin support:
 |-----|---------------|-------|
 | Claude Code | `subcommand = "-p"`, `prompt_via = "stdin"` | `-p` accepts the prompt from piped stdin; capped at 10 MB as of v2.1.128 — reference files in the prompt for larger contexts. |
 | Codex CLI | `subcommand = "exec"`, `prompt_via = "stdin"`, `stdin_sentinel = "-"` | `codex exec -` reads the full prompt from stdin; the `-` placeholder must be the prompt argument. |
+| Antigravity CLI | `subcommand = "-p"`, keep `prompt_via = "argv"` | `-p` takes the prompt as its value and does not read stdin (`-p -` is sent as a literal `-`). |
 | Others | keep `prompt_via = "argv"` | Use argv until stdin support is verified for the specific CLI. |
 
 orchcore drives non-interactive CLI modes only: CLIs that expect stdin to stay open for interaction are out of scope — stdin is closed after the prompt is written.
@@ -215,19 +216,31 @@ fix = []
 [agents.codex.output_extraction]
 strategy = "stdout_capture"
 
-[agents.gemini]
-binary = "gemini"
-model = "gemini-2.5-pro"
+[agents.antigravity]
+binary = "agy"
+model = "gemini-3.8-flash-high"  # `agy models` lists the slugs your plan offers
 subcommand = "-p"
-stream_format = "gemini"
+stream_format = "antigravity"
+# Keep the CLI from updating itself between pipeline runs.
+env_vars = { AGY_CLI_DISABLE_AUTO_UPDATE = "true" }
 
-[agents.gemini.flags]
-plan = []
+# A ToolSet adds `--output-format stream-json` and maps its permission to
+# `--mode accept-edits` (workspace-write) or `--dangerously-skip-permissions`
+# (full-access). Without a ToolSet, put `--output-format stream-json` here.
+[agents.antigravity.flags]
+plan = ["--effort", "high"]
 fix = []
 
-[agents.gemini.output_extraction]
-strategy = "stdout_capture"
+[agents.antigravity.output_extraction]
+strategy = "jq_filter"
 ```
+
+Antigravity runs headless with `agy -p <prompt>`. In its default mode it asks
+before edits and commands; a headless run cannot ask, so it denies those tools
+and still exits 0 with `status: SUCCESS`. orchcore marks each denied tool step
+`tool_status="error"` and logs the result's `denied_actions` at INFO. Tool
+allowlists live in the CLI's `settings.json` (`permissions.allow`), so
+`ToolSet.internal` is not translated into flags.
 
 ## Runtime Usage
 
@@ -281,10 +294,10 @@ registry.register(config)
 
 ```python
 # List all registered agents
-registry.list_agents()  # ["claude", "codex", "gemini"]
+registry.list_agents()  # ["claude", "codex", "antigravity"]
 
 # List agents whose binary is on PATH
-registry.available()  # ["claude", "codex"]  (gemini not installed)
+registry.available()  # ["claude", "codex"]  (agy not installed)
 
 # Validate a list of agent names
 missing = registry.validate(["claude", "codex", "unknown"])
