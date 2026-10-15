@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -30,6 +31,9 @@ from tests.fixtures.sessions import (
     STDERR_ERROR_TEXT,
     STDERR_RATE_LIMIT_TEXT,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 MOCK_AGENT = Path(__file__).resolve().parents[1] / "fixtures" / "mock_agent.py"
 
@@ -78,13 +82,15 @@ def _mock_agent(
     stream_format: StreamFormat,
     scenario: str,
     strategy: OutputExtraction.Strategy,
+    *,
+    extra_args: Sequence[str] = (),
 ) -> AgentConfig:
     return AgentConfig(
         name=f"mock-{stream_format.value}",
         binary=sys.executable,
         subcommand=str(MOCK_AGENT),
         model="mock-model",
-        flags={"plan": ["--format", stream_format.value, "--scenario", scenario]},
+        flags={"plan": ["--format", stream_format.value, "--scenario", scenario, *extra_args]},
         stream_format=stream_format,
         output_extraction=OutputExtraction(strategy=strategy),
         # The advisory version check has dedicated runner tests; keep the
@@ -153,6 +159,43 @@ async def test_ok_scenario_direct_file_extraction(tmp_path: Path) -> None:
     assert not result.output_empty
     assert (tmp_path / "output.md").read_text(encoding="utf-8") == DIRECT_FILE_CONTENT
     assert [event.event_type for event in events] == EXPECTED_OK_EVENT_TYPES[StreamFormat.CODEX]
+
+
+@pytest.mark.asyncio
+async def test_ok_scenario_survives_pause_longer_than_stall_check_interval(
+    tmp_path: Path,
+) -> None:
+    """A silence longer than ``stall_check_interval`` must not end the event stream.
+
+    Regression: the stall detector cancelled its pending read whenever the
+    polling window elapsed, which closed the upstream generators. Every event
+    after the first quiet window, including the terminal RESULT with its cost,
+    was lost, and the ``.stream`` archive stopped at the first line.
+    """
+    agent = _mock_agent(
+        StreamFormat.CLAUDE,
+        "ok",
+        OutputExtraction.Strategy.JQ_FILTER,
+        extra_args=["--pause-after-first", "0.5"],
+    )
+    events: list[StreamEvent] = []
+
+    result = await AgentRunner().run(
+        agent,
+        "run integration matrix",
+        tmp_path / "output.md",
+        flag_profile="plan",
+        on_event=events.append,
+        stall_check_interval=0.1,
+    )
+
+    assert [event.event_type for event in events] == EXPECTED_OK_EVENT_TYPES[StreamFormat.CLAUDE]
+    assert result.exit_code == 0
+    assert result.error is None
+    assert str(result.cost_usd) == "0.0123"
+    assert (tmp_path / "output.md").read_text(encoding="utf-8") == EXPECTED_CANONICAL_TEXT["claude"]
+    stream_lines = (tmp_path / "output.stream").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in stream_lines] == CANONICAL_SESSIONS["claude"]
 
 
 @pytest.mark.asyncio

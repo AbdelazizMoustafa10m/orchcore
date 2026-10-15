@@ -99,32 +99,47 @@ class StallDetector:
         yields synthetic ``STALL`` events inline when silence crosses the active
         timeout.
 
-        Uses ``asyncio.wait_for()`` with ``check_interval`` as the polling
-        window. When no event arrives within that window, idle time is measured
-        against ``_current_timeout()``. A synthetic ``STALL`` event is yielded
-        once per stall period; the flag resets when a real event arrives.
+        Keeps a single upstream read in flight as a task and waits on it with
+        ``asyncio.wait()``, using ``check_interval`` as the polling window.
+        ``asyncio.wait()`` leaves the task running when the window elapses; a
+        timeout that cancelled the pending ``__anext__()`` (as
+        ``asyncio.wait_for()`` does) would throw ``CancelledError`` into the
+        upstream async generators and end the stream. A new read starts only
+        after the previous one completes. When no event arrives within the
+        window, idle time is measured against ``_current_timeout()``. A
+        synthetic ``STALL`` event is yielded once per stall period; the flag
+        resets when a real event arrives. Closing or cancelling ``watch()``
+        cancels the pending read.
         """
         aiter_obj = events.__aiter__()
         last_event_at = time.monotonic()
         stall_injected = False
+        pending: asyncio.Task[StreamEvent | _StreamExhausted] | None = None
 
-        while True:
-            try:
-                result = await asyncio.wait_for(
-                    _next_or_sentinel(aiter_obj),
-                    timeout=self._check_interval,
-                )
-            except TimeoutError:
-                idle = time.monotonic() - last_event_at
-                if idle >= self._current_timeout() and not stall_injected:
-                    stall_injected = True
-                    yield StreamEvent(event_type=StreamEventType.STALL, idle_seconds=idle)
-                continue
+        try:
+            while True:
+                if pending is None:
+                    pending = asyncio.create_task(_next_or_sentinel(aiter_obj))
+                await asyncio.wait({pending}, timeout=self._check_interval)
+                if not pending.done():
+                    idle = time.monotonic() - last_event_at
+                    if idle >= self._current_timeout() and not stall_injected:
+                        stall_injected = True
+                        yield StreamEvent(event_type=StreamEventType.STALL, idle_seconds=idle)
+                    continue
 
-            if isinstance(result, _StreamExhausted):
-                break
+                result = pending.result()
+                pending = None
+                if isinstance(result, _StreamExhausted):
+                    break
 
-            last_event_at = time.monotonic()
-            stall_injected = False
-            self._track_tool(result)
-            yield result
+                last_event_at = time.monotonic()
+                stall_injected = False
+                self._track_tool(result)
+                yield result
+        finally:
+            if pending is not None:
+                # Also retrieves the exception of a read that failed while the
+                # consumer was away, so it is not reported as never retrieved.
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)

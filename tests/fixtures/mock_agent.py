@@ -6,10 +6,11 @@ Invoked by AgentRunner exactly like a real agent CLI::
     python mock_agent.py PROMPT --model M --format claude --scenario ok [-o FILE]
 
 ``--format`` selects the canonical session from tests/fixtures/sessions.py;
-``--scenario`` selects ok / error / rate-limit behavior. Stream lines are
-written via ``sys.stdout.buffer`` so Windows never CRLF-translates the JSONL.
-The prompt and ``--model`` arguments the runner appends are accepted and
-ignored.
+``--scenario`` selects ok / error / rate-limit behavior. ``--pause-after-first
+SECONDS`` makes the ok scenario go silent for that long after its first stream
+line. Stream lines are written via ``sys.stdout.buffer`` so Windows never
+CRLF-translates the JSONL. The prompt and ``--model`` arguments the runner
+appends are accepted and ignored.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -41,12 +43,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--format", required=True, choices=sorted(CANONICAL_SESSIONS))
     parser.add_argument("--scenario", default="ok", choices=["ok", "error", "rate-limit"])
+    parser.add_argument("--pause-after-first", type=float, default=0.0)
     parser.add_argument("-o", "--output", default=None)
     # The runner appends the prompt and --model; accept and ignore them.
     args, _extras = parser.parse_known_args()
 
     if args.scenario == "ok":
-        _emit(CANONICAL_SESSIONS[args.format])
+        session = CANONICAL_SESSIONS[args.format]
+        _emit(session[:1])
+        time.sleep(args.pause_after_first)
+        _emit(session[1:])
         if args.output is not None:
             Path(args.output).write_text(DIRECT_FILE_CONTENT, encoding="utf-8")
         return 0
