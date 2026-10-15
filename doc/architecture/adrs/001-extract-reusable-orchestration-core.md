@@ -37,7 +37,7 @@ Four production AI agent orchestration systems exist: Planora (Python CLI/TUI fo
 
 Each system independently implements subprocess launching for agent CLIs, JSONL stream parsing, rate-limit detection and recovery, workspace management, configuration handling, and signal-based shutdown. Bug fixes discovered in one system (such as a new rate-limit detection pattern for Claude CLI, or a timezone parsing fix for reset times) must be manually ported to the other three systems. New agent CLI support (e.g., when Gemini CLI launched) requires implementing a stream parser in each system separately.
 
-New agent CLIs keep appearing, and each one means N implementations across N systems. Without a shared library, the maintenance burden scales linearly with both the number of orchestration systems and the number of supported agents.
+The AI agent CLI ecosystem is expanding rapidly. Each new agent CLI means N implementations across N systems. Without a shared library, the maintenance burden scales linearly with both the number of orchestration systems and the number of supported agents.
 
 ### Business Context
 
@@ -69,7 +69,7 @@ New agent CLIs keep appearing, and each one means N implementations across N sys
 - New orchestration projects start with a tested, documented foundation
 - Bug fixes and improvements benefit all consumers immediately via version bumps
 - Type-safe Python with mypy strict mode catches errors at development time
-- Standard Python packaging (PyPI, pip) handles distribution
+- Standard Python packaging (PyPI, pip) makes distribution trivial
 - Each component is independently usable: no all-or-nothing dependency
 
 **Cons:**

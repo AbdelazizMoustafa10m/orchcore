@@ -44,7 +44,7 @@ The fundamental problem is: **agent modes are an intrinsic property of the agent
 
 ### Business Context
 
-- MCP server adoption is growing: tools like Tavily, Exa, and custom internal servers are becoming standard in AI workflows
+- MCP server adoption is growing rapidly: tools like Tavily, Exa, and custom internal servers are becoming standard in AI workflows
 - Security-conscious teams require enforceable tool restrictions: read-only phases must not have write tools, regardless of what the agent supports
 - Pipeline definitions should be self-documenting: looking at a phase's TOML configuration should show exactly which tools are available
 - Different consuming projects need different tool configurations for the same agents: Planora might restrict Claude to read-only in audit phases, while Raven gives Claude full access in implementation phases

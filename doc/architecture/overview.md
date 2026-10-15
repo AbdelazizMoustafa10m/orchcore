@@ -223,7 +223,7 @@ See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-a
 ## Constraints
 
 - Python 3.12 or later, for `tomllib`, modern type syntax, and current asyncio APIs.
-- asyncio only: no trio, gevent, or threading.
+- asyncio only, with no trio or gevent. Blocking file operations run in worker threads through `asyncio.to_thread()`.
 - Four core dependencies: pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1, and tzdata >= 2024.1.
 - orchcore handles no agent API keys; each agent CLI manages its own authentication.
 - Signal handling uses event-loop handlers where available and falls back to classic `signal.signal()` handlers on Windows.

@@ -24,13 +24,13 @@ orchcore is an async-first Python library for launching, monitoring, and managin
 
 - Launches agent CLIs as async subprocesses, captures their output streams, and limits how many run at once.
 - Normalizes five JSONL output formats into one `StreamEvent` model through a four-stage stream pipeline (filter, parse, monitor, stall detection).
-- Runs phases sequentially or in parallel, in dependency order, with resume, skip, and single-phase options.
+- Runs phases in dependency order, with each phase's agents running sequentially or in parallel, and supports resume, skip, and single-phase options.
 - Detects rate limits, parses reset times (including named time zones), and retries after a backoff wait.
 - Layers settings from TOML files, `.env` and environment variables, constructor arguments, and named profiles.
 - Separates the engine from presentation through the `UICallback` protocol, so the consuming project chooses Rich, Textual, or headless output.
 - Defines agents as data: a new agent CLI that uses a supported stream format needs only a TOML entry.
 - On SIGINT or SIGTERM, terminates agent process trees and force-kills them after a 30-second grace period. With a workspace attached, completed phases are saved for resume.
-- Starts agent subprocesses with a filtered environment by default and an explicit working directory. Git recovery runs only when a phase opts in.
+- Starts agent subprocesses with a filtered environment by default and in an explicit working directory when one is given (`cwd`). Git recovery runs only when a phase opts in.
 
 ## Installation
 
@@ -152,7 +152,7 @@ The full documentation is published on the [orchcore documentation site](https:/
 | [Stream Events Reference](doc/reference/stream-events.md) | StreamEvent fields, types, agent states |
 | [UICallback Reference](doc/reference/ui-callback.md) | Protocol methods and built-in implementations |
 | [Architecture](doc/architecture/overview.md) | Package layout, core abstractions, design decisions |
-| [Stream Pipeline](doc/architecture/stream-pipeline.md) | 4-stage composable pipeline deep-dive |
+| [Stream Pipeline](doc/architecture/stream-pipeline.md) | How the four stream-processing stages work |
 | [Design Document](doc/architecture/design.md) | Problem statement, requirements, proposed design |
 | [Writing a UICallback](doc/guides/writing-a-uicallback.md) | Build custom display layers |
 | [Agent Registry](doc/guides/agent-registry.md) | TOML config, adding new agents, ToolSets |

@@ -73,7 +73,7 @@ policy = RetryPolicy(
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `max_retries` | `int` | `3` | Maximum rate-limit retries per agent |
-| `backoff_schedule` | `list[int]` | `[120, 300, 900, 1800]` | Wait times in seconds for each retry; the last entry repeats for later retries |
+| `backoff_schedule` | `tuple[int, ...]` | `(120, 300, 900, 1800)` | Wait times in seconds for each retry; the last entry repeats for later retries. Lists are accepted. |
 | `max_wait` | `int` | `21600` | Upper bound for a single wait, in seconds (6 hours) |
 | `failure_mode` | `FailureMode` | `FAIL_FAST` | How agent failures decide the phase status; overrides `Phase.failure_mode` |
 | `min_count` | `int` | `1` | Minimum successful agents for `REQUIRE_MINIMUM` mode |
@@ -91,7 +91,7 @@ With the default schedule and `max_retries=3`, the waits are:
 | 2nd | 5 minutes | 7 min |
 | 3rd | 15 minutes | 22 min |
 
-When the rate-limit message contains a reset time, that time is used instead of the schedule entry. Each wait gets 0-30 seconds of random jitter, so agents that hit the same limit do not all retry at the same moment, and is then capped at `max_wait`.
+If the rate-limit message yields a positive reset delay, that delay replaces the schedule entry; otherwise the schedule applies. Each wait gets 0-30 seconds of random jitter, so agents that hit the same limit do not all retry at the same moment. The result is then capped at `max_wait`.
 
 ## Failure Modes
 
@@ -132,6 +132,8 @@ phase = Phase(
 ### `REQUIRE_MINIMUM`
 
 At least `min_count` agents must succeed. Use it to run redundant agents when not all of them need to succeed. The phase is `done` if every agent succeeds, `partial` if at least `min_count` succeed, and `failed` otherwise.
+
+One exception: a sequential phase whose agents all succeed is `done` even if it has fewer agents than `min_count`, while a parallel phase reports `failed` in that case.
 
 ```python
 from orchcore.recovery import RetryPolicy, FailureMode

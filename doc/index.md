@@ -8,13 +8,13 @@ The library was extracted from four production orchestration systems, where an e
 
 - Launches agent CLIs as async subprocesses, captures their output streams, and limits how many run at once.
 - Normalizes five JSONL output formats into one `StreamEvent` model through a four-stage stream pipeline (filter, parse, monitor, stall detection).
-- Runs phases sequentially or in parallel, in dependency order, with resume, skip, and single-phase options.
+- Runs phases in dependency order, with each phase's agents running sequentially or in parallel, and supports resume, skip, and single-phase options.
 - Detects rate limits, parses reset times (including named time zones), and retries after a backoff wait.
 - Layers settings from TOML files, `.env` and environment variables, constructor arguments, and named profiles, built on pydantic-settings.
 - Separates the engine from presentation through the `UICallback` protocol, so the consuming project chooses Rich, Textual, or headless output.
 - Defines agents as data: a new agent CLI that uses a supported stream format needs only a TOML entry.
 - On SIGINT or SIGTERM, terminates agent process trees and force-kills them after a 30-second grace period. With a workspace attached, completed phases are saved for resume.
-- Starts agent subprocesses with a filtered environment by default and an explicit working directory. Git recovery runs only when a phase opts in.
+- Starts agent subprocesses with a filtered environment by default and in an explicit working directory when one is given (`cwd`). Git recovery runs only when a phase opts in.
 - Emits optional OpenTelemetry traces through `OrchcoreTelemetry`.
 
 ## Where to Start

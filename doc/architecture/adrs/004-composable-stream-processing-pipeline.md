@@ -137,7 +137,7 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 
 **Cons:**
 - Plugin discovery and registration adds complexity (entry points, importlib)
-- Overkill for 5 known formats: plugins pay off at scale (50+ formats), not at 5
+- Overkill for 5 known formats: plugins shine at scale (50+ formats), not at 5
 - Harder to type-check (plugins are loaded dynamically)
 - Testing requires mock plugin registration
 

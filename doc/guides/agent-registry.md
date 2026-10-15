@@ -58,8 +58,10 @@ jq_expression = ".content[0].text"
 | `incompatible_versions` | `list[table]` | No | Known-bad ranges, each `{ spec = "...", reason = "..." }` |
 | `flags.<profile>` | `list[str]` | No | Named flag profile: a consumer-defined name mapped to this agent's CLI flags (see [Flag Profiles](#flag-profiles)) |
 | `env_vars` | `dict` | No | Environment variables to set for the subprocess |
-| `output_extraction.strategy` | `str` | Yes | How to extract output: `jq_filter`, `direct_file`, `stdout_capture` |
-| `output_extraction.jq_expression` | `str` | No | jq expression for `jq_filter` strategy |
+| `output_extraction.strategy` | `str` | Yes | How to extract output: `jq_filter`, `direct_file`, `stdout_capture` (see [Output Extraction Strategies](#output-extraction-strategies)) |
+| `output_extraction.jq_expression` | `str` | No | Equivalent jq expression, kept for reference; orchcore does not evaluate it |
+| `output_extraction.strip_preamble` | `bool` | No | With `jq_filter`, remove the text before the first Markdown heading (default: `false`) |
+| `output_extraction.stderr_as_stream` | `bool` | No | The agent writes its JSONL stream to stderr; orchcore parses stderr and collects stdout separately (default: `false`) |
 
 ### Flag Profiles
 
@@ -107,9 +109,11 @@ phase = Phase(name="planning", agents=("claude",), flag_profile=Mode.PLAN)
 
 | Strategy | Description |
 |----------|-------------|
-| `jq_filter` | Extract text from JSONL using the `jq_expression`. orchcore evaluates the expression itself, so no `jq` binary is required. |
-| `direct_file` | Agent writes output to a file; orchcore reads it. |
-| `stdout_capture` | Capture the full stdout as output. |
+| `jq_filter` | Writes the text of the agent's `text` events, as extracted by the stream parser, to the output file. With `strip_preamble = true`, text before the first Markdown heading is removed. |
+| `direct_file` | Appends `-o <output_path>` to the command (the Codex output flag), and the agent writes the output file itself. |
+| `stdout_capture` | Writes the text of the agent's `text` events. With `stderr_as_stream = true`, writes the raw stdout instead. |
+
+The stream parser extracts text natively, so no `jq` binary is needed. `jq_expression` only documents the equivalent jq expression.
 
 ### Environment Policy
 
@@ -303,6 +307,8 @@ registry.available()  # ["claude", "codex"]  (agy not installed)
 missing = registry.validate(["claude", "codex", "unknown"])
 # Returns ["unknown"] — agents not registered or not on PATH
 ```
+
+<a id="toolset--phase-level-tool-configuration"></a>
 
 ## Phase-Level Tool Configuration (ToolSet)
 

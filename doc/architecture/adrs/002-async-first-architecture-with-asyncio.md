@@ -67,7 +67,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 - `asyncio.wait_for()` and `asyncio.timeout()` provide efficient timeout support
 - `asyncio.Event` and task cancellation enable clean signal handling
 - Single-threaded event loop avoids GIL contention and race conditions
-- Planora already uses asyncio, so its production patterns can be adopted directly
+- Planora already uses asyncio: battle-tested patterns can be directly adopted
 
 **Cons:**
 - All code in the call chain must be async: sync functions cannot easily call async functions
@@ -141,7 +141,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 - Process isolation prevents one agent's crash from affecting others
 
 **Cons:**
-- High overhead for I/O-bound work: one Python process per agent (agent CLIs are already separate processes)
+- Massive overhead for I/O-bound work: launching a Python process per agent (agent CLIs are already separate processes)
 - IPC between processes (pipes, queues) is more complex than in-process communication
 - No shared state without explicit synchronization primitives
 - Would launch a Python process that launches an agent CLI process: unnecessary process nesting

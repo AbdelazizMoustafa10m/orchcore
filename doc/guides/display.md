@@ -100,7 +100,13 @@ The ANSI color constants (`RED`, `CYAN`, `BOLD`, and so on) are defined in `orch
 
 ## Color Output
 
-Colors are emitted only when stderr is a terminal, so redirected logs contain no escape sequences. Setting `FORCE_COLOR` (to any non-empty value) turns colors on, and setting `NO_COLOR` (to any value) turns them off. `FORCE_COLOR` wins if both are set.
+orchcore decides once, when `orchcore.display` is first imported, whether to emit colors:
+
+1. If `FORCE_COLOR` is set to a non-empty value, colors are on.
+2. Otherwise, if `NO_COLOR` is set (to any value), colors are off.
+3. Otherwise, colors are on only when stderr is a terminal, so redirected logs contain no escape sequences.
+
+Set these variables before orchcore is imported; later changes have no effect.
 
 ## Related
 

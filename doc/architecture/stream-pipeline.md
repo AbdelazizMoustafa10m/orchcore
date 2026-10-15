@@ -109,7 +109,7 @@ for event in events:
 
 A tool counts as a deep tool if its name contains one of the patterns in `StallDetector.DEEP_TOOL_PATTERNS`, compared case-insensitively. The patterns include `deep_search`, `deep_research`, `web_search_exa`, `tavily_search`, and `tavily_crawl`. For example, `mcp__exa__deep_search_exa` matches `deep_search`. The deep timeout applies while any active tool matches.
 
-Every event from the agent resets the stall timer, so a `STALL` event always means continuous silence. The detector checks the timer every `check_interval` seconds (default 5) and emits at most one `STALL` event per silent period.
+Each event that reaches the detector resets the stall timer. Lines dropped by the filter, and lines that produce no event, do not reset it, so a `STALL` can be reported while the agent is still writing output that the filter drops (e.g., Codex text deltas). With `kill_on_stall = true`, such a stall terminates the agent. The detector checks the timer every `check_interval` seconds (default 5) and emits at most one `STALL` event per silent period.
 
 ```python
 from orchcore.stream import StallDetector

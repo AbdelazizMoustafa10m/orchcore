@@ -27,20 +27,19 @@ flow_control.request_skip()  # the next phase that would run is skipped instead
 
 ## Semantics
 
-- **Phase-boundary checkpoints.** Pause and skip take effect *between*
-  phases, never mid-phase: a phase that has started always runs to
-  completion. The checkpoint sits after the `only_phase`/resume/`skip_phases`
-  filters, so a pending skip applies to the next phase that would actually
-  execute.
-- **Skip is one-shot.** `request_skip()` skips exactly one phase and the flag
-  clears automatically; the result records the phase as `SKIPPED` with reason
+- Pause and skip take effect *between* phases, never mid-phase: a phase that
+  has started always runs to completion. The checkpoint sits after the
+  `only_phase`/resume/`skip_phases` filters, so a pending skip applies to the
+  next phase that would actually execute.
+- `request_skip()` skips exactly one phase, and the flag clears automatically.
+  The result records the phase as `SKIPPED` with reason
   `"Skipped via FlowControl"`.
-- **Success semantics.** A FlowControl skip counts as a *user-requested* skip
+- A FlowControl skip counts as a *user-requested* skip
   ([ADR-010](../architecture/adrs/010-topological-phase-ordering-and-success-semantics.md)):
   it does not fail the pipeline by itself. Skipping a required phase,
   however, leaves the phases that depend on it with unmet dependencies, and a
   required phase with unmet dependencies fails the pipeline and stops execution.
-- **Async-only safety.** `pause()`/`resume()` mutate an `asyncio.Event` and
+- `pause()` and `resume()` mutate an `asyncio.Event` and
   must be called from within the running event loop (from a coroutine or a
   callback scheduled on the loop). From worker threads, hand off with
   `loop.call_soon_threadsafe`.
