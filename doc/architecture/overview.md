@@ -6,15 +6,15 @@
 
 ## Executive Summary
 
-orchcore is a reusable Python package (>= 3.12, asyncio-first) that provides orchestration infrastructure for launching, monitoring, and managing multiple AI coding agent CLIs through phase-based pipelines. It is not an agent itself — it orchestrates external agent CLIs (Claude Code, Codex, Antigravity, Copilot, OpenCode) as subprocesses.
+orchcore is a Python package (3.12 or later, built on asyncio) for launching, monitoring, and managing AI coding agent CLIs in phase-based pipelines. It is not an agent: it runs external agent CLIs (Claude Code, Codex, Antigravity, Copilot, OpenCode) as subprocesses.
 
-The package was extracted by analyzing four production orchestration systems — Planora, Articles, Finvault, and Raven/Ralph — identifying the common infrastructure patterns (60-70% of code) that recurred across all four, and packaging them into a single reusable library. Domain-specific logic (prompt content, output interpretation, presentation) stays in each consuming project; orchcore provides the "how" of orchestration.
+The package was extracted from four production orchestration systems: Planora, Articles, Finvault, and Raven/Ralph. The infrastructure they shared, an estimated 60-70% of their orchestration code, moved into orchcore. Domain-specific logic (prompt content, output interpretation, presentation) stays in each consuming project.
 
 ## Key Architectural Decisions
 
-1. **Protocol-based UI decoupling** via `UICallback` so any project can plug its own CLI, TUI, or headless output ([ADR-003](adrs/003-protocol-based-ui-decoupling.md))
-2. **Composable four-stage stream processing pipeline** (Filter, Parse, Monitor, Stall Detect) that normalizes the wildly different JSONL formats across agent CLIs into a unified event model ([ADR-004](adrs/004-composable-stream-processing-pipeline.md))
-3. **Registry-as-data**, where agent configurations are defined via TOML/dict rather than hardcoded classes, making the system extensible without code changes ([ADR-007](adrs/007-registry-pattern-for-agent-management.md))
+1. The engine reports progress through the `UICallback` protocol, so each project supplies its own CLI, TUI, or headless output ([ADR-003](adrs/003-protocol-based-ui-decoupling.md)).
+2. A four-stage stream processing pipeline (Filter, Parse, Monitor, Stall Detect) normalizes the different JSONL formats of the agent CLIs into one event model ([ADR-004](adrs/004-composable-stream-processing-pipeline.md)).
+3. Agent configurations are data (TOML or dict) rather than classes, so a new agent CLI that uses a supported stream format needs no code changes ([ADR-007](adrs/007-registry-pattern-for-agent-management.md)).
 
 ## System Context (C4 Level 1)
 
@@ -60,26 +60,28 @@ C4Context
 src/orchcore/
 ├── stream/          # 4-stage JSONL processing pipeline
 │   ├── events.py    # StreamEvent, StreamFormat, AgentState models
-│   ├── filter.py    # StreamFilter — pre-parse noise reduction
-│   ├── parser.py    # StreamParser — format-specific JSONL → StreamEvent
-│   ├── monitor.py   # AgentMonitor — real-time state tracking
-│   └── stall.py     # StallDetector — timeout detection
+│   ├── filter.py    # StreamFilter: pre-parse noise reduction
+│   ├── parser.py    # StreamParser: dispatches each line to its format module
+│   ├── formats/     # one wire-format parser per agent CLI
+│   ├── monitor.py   # AgentMonitor: real-time state tracking
+│   └── stall.py     # StallDetector: timeout detection
 ├── pipeline/        # Phase orchestration engine
 │   ├── phase.py     # Phase, PhaseResult, PipelineResult models
-│   ├── engine.py    # PhaseRunner — per-phase execution
-│   ├── pipeline.py  # PipelineRunner — cross-phase coordination
-│   └── control.py   # Control flow utilities
+│   ├── engine.py    # PhaseRunner: per-phase execution
+│   ├── pipeline.py  # PipelineRunner: cross-phase coordination
+│   └── control.py   # FlowControl: pause, resume, skip
 ├── runner/          # Async subprocess management
 │   └── subprocess.py  # AgentRunner
 ├── registry/        # Agent configuration
 │   ├── agent.py     # AgentConfig, ToolSet models
-│   └── registry.py  # AgentRegistry — TOML/dict lookup
+│   ├── registry.py  # AgentRegistry: TOML/dict lookup
+│   └── versioning.py  # CLI version compatibility checks
 ├── config/          # Layered configuration
 │   ├── settings.py  # OrchcoreSettings, load_settings_with_profile
 │   └── schema.py    # AgentOverrideConfig
 ├── recovery/        # Rate-limit & error recovery
-│   ├── rate_limit.py  # RateLimitDetector, ResetTimeParser
-│   ├── retry.py     # RetryPolicy, FailureMode, BackoffStrategy
+│   ├── rate_limit.py  # RateLimitDetector, ResetTimeParser, BackoffStrategy
+│   ├── retry.py     # RetryPolicy, FailureMode
 │   └── git_recovery.py  # GitRecovery
 ├── workspace/       # Artifact lifecycle
 │   └── manager.py   # WorkspaceManager
@@ -132,11 +134,11 @@ src/orchcore/
 
 ### Pipeline Execution Model
 
-orchcore uses a two-level execution model:
+Execution has three levels:
 
-1. **PipelineRunner** — coordinates multiple phases in topological dependency order (dependencies first, declaration order preserved among independent phases — see [ADR-010](adrs/010-topological-phase-ordering-and-success-semantics.md)). Handles resume, skip, and only-phase options. A required phase whose dependencies are unmet fails the pipeline instead of silently counting as success.
-2. **PhaseRunner** — executes a single phase. Launches agents sequentially or in parallel via `AgentRunner`, enforces concurrency limits, and aggregates results.
-3. **AgentRunner** — launches each subprocess with an explicit command, filtered environment, optional working directory, stream parser, and process-tree shutdown policy.
+1. `PipelineRunner` runs the phases in topological dependency order: dependencies first, with declaration order kept among independent phases ([ADR-010](adrs/010-topological-phase-ordering-and-success-semantics.md)). It handles the resume, skip, and only-phase options. A required phase whose dependencies are unmet fails the pipeline instead of counting as a success.
+2. `PhaseRunner` executes a single phase. It launches the phase's agents sequentially or in parallel through `AgentRunner`, enforces the concurrency limit, and aggregates the results.
+3. `AgentRunner` launches each subprocess with an explicit command, a filtered environment, an optional working directory, and a stream parser, and terminates the whole process tree on shutdown.
 
 ```mermaid
 sequenceDiagram
@@ -171,18 +173,18 @@ sequenceDiagram
 
 ### Stream Processing Pipeline
 
-Every line of JSONL output passes through four composable stages:
+Every line of JSONL output passes through four stages:
 
-1. **StreamFilter** — fast-path string matching drops ~95% of noise before `json.loads()`
-2. **StreamParser** — format-specific parsers produce normalized `StreamEvent` instances
-3. **AgentMonitor** — 9-state machine tracks agent lifecycle, tools, cost, tokens
-4. **StallDetector** — injects synthetic `STALL` events after configurable timeout
+1. `StreamFilter` drops high-volume lines with plain string matching before `json.loads()` runs (an estimated 95% of lines in typical Claude output).
+2. `StreamParser` turns each remaining line into normalized `StreamEvent` instances, using one parser module per format.
+3. `AgentMonitor` tracks the agent's state (a nine-state machine), tools, cost, and tokens.
+4. `StallDetector` injects a synthetic `STALL` event when the agent is silent for longer than the timeout.
 
-See [Stream Pipeline](stream-pipeline.md) for the deep-dive.
+[Stream Pipeline](stream-pipeline.md) describes each stage.
 
 ### Tool Resolution Order
 
-Tools available to an agent within a phase are resolved via a layered lookup:
+For each agent in a phase, the effective ToolSet is the first one found in this order (from highest to lowest priority):
 
 ```
 Phase.agent_tools[agent]  >  explicit toolset  >  Phase.tools  >  none
@@ -199,14 +201,14 @@ See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-a
 
 | Principle | How It's Applied |
 |-----------|-----------------|
-| **Composability** | Each of 12 components usable independently |
-| **Extensibility** | New agents via TOML config alone (zero code changes) |
-| **Reliability** | Graceful degradation, configurable partial failure semantics |
-| **Performance** | < 5ms per event, < 100ms subprocess launch |
-| **Type Safety** | mypy strict with Pydantic validation at boundaries |
-| **Async-First** | Pure stdlib asyncio with explicit task creation, fail-fast waits, and gather-based result collection |
-| **Protocol-Based DI** | UICallback is a Protocol, not a base class |
-| **Registry-as-Data** | Agents defined via TOML/dict, not hardcoded classes |
+| Composability | Each of the 12 modules can be used on its own |
+| Extensibility | A new agent CLI with a supported stream format needs only TOML configuration |
+| Reliability | Configurable partial-failure semantics; optional integrations degrade to no-ops |
+| Performance | Design targets of < 5 ms per event and < 100 ms per subprocess launch |
+| Type Safety | mypy strict, with Pydantic validation at the public boundaries |
+| Async-First | Stdlib asyncio only, with explicit task creation, fail-fast waits, and gather-based result collection |
+| Protocol-Based DI | `UICallback` is a Protocol, not a base class |
+| Registry-as-Data | Agents are defined in TOML or dicts, not as classes |
 
 ## Quality Attributes
 
@@ -220,14 +222,14 @@ See [ADR-009: Tool assignment as phase-level concern](adrs/009-tool-assignment-a
 
 ## Constraints
 
-- **Python >= 3.12** — `tomllib`, modern type syntax, and current asyncio APIs
-- **asyncio only** — no trio, gevent, or threading
-- **Core deps** — pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1, tzdata >= 2024.1
-- **No agent API keys** — agents manage their own authentication
-- **Cross-platform signals** — event-loop handlers where available, classic signal fallback on Windows
+- Python 3.12 or later, for `tomllib`, modern type syntax, and current asyncio APIs.
+- asyncio only: no trio, gevent, or threading.
+- Four core dependencies: pydantic >= 2.10, pydantic-settings >= 2.7, jinja2 >= 3.1, and tzdata >= 2024.1.
+- orchcore handles no agent API keys; each agent CLI manages its own authentication.
+- Signal handling uses event-loop handlers where available and falls back to classic `signal.signal()` handlers on Windows.
 
 ## Related
 
-- [Design Document](design.md) — problem statement, requirements, proposed design
-- [Stream Pipeline](stream-pipeline.md) — 4-stage pipeline deep-dive
-- [Architecture Decision Records](adrs/) — all 10 ADRs
+- [Design Document](design.md): problem statement, requirements, and key interfaces
+- [Stream Pipeline](stream-pipeline.md): the four stream-processing stages
+- [Architecture Decision Records](../index.md#architecture-decision-records): the list of all 11 ADRs

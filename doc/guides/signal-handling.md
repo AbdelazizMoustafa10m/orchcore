@@ -1,15 +1,6 @@
 # Signal Handling
 
-orchcore's `SignalManager` traps SIGINT/SIGTERM and exposes a cooperative shutdown flag. It does not cancel tasks or terminate subprocesses itself — consumers check the flag and act accordingly.
-
-## Overview
-
-`SignalManager` handles:
-
-- **Shutdown flag** — first signal sets `shutdown_requested = True`; consumers poll it
-- **Forced exit** — second SIGINT raises `KeyboardInterrupt`
-- **SIGTERM support** — participates in graceful shutdown but never forces exit
-- **Signal restoration** — original handlers are restored on context exit
+`SignalManager` traps SIGINT and SIGTERM and exposes a cooperative shutdown flag. It does not cancel tasks or terminate subprocesses itself: your code checks the flag and decides what to stop. The first SIGINT or SIGTERM sets `shutdown_requested`, a second SIGINT raises `KeyboardInterrupt`, and SIGTERM never forces an exit (see [Signal Behavior](#signal-behavior)).
 
 ## Basic Usage
 
@@ -31,13 +22,13 @@ asyncio.run(main())
 
 ## Checking for Shutdown
 
-Use `shutdown_requested` or `check_shutdown()` to cooperatively respond to signals:
+Check for a requested shutdown with `check_shutdown()`, which raises an exception, or by reading `shutdown_requested`:
 
 ```python
 async def run_pipeline(signals: SignalManager) -> None:
     for phase in phases:
         # Poll before starting each phase
-        signals.check_shutdown()  # Raises CancelledError if signal received
+        signals.check_shutdown()  # Raises asyncio.CancelledError after a signal
         await run_phase(phase)
 ```
 
@@ -57,13 +48,13 @@ async def run_pipeline(signals: SignalManager) -> None:
 | SIGINT (Ctrl+C) | Sets `shutdown_requested = True` | Raises `KeyboardInterrupt` |
 | SIGTERM | Sets `shutdown_requested = True` | Sets `shutdown_requested = True` (no forced exit) |
 
-This two-tier design lets consumers decide how to handle graceful shutdown (save state, archive partial results, terminate subprocesses) before a forced exit occurs.
+Between the first signal and a forced exit, the application can save state, archive partial results, or terminate subprocesses.
 
 ## Relationship to PhaseRunner
 
-`PhaseRunner` installs its own SIGINT/SIGTERM handlers via `loop.add_signal_handler()` to terminate active subprocesses on the first signal and force-kill on the second. It does **not** use `SignalManager` — the two are independent implementations.
+`PhaseRunner` installs its own SIGINT and SIGTERM handlers with `loop.add_signal_handler()`. On the first signal it terminates the active agent subprocesses and calls `on_shutdown`. It force-kills any that are still running on the second signal or after a 30-second grace period. `PhaseRunner` does not use `SignalManager`; the two are independent.
 
-`SignalManager` is designed for consuming projects that need signal handling outside the pipeline execution scope (e.g., wrapping the entire application lifecycle, coordinating shutdown across multiple subsystems, or running custom cleanup before the pipeline even starts):
+Use `SignalManager` when your application needs a shutdown flag outside pipeline execution, e.g., to wrap the whole application lifecycle, to coordinate shutdown across several subsystems, or to run cleanup before the pipeline starts:
 
 ```python
 import asyncio
@@ -85,7 +76,7 @@ asyncio.run(main())
 
 ## Error Handling
 
-If no event loop is running when `SignalManager.__aenter__` is called (e.g., during testing), signal handlers are not installed and the context manager becomes a no-op. This avoids `RuntimeError` in non-async contexts.
+If no event loop is running when `SignalManager.__aenter__` is called (e.g., in some test setups), no handlers are installed and the context manager does nothing, instead of raising `RuntimeError`.
 
 On Windows and other event loops that do not implement `loop.add_signal_handler()`,
 `SignalManager` falls back to classic `signal.signal()` handlers and restores the
@@ -94,5 +85,5 @@ registered but is not generally delivered by Windows process signaling.
 
 ## Related
 
-- [Architecture Overview](../architecture/overview.md) — how signal handling fits into the broader system
-- [Recovery & Retry](recovery-and-retry.md) — how recovery interacts with graceful shutdown
+- [Architecture Overview](../architecture/overview.md): how the signals module fits with the other modules
+- [Recovery & Retry](recovery-and-retry.md): retries and git recovery, which stop when shutdown starts

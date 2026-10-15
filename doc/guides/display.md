@@ -1,14 +1,10 @@
 # Display Utilities
 
-orchcore's `display` module provides colored ANSI logging and formatting helpers for building terminal UIs. It uses only ANSI escape codes — no Rich or other dependencies.
-
-## Overview
-
-The display module is designed for consuming projects that want simple colored terminal output without pulling in a full TUI framework. It writes to stderr so it doesn't interfere with stdout-based output pipelines.
+The `display` module provides colored log functions and value formatters for terminal output. It uses plain ANSI escape codes and has no dependencies, so a consuming project can print colored status lines without installing Rich or a TUI framework. All output goes to stderr, which keeps stdout free for agent output that other tools may read.
 
 ## Logging Functions
 
-All log functions write to stderr with a UTC timestamp prefix:
+Each log function writes one line to stderr, prefixed with a UTC timestamp (`HH:MM:SS`):
 
 ```python
 from orchcore.display import log_info, log_success, log_warn, log_error, log_dim
@@ -31,7 +27,7 @@ Output looks like:
 
 ## Status Line
 
-`status_line()` writes an overwriting status line (using `\r`) for real-time progress display:
+`status_line()` writes a progress line that starts with a carriage return (`\r`), so each call overwrites the previous one:
 
 ```python
 from orchcore.display import status_line, clear_status_line
@@ -79,7 +75,7 @@ summary_box("Pipeline Complete", {
 
 ## Formatting Helpers
 
-The `formatting` submodule provides value formatters. These accept typed values, not raw primitives:
+The formatters take typed values (`timedelta`, `Decimal`, a token-count dict, a byte count) and return display strings. `format_duration()`, `format_cost()`, and `format_tokens()` return a placeholder for `None`:
 
 ```python
 from datetime import timedelta
@@ -100,16 +96,13 @@ format_file_size(2_500_000)                          # "2.4 MB"
 format_file_size(512)                                # "512 bytes"
 ```
 
-**Note:** The ANSI color constants (`RED`, `CYAN`, `BOLD`, etc.) are defined in `orchcore.display.logging` but are not part of the public API exported by `orchcore.display`. If you need them, import from the submodule directly: `from orchcore.display.logging import CYAN, NC`.
+The ANSI color constants (`RED`, `CYAN`, `BOLD`, and so on) are defined in `orchcore.display.logging` but are not exported by `orchcore.display`. Code that needs them imports them from the submodule: `from orchcore.display.logging import CYAN, NC`.
 
-## Design Notes
+## Color Output
 
-- All output goes to **stderr** — stdout remains clean for agent output piping
-- Timestamps are **UTC** — consistent across environments
-- Uses `\r` for status line overwrites — works in all standard terminals
-- No Rich, colorama, or other dependencies — pure ANSI escape codes
+Colors are emitted only when stderr is a terminal, so redirected logs contain no escape sequences. Setting `FORCE_COLOR` (to any non-empty value) turns colors on, and setting `NO_COLOR` (to any value) turns them off. `FORCE_COLOR` wins if both are set.
 
 ## Related
 
-- [Writing a UICallback](writing-a-uicallback.md) — building custom display layers
-- [Architecture Overview](../architecture/overview.md) — how display fits into the broader system
+- [Writing a UICallback](writing-a-uicallback.md): building a display layer on the `UICallback` protocol
+- [Architecture Overview](../architecture/overview.md): how the display module fits with the other modules

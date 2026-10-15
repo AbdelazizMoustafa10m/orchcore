@@ -1,6 +1,6 @@
 # Flow Control
 
-`FlowControl` lets an embedding application (for example a TUI) pause, resume,
+`FlowControl` lets an embedding application (e.g., a TUI) pause, resume,
 and skip phases of a running pipeline without cancelling it.
 
 ## Usage
@@ -38,8 +38,8 @@ flow_control.request_skip()  # the next phase that would run is skipped instead
 - **Success semantics.** A FlowControl skip counts as a *user-requested* skip
   ([ADR-010](../architecture/adrs/010-topological-phase-ordering-and-success-semantics.md)):
   it does not fail the pipeline by itself. Skipping a required phase,
-  however, leaves its dependents dependency-blocked — and a dependency-blocked
-  *required* phase fails the pipeline and stops execution.
+  however, leaves the phases that depend on it with unmet dependencies, and a
+  required phase with unmet dependencies fails the pipeline and stops execution.
 - **Async-only safety.** `pause()`/`resume()` mutate an `asyncio.Event` and
   must be called from within the running event loop (from a coroutine or a
   callback scheduled on the loop). From worker threads, hand off with
@@ -47,8 +47,9 @@ flow_control.request_skip()  # the next phase that would run is skipped instead
 
 ## Typed agent overrides
 
-Related runtime-tweaking surface: `AgentRegistry.with_overrides` accepts the
-typed `AgentOverrideConfig` (from `orchcore.config`) as well as plain dicts:
+To change agent settings between runs, `AgentRegistry.with_overrides()` returns
+a new registry with per-agent overrides applied. It accepts the typed
+`AgentOverrideConfig` (from `orchcore.config`) as well as plain dicts:
 
 ```python
 from orchcore.config import AgentOverrideConfig
@@ -63,5 +64,5 @@ agent's existing `env_vars` (override wins per key).
 
 ## Related
 
-- [ADR-010 — Topological ordering & success semantics](../architecture/adrs/010-topological-phase-ordering-and-success-semantics.md)
+- [ADR-010: Topological phase ordering and explicit success semantics](../architecture/adrs/010-topological-phase-ordering-and-success-semantics.md)
 - [Writing a UICallback](writing-a-uicallback.md)

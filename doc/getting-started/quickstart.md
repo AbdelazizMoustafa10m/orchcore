@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide walks you through defining agents, building phases, and running your first pipeline with orchcore.
+This guide defines two agents in TOML, builds a two-phase pipeline, and runs it. It assumes orchcore and at least one agent CLI are installed (see [Installation](installation.md)).
 
 ## 1. Define Your Agents (TOML)
 
@@ -43,13 +43,13 @@ fix = []
 strategy = "stdout_capture"
 ```
 
-Each `[agents.<name>]` section defines an agent's binary path, model, prompt-passing subcommand, named flag profiles, stream format for output parsing, and how to extract final output. The profile names under `[agents.<name>.flags]` (`plan`/`fix` here) are **your** project's workflow vocabulary, not an orchcore concept — see [Flag Profiles](../guides/agent-registry.md#flag-profiles).
+Each `[agents.<name>]` section defines the agent's binary, model, the subcommand that precedes the prompt, named flag profiles, the stream format used to parse its output, and how to extract the final output. The profile names under `[agents.<name>.flags]` (`plan` and `fix` here) belong to your project's workflow vocabulary; orchcore attaches no meaning to them (see [Flag Profiles](../guides/agent-registry.md#flag-profiles)).
 
-See the [Agent Registry guide](../guides/agent-registry.md) for all configuration options.
+The [Agent Registry guide](../guides/agent-registry.md) lists all configuration options.
 
 ## 2. Define Execution Phases
 
-Phases are the building blocks of a pipeline. Each phase specifies which agents to run, whether to run them sequentially or in parallel, and what tools they can access.
+A pipeline is a list of phases. Each phase specifies which agents run, whether they run sequentially or in parallel, and which tools they can use.
 
 ```python
 from orchcore.pipeline import Phase
@@ -85,7 +85,7 @@ execution = Phase(
 
 ## 3. Run the Pipeline
 
-Wire up the registry, runner, and pipeline engine:
+Load the registry, build the runner stack, and run the pipeline:
 
 ```python
 import asyncio
@@ -125,12 +125,12 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Every phase that has agents must have a prompt entry. For intentionally promptless
-phases, pass `allow_empty_prompts=True` to `run_pipeline()`.
+Every phase that has agents needs an entry in `prompts`. For phases that intentionally run
+without a prompt, pass `allow_empty_prompts=True` to `run_pipeline()`.
 
 ## 4. Add a Custom UICallback
 
-Replace `NullCallback` with your own implementation to get real-time feedback:
+To see progress while the pipeline runs, replace `NullCallback` with your own implementation. A `UICallback` implements all 15 methods, and the ones you do not need can be no-ops:
 
 ```python
 from collections.abc import Sequence
@@ -172,11 +172,11 @@ class SimpleUI:
     def on_shutdown(self, reason: str) -> None: pass
 ```
 
-See the [Writing a UICallback](../guides/writing-a-uicallback.md) guide for a complete walkthrough.
+The [Writing a UICallback](../guides/writing-a-uicallback.md) guide covers a full implementation, including a Rich example.
 
 ## 5. Configure Settings
 
-Create an `orchcore.toml` for project-level settings:
+Project-level settings go in `orchcore.toml`:
 
 ```toml
 concurrency = 4
@@ -193,12 +193,12 @@ stall_timeout = 900
 deep_tool_timeout = 1800
 ```
 
-See the [Configuration Reference](../reference/configuration.md) for all settings.
+orchcore's runners do not read these settings themselves. Load them with `load_settings_with_profile()` and pass the values to the components you construct, e.g., `PhaseRunner(runner, registry, max_concurrency=settings.concurrency)`. The [Configuration Reference](../reference/configuration.md) lists all settings and their sources.
 
 ## Next Steps
 
-- [Configuration Reference](../reference/configuration.md) — all settings, profiles, and env vars
-- [Stream Events Reference](../reference/stream-events.md) — understand the event model
-- [Agent Registry guide](../guides/agent-registry.md) — advanced agent configuration
-- [Recovery & Retry guide](../guides/recovery-and-retry.md) — rate limits, backoff, failure modes
-- [Architecture Overview](../architecture/overview.md) — understand how modules fit together
+- [Configuration Reference](../reference/configuration.md): all settings, profiles, and environment variables.
+- [Stream Events Reference](../reference/stream-events.md): the event model passed to `on_agent_event`.
+- [Agent Registry guide](../guides/agent-registry.md): environment policy, version checks, prompt transport, and ToolSets.
+- [Recovery & Retry guide](../guides/recovery-and-retry.md): rate limits, backoff, and failure modes.
+- [Architecture Overview](../architecture/overview.md): how the modules fit together.

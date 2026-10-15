@@ -8,14 +8,14 @@ cd orchcore
 uv pip install -e ".[dev]"
 ```
 
-This installs orchcore in editable mode with all development dependencies: mypy, pytest,
-pytest-asyncio, hypothesis, ruff, and coverage.
+This installs orchcore in editable mode with the `dev` extra: commitizen, coverage,
+hypothesis, mypy, pre-commit, pytest, pytest-asyncio, pytest-cov, pyright, and ruff.
 
 ### Working from a non-git checkout
 
-orchcore derives versions from git tags via hatch-vcs. Source exports, distro packaging
-trees, and other checkouts without `.git` need an explicit pretend version before editable
-installs or `uv sync` can resolve the project:
+orchcore derives its version from git tags through hatch-vcs. Source exports, distribution
+packaging trees, and other checkouts without `.git` need an explicit pretend version before
+an editable install or `uv sync` can resolve the project:
 
 ```bash
 export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ORCHCORE=0.0.0.dev0
@@ -29,14 +29,14 @@ $env:SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ORCHCORE = "0.0.0.dev0"
 uv sync --extra dev
 ```
 
-The distribution-specific `_FOR_ORCHCORE` variable keeps the override scoped to this
-package. `make install-nogit` is the same workflow for POSIX shells.
+The `_FOR_ORCHCORE` suffix limits the override to this package. `make install-nogit` runs
+the same steps in a POSIX shell.
 
 ## Commands
 
 ```bash
 make check         # Run all checks: lint + typecheck + test
-make lint          # ruff check + ruff format --check
+make lint          # ruff check + ruff format --check + README example check
 make format        # ruff format + ruff check --fix
 make typecheck     # mypy src/ tests/ examples/ --strict
 make test          # pytest tests/ -v
@@ -65,8 +65,9 @@ pytest tests/test_stream/test_parser.py::test_parse_line_returns_empty_for_malfo
 pytest -k "parser" -v
 ```
 
-Tests use `asyncio_mode = "auto"` — async test functions need no `@pytest.mark.asyncio` decorator.
-Property-based tests use Hypothesis and are part of the normal `pytest` run.
+Tests use `asyncio_mode = "auto"`, so async test functions need no `@pytest.mark.asyncio`
+decorator. Property-based tests use Hypothesis and run as part of the normal `pytest` run.
+Warnings are treated as errors (`filterwarnings = ["error"]`).
 
 ### Test Organization
 
@@ -101,17 +102,20 @@ Python 3.12+ is required. The codebase uses:
 
 ### Type Checking
 
-mypy strict mode with zero escape hatches:
+mypy runs in strict mode over the source, the tests, and the examples:
 
 ```bash
 mypy src/ tests/ examples/ --strict
 ```
 
-All public functions require type annotations. Pydantic plugin is enabled for model validation.
+All public functions need type annotations. The Pydantic mypy plugin is enabled, so model
+fields and constructors are type-checked. CI also runs `pyright --verifytypes orchcore` to
+check that the public API is fully typed (`make verifytypes` runs it locally).
 
 ### Linting
 
-ruff with the Phase 4 rule set, 100-character line length:
+ruff runs with the following rule sets and a 100-character line length (configured in
+`pyproject.toml`):
 
 | Rule Set | Purpose |
 |----------|---------|
@@ -133,9 +137,8 @@ ruff with the Phase 4 rule set, 100-character line length:
 
 ### Test Coverage
 
-95% minimum coverage, enforced in CI. The coverage gate also checks that
-`recovery/rate_limit.py` stays at 95% or higher and `pipeline/engine.py` stays
-at 85% or higher:
+CI requires at least 95% total coverage. `scripts/check_coverage_thresholds.py` also
+requires 95% or more for `recovery/rate_limit.py` and 85% or more for `pipeline/engine.py`:
 
 ```toml
 [tool.coverage.report]
@@ -144,11 +147,11 @@ fail_under = 95
 
 ### Module Exports
 
-All modules export via `__all__` in `__init__.py`. Public API surface is explicit.
+Each package lists its public API in `__all__` in its `__init__.py`.
 
 ## Documentation
 
-Documentation lives in `doc/` and is built with [Zensical](https://github.com/AbdelazizMoustafa10m/zensical):
+Documentation lives in `doc/` and is built with [Zensical](https://zensical.org/):
 
 ```bash
 # Install doc dependencies
@@ -165,12 +168,11 @@ Configuration is in `zensical.toml` at the repo root.
 
 ## Pull Request Guidelines
 
-1. Fork the repo and create a feature branch
-2. Make your changes
-3. Run `make check` — all checks must pass
-4. Write or update tests for changed behavior
-5. Open a pull request with a clear description
+1. Fork the repository and create a feature branch.
+2. Make your changes, and add or update tests for any changed behavior.
+3. Run `make check`. All checks must pass.
+4. Open a pull request with a title that follows [Conventional Commits](https://www.conventionalcommits.org/) (e.g., `fix(stream): handle empty Codex deltas`). CI validates the title, and release-please builds the changelog from the commit messages on `main`.
 
 ## Architecture Decision Records
 
-Design decisions are documented as ADRs in `doc/architecture/adrs/`. When proposing a significant architectural change, add a new ADR following the existing MADR format.
+Design decisions are recorded as ADRs in `doc/architecture/adrs/`. For a significant architectural change, add a new ADR in the MADR format of the existing ones, and add it to the `nav` in `zensical.toml` and to the ADR table in `doc/index.md`.
