@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.2](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v3.0.1...v3.0.2) (2026-10-15)
+
+
+### Documentation
+
+* clean up README and documentation ([#36](https://github.com/AbdelazizMoustafa10m/orchcore/issues/36)) ([2c24c9a](https://github.com/AbdelazizMoustafa10m/orchcore/commit/2c24c9a65b77a0bea99054732c8b9e9233aed892))
+
 ## [3.0.1](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v3.0.0...v3.0.1) (2026-10-15)
 
 
