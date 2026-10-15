@@ -1,6 +1,6 @@
 # Stream Pipeline
 
-orchcore's stream processing pipeline normalizes output from 5 different agent CLI JSONL formats into a unified `StreamEvent` model through four composable stages. Each stage is independently usable.
+The stream pipeline turns the JSONL output of five agent CLI formats into `StreamEvent` objects in four stages. Each stage can also be used on its own (see [Using Stages Independently](#using-stages-independently)).
 
 ## Pipeline Overview
 
@@ -12,21 +12,17 @@ Raw JSONL ──▶ StreamFilter ──▶ StreamParser ──▶ AgentMonitor �
 
 ## Stage 1: StreamFilter
 
-**Purpose:** Fast-path pre-parse noise reduction.
+`StreamFilter` drops high-volume, low-value lines before they are parsed. It works on the raw string with substring matching, before `json.loads()` is called, so discarded lines are never parsed. For typical Claude output, it is estimated to drop about 95% of lines.
 
-The filter operates on raw strings *before* `json.loads()` is called, using simple substring matching to drop high-volume, low-value events. This avoids the cost of parsing JSON for lines that will be discarded anyway.
+A line is dropped if it is empty or whitespace-only, or if it matches one of the format's skip patterns (with or without a space after the colon). Every other line is kept, including malformed ones, so the parser can count them.
 
-**Performance:** Drops approximately 95% of raw JSONL lines for typical Claude output.
-
-**Format-specific skip patterns:**
-
-| Format | Skipped Event Types |
-|--------|-------------------|
-| Claude | `message_start`, `message_stop`, `content_block_stop`, `content_block_start` (non-tool), `ping` |
-| Codex | Heartbeat-only messages, empty delta events |
+| Format | Skipped Lines |
+|--------|---------------|
+| Claude | `content_block_stop`, `message_start`, and `message_stop` events |
+| Codex | `response.output_text.delta`, `response.reasoning_summary.delta`, and `turn.started` events |
+| OpenCode | `text` events with an empty `text` field |
 | Antigravity | `user_input` step echoes |
-| Copilot | Status polling responses, empty chunks |
-| OpenCode | Frame events without content |
+| Copilot | Lines with an empty `text`, `message`, or `content` field |
 
 ```python
 from orchcore.stream import StreamFilter, StreamFormat
@@ -34,34 +30,32 @@ from orchcore.stream import StreamFilter, StreamFormat
 filter = StreamFilter(stream_format=StreamFormat.CLAUDE)
 for line in raw_jsonl_lines:
     if filter.should_keep(line):
-        # Worth parsing
+        # Pass the line to the parser
         ...
 ```
 
 ## Stage 2: StreamParser
 
-**Purpose:** Format-specific JSONL parsing into normalized `StreamEvent` instances.
-
-Each agent CLI emits JSONL in a different schema. Format knowledge lives in one module per
+`StreamParser` turns each JSONL line into normalized `StreamEvent` instances. Each agent CLI emits JSONL in a different schema. Format knowledge lives in one module per
 format under `orchcore/stream/formats/` (`claude.py`, `codex.py`, `copilot.py`, `opencode.py`,
 `antigravity.py`), each validating lines into private Pydantic envelope models (`extra="allow"` for
 forward compatibility) and producing zero or more normalized `StreamEvent` objects per line.
 `StreamParser` itself is a thin dispatcher that owns the shared infrastructure: line splitting
 and the two diagnostic counters.
 
-**Supported formats:** Claude, Codex, OpenCode, Antigravity, Copilot
+The parser behaves as follows:
 
-**Key behaviors:**
-
-- Handles malformed JSON gracefully with bounded warning logs (`json_parse_error_count`)
-- Counts well-formed lines that fail a format's wire schema (`wire_validation_error_count`)
-  with the same bounded-warning pattern — schema failures never vanish silently; both counters
-  are surfaced on `AgentResult`
-- Extracts tool invocations, text content, cost, tokens, and exit codes
-- Supports native text extraction (no `jq` binary required)
-- Maps format-specific event types to the unified `StreamEventType` enum
-- Antigravity tool steps get `<conversation_id>:<step_index>` ids, so overlapping tools and
-  subagent steps pair exactly; a failed step finishes with `tool_status="error"`
+- Malformed JSON lines are skipped and counted in `json_parse_error_count`, with a limited
+  number of warnings logged.
+- Well-formed lines that fail the format's wire schema are counted in
+  `wire_validation_error_count`, with the same limit on warnings. Both counters are reported
+  on `AgentResult`, so schema failures are never silent.
+- Tool invocations, text content, cost, tokens, and exit codes are extracted into event fields.
+- Text is extracted natively, without a `jq` binary.
+- Format-specific event types are mapped to the `StreamEventType` enum.
+- Antigravity tool steps get `<conversation_id>:<step_index>` IDs, so the start and end of
+  overlapping tools and subagent steps are matched exactly. A failed step finishes with
+  `tool_status="error"`.
 
 ```python
 from orchcore.stream import StreamParser, StreamFormat
@@ -72,9 +66,7 @@ events = parser.parse_line(json_line)  # Returns list[StreamEvent]
 
 ## Stage 3: AgentMonitor
 
-**Purpose:** Real-time state tracking via a 9-state machine.
-
-The monitor consumes `StreamEvent` instances and maintains a running model of the agent's lifecycle:
+`AgentMonitor` consumes `StreamEvent` instances and tracks the agent's lifecycle in a nine-state machine:
 
 ```
 STARTING → THINKING → WRITING
@@ -86,15 +78,15 @@ STARTING → THINKING → WRITING
      COMPLETED / FAILED / CANCELLED
 ```
 
-**What it tracks:**
+For each agent, it tracks
 
-- Current agent state
-- Active and recently completed tools (deque, max 20)
-- Tool counters (total, succeeded, failed, running)
-- Cumulative cost and token usage
-- Friendly tool names (e.g., `"Read"` → `"Read file"`, `"Bash"` → `"Shell command"`)
+- the current state,
+- the active tools and the 20 most recently completed ones,
+- tool counters (total, succeeded, failed, running),
+- cumulative cost and token usage, and
+- display names for tools (e.g., `"Read"` → `"Read file"`, `"Bash"` → `"Shell command"`).
 
-**Snapshots** — call `snapshot()` to get an `AgentMonitorSnapshot` capturing the current state. Useful for building dashboards and status displays.
+`snapshot()` returns an `AgentMonitorSnapshot` of the current state for dashboards and status displays.
 
 ```python
 from orchcore.stream import AgentMonitor
@@ -108,20 +100,16 @@ for event in events:
 
 ## Stage 4: StallDetector
 
-**Purpose:** Timeout detection with deep-tool awareness.
+`StallDetector` wraps the event stream and injects a synthetic `STALL` event when the agent has been silent for longer than the timeout. It uses one of two timeouts:
 
-The stall detector wraps the event stream and injects synthetic `STALL` events when an agent has been idle beyond a configurable timeout.
+| Timeout | Default | When Used |
+|---------|---------|-----------|
+| Normal | 300 seconds | No deep tool is active |
+| Deep tool | 600 seconds | A long-running deep tool (e.g., Exa or Tavily search) is active |
 
-**Two timeout tiers:**
+A tool counts as a deep tool if its name contains one of the patterns in `StallDetector.DEEP_TOOL_PATTERNS`, compared case-insensitively. The patterns include `deep_search`, `deep_research`, `web_search_exa`, `tavily_search`, and `tavily_crawl`. For example, `mcp__exa__deep_search_exa` matches `deep_search`. The deep timeout applies while any active tool matches.
 
-| Tier | Default | When Used |
-|------|---------|-----------|
-| Normal | 300 seconds | Standard tool executions |
-| Deep tool | 600 seconds | Long-running tools (Exa, Tavily, web search, crawling) |
-
-**Deep-tool recognition:** Case-insensitive substring matching against tool names. If the active tool matches a known deep-tool pattern (e.g., `exa`, `tavily`, `web_search`, `crawl`), the extended timeout applies.
-
-**Heartbeat re-arming:** Any event from the agent resets the stall timer. The detector only fires after continuous silence.
+Each event that reaches the detector resets the stall timer. Lines dropped by the filter, and lines that produce no event, do not reset it, so a `STALL` can be reported while the agent is still writing output that the filter drops (e.g., Codex text deltas). With `kill_on_stall = true`, such a stall terminates the agent. The detector checks the timer every `check_interval` seconds (default 5) and emits at most one `STALL` event per silent period.
 
 ```python
 from orchcore.stream import StallDetector
@@ -135,7 +123,7 @@ detector = StallDetector(
 
 ## Full Pipeline Integration
 
-In production, the four stages are composed by `AgentRunner`, which wires them together for each subprocess:
+`AgentRunner` composes the four stages for each subprocess:
 
 ```python
 # Simplified internal flow in AgentRunner
@@ -158,15 +146,15 @@ await monitor.consume(watched, on_event=callback.on_agent_event)
 
 ## Using Stages Independently
 
-Each stage is a standalone component. You can use any subset:
+Each stage is a standalone component, and any subset can be used:
 
-- **Just the parser** — normalize JSONL from a log file without real-time monitoring
-- **Filter + Parser** — efficient batch processing of stored streams
-- **Monitor only** — feed pre-parsed events to track state
-- **Full pipeline** — real-time subprocess monitoring with stall detection
+- the parser alone, to normalize JSONL from a log file,
+- the filter and the parser, to process stored streams in batch,
+- the monitor alone, to track state from events parsed elsewhere, or
+- all four stages, to monitor a live subprocess with stall detection.
 
 ## Related
 
-- [Stream Events Reference](../reference/stream-events.md) — complete field-level documentation
-- [Architecture Overview](overview.md) — how the stream pipeline fits into the broader system
+- [Stream Events Reference](../reference/stream-events.md): every event type and field
+- [Architecture Overview](overview.md): how the stream pipeline fits with the other modules
 - [ADR-004: Composable stream processing pipeline](adrs/004-composable-stream-processing-pipeline.md)

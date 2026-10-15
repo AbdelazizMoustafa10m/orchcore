@@ -1,10 +1,10 @@
 # Writing a UICallback
 
-This guide walks you through implementing a custom `UICallback` for your consuming project. The UICallback protocol is how orchcore communicates pipeline progress to your application — you control what happens with each event.
+This guide shows how to implement a `UICallback`, the protocol through which orchcore reports pipeline progress to your application. It covers a minimal implementation, a Rich implementation, and how to keep the high-frequency `on_agent_event` method fast.
 
 ## How It Works
 
-orchcore's engine calls `UICallback` methods at key lifecycle points. Your implementation decides what to do: print to the terminal, update a TUI widget, log to a file, send a webhook, or nothing at all.
+The engine calls `UICallback` methods at fixed points in the pipeline lifecycle. Your implementation decides what each call does, e.g., print to the terminal, update a TUI widget, write to a log file, or nothing at all.
 
 ```
 PipelineRunner ──▶ on_pipeline_start()
@@ -13,14 +13,15 @@ PipelineRunner ──▶ on_pipeline_start()
                     on_agent_event()  ← called for every StreamEvent
                     on_agent_event()
                     ...
-                    on_agent_complete() or on_agent_error()
+                    on_agent_error()     ← only if the run failed
+                    on_agent_complete()  ← after every run
                 ──▶ on_phase_end()
               ──▶ on_pipeline_complete()
 ```
 
 ## Minimal Implementation
 
-Start with a class that implements all 15 methods. Methods you don't need can be no-ops:
+An implementation defines all 15 methods. Methods you do not need can be no-ops:
 
 ```python
 from collections.abc import Sequence
@@ -81,12 +82,10 @@ class MinimalUI:
 
 ## Rich Terminal UI Example
 
-A more sophisticated implementation using [Rich](https://rich.readthedocs.io/):
+The following implementation prints colored output to stderr with [Rich](https://rich.readthedocs.io/). It requires the `rich` extra (`uv pip install "orchcore[rich]"`).
 
 ```python
 from rich.console import Console
-from rich.live import Live
-from rich.table import Table
 from collections.abc import Sequence
 from orchcore.pipeline import Phase, PhaseResult, PipelineResult
 from orchcore.stream import StreamEvent, StreamEventType, AgentResult
@@ -154,11 +153,11 @@ class RichUI:
 
 ## Performance Considerations
 
-`on_agent_event` is called for **every** stream event that passes the filter — potentially hundreds per second. Keep this method fast:
+`on_agent_event` is called for every stream event that passes the filter, far more often than any other method. It runs synchronously on the event loop, so slow work in it delays stream processing for every running agent. To keep it fast:
 
-- Avoid I/O or network calls in `on_agent_event`
-- Buffer updates and flush periodically (e.g., every 100ms)
-- Use `event.event_type` to filter early — only process the events you care about
+- avoid I/O and network calls in `on_agent_event`,
+- buffer display updates and flush them periodically (e.g., every 100 ms), and
+- check `event.event_type` first and return early for events you do not display.
 
 ```python
 def on_agent_event(self, event: StreamEvent) -> None:
@@ -170,7 +169,7 @@ def on_agent_event(self, event: StreamEvent) -> None:
 
 ## Testing Your UICallback
 
-Use `isinstance` to verify your implementation satisfies the protocol:
+`isinstance` confirms that your implementation defines every protocol method:
 
 ```python
 from orchcore.ui import UICallback
@@ -179,10 +178,10 @@ ui = RichUI()
 assert isinstance(ui, UICallback)  # Runtime protocol check
 ```
 
-For unit tests, use `NullCallback` as a baseline and test your implementation against known event sequences from the test fixtures.
+For unit tests, call the methods directly with hand-built `StreamEvent`, `PhaseResult`, and `AgentResult` objects and check what your UI records or prints.
 
 ## Related
 
-- [UICallback Protocol Reference](../reference/ui-callback.md) — complete method signatures
-- [Stream Events Reference](../reference/stream-events.md) — the events passed to `on_agent_event`
+- [UICallback Protocol Reference](../reference/ui-callback.md): method signatures and when each method is called
+- [Stream Events Reference](../reference/stream-events.md): the events passed to `on_agent_event`
 - [ADR-003: Protocol-based UI decoupling](../architecture/adrs/003-protocol-based-ui-decoupling.md)

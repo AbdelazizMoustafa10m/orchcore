@@ -1,6 +1,6 @@
 # Stream Events Reference
 
-orchcore normalizes output from 5 different agent CLI formats into a unified event model. This page documents all event types, fields, and related models.
+orchcore normalizes the JSONL output of five agent CLI formats into one event model. This page lists the event types, the `StreamEvent` fields, and the related monitoring and result models.
 
 ## StreamFormat
 
@@ -22,7 +22,7 @@ format = StreamFormat.CLAUDE  # "claude"
 
 ## StreamEventType
 
-Rich event taxonomy covering the full agent lifecycle.
+The category of a `StreamEvent`, covering the agent lifecycle from launch to result.
 
 | Value | Description |
 |-------|-------------|
@@ -43,8 +43,8 @@ Rich event taxonomy covering the full agent lifecycle.
 
 ## StreamEvent
 
-The core normalized event model. A JSONL line from any agent format may yield zero, one, or
-multiple `StreamEvent` instances depending on the parser branch taken.
+The normalized event model. A JSONL line from any agent format yields zero, one, or
+several `StreamEvent` instances, depending on the line's content.
 
 ```python
 from orchcore.stream import StreamEvent, StreamEventType
@@ -77,11 +77,11 @@ from orchcore.stream import StreamEvent, StreamEventType
 | `idle_seconds` | `float \| None` | `None` | Seconds since last activity (on `stall` events) |
 | `raw` | `dict \| None` | `None` | Original parsed JSON for debugging |
 
-`StreamEvent` is a frozen Pydantic model — instances are immutable after creation.
+`StreamEvent` is a frozen Pydantic model, so instances cannot be changed after creation.
 
 ## AgentState
 
-9-state machine tracking an agent's lifecycle.
+The state machine `AgentMonitor` uses to track an agent's lifecycle. It has nine states:
 
 ```
 STARTING → THINKING → WRITING
@@ -133,7 +133,7 @@ Aggregated tool execution statistics.
 
 ## AgentMonitorSnapshot
 
-Point-in-time state of a monitored agent. Useful for building dashboards and status displays.
+Point-in-time state of a monitored agent, returned by `AgentMonitor.snapshot()` for dashboards and status displays.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -153,7 +153,7 @@ Point-in-time state of a monitored agent. Useful for building dashboards and sta
 
 ## AgentResult
 
-Return type of `AgentRunner.run()`. Captures all outputs from a single agent execution.
+Return type of `AgentRunner.run()`. It holds the outputs and diagnostics of a single agent execution.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -168,26 +168,26 @@ Return type of `AgentRunner.run()`. Captures all outputs from a single agent exe
 | `num_turns` | `int \| None` | `None` | Conversation turns |
 | `session_id` | `str \| None` | `None` | Session identifier |
 | `output_empty` | `bool` | `False` | Whether output file was empty |
-| `error` | `str \| None` | `None` | Error message if failed (human form: kept maximal) |
+| `error` | `str \| None` | `None` | Human-readable error message if the run failed, kept in full |
 | `error_category` | `AgentErrorCategory \| None` | `None` | Typed failure classification (see below) |
 | `rate_limit_reset_seconds` | `int \| None` | `None` | Reset wait parsed from the rate-limit message, once, at the source |
 | `json_parse_error_count` | `int` | `0` | Malformed JSONL lines the stream parser skipped |
 | `wire_validation_error_count` | `int` | `0` | Well-formed JSONL lines that failed the selected wire-format schema |
 | `agent_version` | `str \| None` | `None` | CLI version detected by the advisory version check; `None` when detection is disabled or fails |
 
-`AgentResult.error` is populated from the terminal stream state as well as the process exit code. A subprocess that exits `0` but emits a `result` with `error`, an `error` event, or an unrecovered `rate_limit` event returns an error-carrying result and is treated as failed by phase aggregation.
+`AgentResult.error` is set from the final stream state as well as the process exit code. A subprocess that exits `0` but emits a `result` with `error`, an `error` event, or an unrecovered `rate_limit` event returns a result with `error` set, and phase aggregation treats it as failed.
 
 ### AgentErrorCategory
 
-Failures travel as data: `error_category` lets consumers (and the engine's retry
-loop) branch on the failure kind without matching error prose. Categories are
-populated where the failure is first observed:
+`error_category` lets consumers, and the engine's retry loop, branch on the kind of
+failure without matching error messages. The category is set where the failure is
+first observed:
 
 | Population site | Category |
 |-----------------|----------|
 | Runner sees a typed `rate_limit` stream event | `rate_limit` (reset parsed once into `rate_limit_reset_seconds`) |
 | Runner sees `error` or `result(error=...)` with exit 0 | `stream_error` |
-| Runner: exit code != 0, no stream category | `nonzero_exit` — upgraded to `rate_limit` when the fallback `RateLimitDetector` matches the stderr tail (CLIs that never emit typed events) |
+| Runner: exit code != 0, no stream category | `nonzero_exit`, upgraded to `rate_limit` when the fallback `RateLimitDetector` matches the stderr tail (for CLIs that never emit typed events) |
 | Runner: empty output file on an otherwise clean run | `empty_output` |
 | Runner: `max_runtime` exceeded / `kill_on_stall` fired | `timeout` / `stall_timeout` |
 | Engine: agent binary missing (`FileNotFoundError`) | `binary_not_found` |
@@ -196,6 +196,6 @@ populated where the failure is first observed:
 
 ## Related
 
-- [Stream Pipeline architecture](../architecture/stream-pipeline.md) — how the 4-stage pipeline works
+- [Stream Pipeline architecture](../architecture/stream-pipeline.md): how the four stages process the stream
 - [ADR-004: Composable stream processing pipeline](../architecture/adrs/004-composable-stream-processing-pipeline.md)
 - [ADR-006: Pydantic for all data models](../architecture/adrs/006-pydantic-for-all-data-models.md)

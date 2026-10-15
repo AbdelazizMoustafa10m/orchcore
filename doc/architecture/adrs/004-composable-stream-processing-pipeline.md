@@ -37,16 +37,16 @@ orchcore must transform these heterogeneous streams into a unified event model (
 
 In the four source systems, stream processing is handled inconsistently:
 - **Planora** (Python): Separate filter and parse functions, but tightly coupled to Claude's format
-- **Articles** (Bash): `grep -v` for filtering, `jq` for parsing — only handles Claude
+- **Articles** (Bash): `grep -v` for filtering, `jq` for parsing; only handles Claude
 - **Finvault** (Bash): Similar `grep -v` + `jq` approach, extended for Codex
-- **Raven** (Bash): Most sophisticated — has separate filter, parse, and stall detection stages, but implemented as inline Bash functions with global state
+- **Raven** (Bash): Most sophisticated, with separate filter, parse, and stall detection stages, but implemented as inline Bash functions with global state
 
 The common pattern across all four systems is a multi-stage pipeline: first filter out noise (most JSONL lines are irrelevant), then parse relevant lines into structured events, then track agent state based on events, and finally detect stalls when events stop arriving. However, each system implements these stages as a monolithic function or inline code, making it impossible to test, extend, or reuse individual stages.
 
 ### Business Context
 
-- Raw JSONL output from agent CLIs has extremely high noise — approximately 95% of lines carry no actionable information (heartbeats, partial content deltas, system bookkeeping)
-- Each agent CLI has a different JSONL schema — no standard format exists across vendors
+- Raw JSONL output from agent CLIs has extremely high noise: approximately 95% of lines carry no actionable information (heartbeats, partial content deltas, system bookkeeping)
+- Each agent CLI has a different JSONL schema: no standard format exists across vendors
 - New agent CLIs appear regularly (Gemini CLI, Copilot CLI launched recently), each requiring new parsing logic
 - Stream processing performance matters: filtering must be fast because it runs on every line from every agent
 
@@ -81,7 +81,7 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 **Pros:**
 - Single responsibility per stage: filter knows nothing about parsing; parser knows nothing about state tracking
 - Each stage is independently testable with simple fixtures
-- New agent format support requires only a new parser function in Stage 2 — Stages 1, 3, and 4 are unaffected
+- New agent format support requires only a new parser function in Stage 2: Stages 1, 3, and 4 are unaffected
 - Performance: filtering before parsing avoids JSON parsing on ~95% of lines
 - Composable: a consuming project can use StreamFilter alone for log reduction, or StreamParser alone for analytics
 - The state machine in AgentMonitor makes agent lifecycle explicit and prevents impossible states
@@ -89,7 +89,7 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 
 **Cons:**
 - Four stages add architectural complexity compared to a single function
-- Data flows through multiple objects per line — minor memory overhead for intermediate representations
+- Data flows through multiple objects per line: minor memory overhead for intermediate representations
 - The StreamEvent model must accommodate all agent formats, leading to optional fields
 
 **Risk Assessment:**
@@ -110,16 +110,16 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 **Overview:** A single class that takes raw JSONL lines and produces StreamEvent instances, handling filtering, parsing, state tracking, and stall detection internally.
 
 **Pros:**
-- Simpler architecture — one class, one call
+- Simpler architecture: one class, one call
 - No intermediate data representations
 - All logic in one place
 
 **Cons:**
 - Cannot test filtering without testing parsing
 - Adding a new agent format requires modifying the monolithic class, risking regressions in existing parsers
-- Stall detection tangled with parsing — timeout logic mixed with JSONL parsing
+- Stall detection tangled with parsing: timeout logic mixed with JSONL parsing
 - Cannot use individual stages independently (e.g., filter alone for log reduction)
-- Single Responsibility Principle violation — one class doing four things
+- Single Responsibility Principle violation: one class doing four things
 
 **Why not chosen:**
 - The monolithic approach is exactly what the four source systems already do, and it's the primary cause of the maintenance problems orchcore is designed to solve. Each source system has a monolithic stream handler that mixes filtering, parsing, state tracking, and timeout logic, making it impossible to extend or test individual concerns.
@@ -131,13 +131,13 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 **Overview:** Each agent format is a plugin that registers itself with a parser registry. The pipeline auto-discovers parsers at runtime.
 
 **Pros:**
-- Maximum extensibility — third parties can contribute parsers
+- Maximum extensibility: third parties can contribute parsers
 - Clean separation between parser implementations
 - No modification to core code when adding a new parser
 
 **Cons:**
 - Plugin discovery and registration adds complexity (entry points, importlib)
-- Overkill for 5 known formats — plugins shine at scale (50+ formats), not at 5
+- Overkill for 5 known formats: plugins shine at scale (50+ formats), not at 5
 - Harder to type-check (plugins are loaded dynamically)
 - Testing requires mock plugin registration
 
@@ -150,11 +150,11 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 
 ### Implementation Details
 
-- StreamFilter uses a `dict[StreamFormat, list[str]]` of skip patterns. A line is dropped if it contains any skip pattern for the current format. No regex — pure `in` string matching for speed.
+- StreamFilter uses a `dict[StreamFormat, list[str]]` of skip patterns. A line is dropped if it contains any skip pattern for the current format. No regex: pure `in` string matching for speed.
 - StreamParser dispatches to `_parse_claude()`, `_parse_codex()`, `_parse_opencode()`, `_parse_gemini()`, or `_parse_copilot()` based on the StreamFormat enum. Each branch returns `list[StreamEvent]`, allowing a single line to emit zero, one, or multiple events.
 - AgentMonitor maintains an `AgentState` enum and a list of `ToolExecution` instances. State transitions are explicit: `_TRANSITIONS: dict[tuple[AgentState, StreamEventType], AgentState]`.
 - StallDetector exposes a `watch(events: AsyncIterator[StreamEvent]) -> AsyncIterator[StreamEvent]` method that wraps the event stream. It uses `asyncio.wait_for()` with a `check_interval` to poll for new events, yielding a synthetic `STALL` event when idle time exceeds the configured timeout. Deep tool patterns (Exa, Tavily) trigger the higher `deep_timeout`.
-- All four stages are instantiated per agent — no shared state across agents.
+- All four stages are instantiated per agent: no shared state across agents.
 
 ### When to Revisit This Decision
 
@@ -168,7 +168,7 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 ### Positive
 
 - Each stage is independently testable with simple string/dict fixtures
-- New agent format support requires only a new `_parse_X()` function — no changes to filter, monitor, or stall logic
+- New agent format support requires only a new `_parse_X()` function: no changes to filter, monitor, or stall logic
 - Performance: ~95% of raw lines are dropped by string matching before any JSON parsing occurs
 - Stages are composable: consuming projects can use StreamFilter alone for log reduction
 - AgentMonitor's explicit state machine prevents impossible states and provides clear lifecycle tracking
@@ -177,12 +177,12 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 ### Negative
 
 - Four classes instead of one adds architectural surface area
-- StreamEvent has optional fields to accommodate all formats — some fields are None for some agents
+- StreamEvent has optional fields to accommodate all formats: some fields are None for some agents
 - Per-agent instantiation means N agents create 4N stage objects (negligible memory impact in practice)
 
 ### Neutral
 
-- The pipeline pattern is well-understood in software engineering — no learning curve
+- The pipeline pattern is well-understood in software engineering: no learning curve
 - Moving from monolithic to pipeline is a common refactoring pattern validated in production systems
 
 ## Validation and Monitoring
@@ -202,10 +202,10 @@ Raw JSONL → StreamFilter → StreamParser → AgentMonitor → StallDetector
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — stream pipeline is a core component
-- **ADR-002:** [Async-first architecture](./002-async-first-architecture-with-asyncio.md) — StallDetector uses asyncio tasks
-- **ADR-003:** [Protocol-based UI decoupling](./003-protocol-based-ui-decoupling.md) — pipeline emits events via UICallback
-- **ADR-007:** [Registry pattern for agents](./007-registry-pattern-for-agent-management.md) — StreamFormat comes from AgentConfig in registry
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md): stream pipeline is a core component
+- **ADR-002:** [Async-first architecture](./002-async-first-architecture-with-asyncio.md): StallDetector uses asyncio tasks
+- **ADR-003:** [Protocol-based UI decoupling](./003-protocol-based-ui-decoupling.md): pipeline emits events via UICallback
+- **ADR-007:** [Registry pattern for agents](./007-registry-pattern-for-agent-management.md): StreamFormat comes from AgentConfig in registry
 
 ## References
 

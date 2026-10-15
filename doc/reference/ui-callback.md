@@ -1,6 +1,6 @@
 # UICallback Protocol Reference
 
-The `UICallback` protocol is orchcore's central decoupling mechanism between the orchestration engine and the presentation layer. It is a `runtime_checkable` Python `Protocol` — consuming projects implement it for their specific UI (Rich CLI, Textual TUI, headless JSONL, etc.) without orchcore importing any display framework.
+`UICallback` is the protocol through which the orchestration engine reports progress to the presentation layer. It is a `runtime_checkable` Python `Protocol`: consuming projects implement it for their own UI (e.g., a Rich CLI, a Textual TUI, or headless JSONL output), and orchcore never imports a display framework.
 
 ## Protocol Definition
 
@@ -33,47 +33,47 @@ class UICallback(Protocol):
 
 | Method | When Called | Parameters |
 |--------|------------|------------|
-| `on_pipeline_start` | Pipeline execution begins | `phases` — ordered list of `Phase` definitions |
-| `on_pipeline_complete` | Pipeline execution ends (success or failure) | `result` — `PipelineResult` with per-phase results |
+| `on_pipeline_start` | Pipeline execution begins | `phases`: the ordered `Phase` definitions |
+| `on_pipeline_complete` | Pipeline execution ends (success or failure) | `result`: `PipelineResult` with per-phase results |
 
 ### Phase Lifecycle
 
 | Method | When Called | Parameters |
 |--------|------------|------------|
-| `on_phase_start` | A phase begins execution | `phase` — the `Phase` definition |
-| `on_phase_end` | A phase completes | `phase` — the definition; `result` — `PhaseResult` |
-| `on_phase_skip` | A phase is skipped (dependency failed, filter applied) | `phase` — the definition; `reason` — human-readable explanation |
+| `on_phase_start` | A phase begins execution | `phase`: the `Phase` definition |
+| `on_phase_end` | A phase completes | `phase`: the definition; `result`: `PhaseResult` |
+| `on_phase_skip` | A phase is skipped (unmet dependency, `skip_phases`, resume, or FlowControl); phases excluded by `only_phase` produce no callback | `phase`: the definition; `reason`: human-readable explanation |
 
 ### Agent Lifecycle
 
 | Method | When Called | Parameters |
 |--------|------------|------------|
-| `on_agent_start` | An agent subprocess is launched | `agent_name`; `phase` — name of the containing phase |
-| `on_agent_event` | A stream event is emitted by an agent | `event` — normalized `StreamEvent` |
-| `on_agent_complete` | An agent finishes successfully | `agent_name`; `result` — `AgentResult` |
-| `on_agent_error` | An agent fails | `agent_name`; `error` — error message |
+| `on_agent_start` | An agent subprocess is about to launch | `agent_name`; `phase`: name of the containing phase |
+| `on_agent_event` | An agent emits a stream event | `event`: normalized `StreamEvent` |
+| `on_agent_complete` | An agent run finishes, whether it succeeded or failed | `agent_name`; `result`: `AgentResult` |
+| `on_agent_error` | An agent run fails; called before `on_agent_complete` | `agent_name`; `error`: error message |
 
 ### Recovery & Error Events
 
 | Method | When Called | Parameters |
 |--------|------------|------------|
-| `on_stall_detected` | Agent has been idle beyond timeout | `agent_name`; `duration` — idle time in seconds |
-| `on_rate_limit` | Agent hit a rate limit | `agent_name`; `message` — the rate-limit message |
-| `on_rate_limit_wait` | Waiting for rate-limit cooldown | `agent_name`; `wait_seconds` — time to wait |
-| `on_retry` | Agent is being retried | `agent_name`; `attempt` — current attempt; `max_attempts` |
-| `on_git_recovery` | Git recovery action taken | `action` — e.g., `"stash"`, `"commit"`; `detail` — description |
+| `on_stall_detected` | Agent has been idle beyond its timeout | `agent_name`; `duration`: idle time in seconds |
+| `on_rate_limit` | Agent hit a rate limit and will be retried | `agent_name`; `message`: the rate-limit message |
+| `on_rate_limit_wait` | Waiting for the rate limit to reset | `agent_name`; `wait_seconds`: time to wait |
+| `on_retry` | Agent is about to be retried | `agent_name`; `attempt`: current attempt; `max_attempts` |
+| `on_git_recovery` | Git recovery action taken or skipped | `action`: `"auto_commit"`, `"stash"`, `"stash_restore"`, `"stash_restore_failed"`, or `"skipped_no_cwd"`; `detail`: description |
 
 ### Shutdown
 
 | Method | When Called | Parameters |
 |--------|------------|------------|
-| `on_shutdown` | Graceful shutdown initiated | `reason` — e.g., `"SIGINT"`, `"SIGTERM"` |
+| `on_shutdown` | Graceful shutdown initiated | `reason`: description; `PhaseRunner` passes `"Signal received"` on SIGINT or SIGTERM |
 
 ## Built-in Implementations
 
 ### NullCallback
 
-No-op implementation. All methods do nothing. Use when you don't need UI feedback (e.g., in tests).
+Every method does nothing. Use it when you do not need UI feedback, e.g., in tests.
 
 ```python
 from orchcore.ui import NullCallback
@@ -87,7 +87,7 @@ result = await pipeline.run_pipeline(
 
 ### LoggingCallback
 
-Logs all events via Python's `logging` module at appropriate levels (`INFO` for lifecycle events, `DEBUG` for stream events, `WARNING` for rate limits and stalls, `ERROR` for agent errors).
+Logs every callback through Python's `logging` module: `INFO` for lifecycle events, `DEBUG` for stream events, `WARNING` for stalls, rate limits, and retries, and `ERROR` for agent errors.
 
 ```python
 from orchcore.ui import LoggingCallback
@@ -101,7 +101,7 @@ result = await pipeline.run_pipeline(
 
 ## Type Checking
 
-`UICallback` is `runtime_checkable`, so you can verify implementations at runtime:
+Because `UICallback` is `runtime_checkable`, `isinstance` verifies an implementation at runtime. The check confirms that every method exists, not that the signatures match:
 
 ```python
 from orchcore.ui import UICallback
@@ -113,7 +113,7 @@ class MyUI:
 assert isinstance(MyUI(), UICallback)
 ```
 
-For static type checking with mypy, simply use `UICallback` as a type annotation:
+For static type checking with mypy, annotate parameters with `UICallback`:
 
 ```python
 async def run(callback: UICallback) -> None:
@@ -122,6 +122,6 @@ async def run(callback: UICallback) -> None:
 
 ## Related
 
-- [Writing a UICallback guide](../guides/writing-a-uicallback.md) — step-by-step integration walkthrough
+- [Writing a UICallback guide](../guides/writing-a-uicallback.md): a minimal and a Rich implementation
 - [ADR-003: Protocol-based UI decoupling](../architecture/adrs/003-protocol-based-ui-decoupling.md)
-- [Stream Events Reference](stream-events.md) — the `StreamEvent` model passed to `on_agent_event`
+- [Stream Events Reference](stream-events.md): the `StreamEvent` model passed to `on_agent_event`

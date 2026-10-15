@@ -71,7 +71,7 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 **Cons:**
 - Protocol requires implementing all methods (or using a base class with no-op defaults)
 - Adding a new callback method is technically a breaking change (existing implementations would be missing the new method)
-- 14+ methods is a relatively large interface — could be seen as violating Interface Segregation Principle
+- 14+ methods is a relatively large interface: could be seen as violating Interface Segregation Principle
 
 **Risk Assessment:**
 
@@ -96,7 +96,7 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 - Familiar to Java/C# developers
 
 **Cons:**
-- Requires consuming projects to `import` and `inherit from` orchcore's class — tighter coupling
+- Requires consuming projects to `import` and `inherit from` orchcore's class: tighter coupling
 - No structural subtyping: a class with all the right methods but no inheritance fails type checks
 - Encourages deep inheritance hierarchies (UICallbackBase -> CLICallback -> RichCLICallback -> ...)
 - ABC mixin behavior can create complex MRO (Method Resolution Order) issues
@@ -112,7 +112,7 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 
 **Pros:**
 - Multiple subscribers per event (useful for logging + UI simultaneously)
-- Subscribers don't need to implement all events — subscribe only to what you need
+- Subscribers don't need to implement all events: subscribe only to what you need
 - New events can be added without breaking existing subscribers
 - Decoupled registration: subscribers register at runtime, not at type level
 
@@ -133,7 +133,7 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 **Overview:** orchcore emits structured log events (JSON to stderr or a log file) and consuming projects parse the log stream for UI updates.
 
 **Pros:**
-- No interface to implement — consumers just read logs
+- No interface to implement: consumers just read logs
 - Works across process boundaries (Bash scripts can grep log output)
 - Logging is already needed for file-based audit trails
 
@@ -145,7 +145,7 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 - Cannot support interactive UI patterns (progress bars, live updating panels)
 
 **Why not chosen:**
-- Structured logging is excellent for audit trails and file records but insufficient for interactive UIs. Planora's TUI needs sub-second event delivery with typed data — log parsing cannot provide this. orchcore uses UICallback for real-time UI and file logging for audit trails, keeping the two concerns separate.
+- Structured logging is excellent for audit trails and file records but insufficient for interactive UIs. Planora's TUI needs sub-second event delivery with typed data, which log parsing cannot provide. orchcore uses UICallback for real-time UI and file logging for audit trails, keeping the two concerns separate.
 
 ## Decision
 
@@ -155,8 +155,8 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 
 - `UICallback` is defined as a `typing.Protocol` with runtime-checkable support (`@runtime_checkable`)
 - Methods cover 5 lifecycle scopes: pipeline (start/complete), phase (start/end/skip), agent (start/event/complete/error), recovery (stall/rate_limit/retry/git_recovery), and system (shutdown)
-- `NullCallback` implements all methods as no-ops — used as the default when no UI is needed
-- `LoggingCallback` implements all methods by writing structured entries to a log file — used for headless/CI execution
+- `NullCallback` implements all methods as no-ops: used as the default when no UI is needed
+- `LoggingCallback` implements all methods by writing structured entries to a log file: used for headless/CI execution
 - Consuming projects implement the Protocol (or subclass NullCallback for partial implementation)
 - All callback methods receive typed Pydantic models (StreamEvent, PhaseResult, AgentResult) as parameters
 - Callbacks are synchronous (not async) to keep UI code simple; async-to-sync bridging is orchcore's responsibility
@@ -175,7 +175,7 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 - orchcore has zero runtime dependency on any UI framework (Rich, Textual, curses, etc.)
 - Consuming projects get full type safety and IDE autocompletion for callback methods
 - The same orchestration engine code serves CLI, TUI, web, and headless consumers
-- Adding a new consuming project requires only implementing UICallback — no engine changes
+- Adding a new consuming project requires only implementing UICallback: no engine changes
 - NullCallback enables using orchcore in tests and scripts without any UI setup
 - LoggingCallback provides a built-in audit trail for headless/CI execution
 
@@ -183,11 +183,11 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 
 - 14+ methods is a moderately large interface; implementing all of them is tedious for simple consumers (mitigated by NullCallback as a base class)
 - Adding a new callback method requires updating NullCallback and LoggingCallback, and is technically a breaking change for consumers that implement the Protocol directly (mitigated by semver and deprecation notices)
-- Callbacks are synchronous, which may limit performance for I/O-heavy UI operations (mitigated by keeping callbacks lightweight — heavy work should be queued)
+- Callbacks are synchronous, which may limit performance for I/O-heavy UI operations (mitigated by keeping callbacks lightweight and queueing heavy work)
 
 ### Neutral
 
-- The Protocol pattern is standard Python — no learning curve for experienced Python developers
+- The Protocol pattern is standard Python: no learning curve for experienced Python developers
 - The callback method naming convention (`on_<scope>_<event>`) is self-documenting
 
 ## Validation and Monitoring
@@ -205,8 +205,8 @@ In the four source systems, this decoupling is handled poorly. Planora has a cus
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — UICallback is the primary decoupling mechanism
-- **ADR-006:** [Use Pydantic for all data models](./006-pydantic-for-all-data-models.md) — callback parameters are Pydantic models
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md): UICallback is the primary decoupling mechanism
+- **ADR-006:** [Use Pydantic for all data models](./006-pydantic-for-all-data-models.md): callback parameters are Pydantic models
 
 ## References
 

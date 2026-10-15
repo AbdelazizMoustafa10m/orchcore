@@ -31,24 +31,24 @@ ACCEPTED
 
 ## Context and Problem Statement
 
-Multi-agent orchestration pipelines frequently encounter partial failures. In a parallel phase with three agents (Claude, Codex, Gemini), one agent might hit a rate limit while the other two succeed. In a sequential phase, an agent might crash due to a transient error that would succeed on retry. Different consuming projects need different failure handling strategies — a critical audit phase must not tolerate any failure, while a multi-perspective review phase can produce useful results even if one of three reviewers fails.
+Multi-agent orchestration pipelines frequently encounter partial failures. In a parallel phase with three agents (Claude, Codex, Gemini), one agent might hit a rate limit while the other two succeed. In a sequential phase, an agent might crash due to a transient error that would succeed on retry. Different consuming projects need different failure handling strategies: a critical audit phase must not tolerate any failure, while a multi-perspective review phase can produce useful results even if one of three reviewers fails.
 
 The most common failure mode across all four source systems is rate limiting. AI provider rate limits are aggressive and vary by provider:
-- **Claude**: "You've hit your usage limit. Your limit resets at 7pm (Europe/Berlin)." — can be hours away
-- **Codex**: "Please try again in 5 days 27 minutes" — can be days away
-- **Generic**: "Rate limit exceeded" — may or may not include reset time
+- **Claude**: "You've hit your usage limit. Your limit resets at 7pm (Europe/Berlin)." The reset can be hours away.
+- **Codex**: "Please try again in 5 days 27 minutes". The reset can be days away.
+- **Generic**: "Rate limit exceeded". The message may or may not include a reset time.
 
 In the four source systems:
-- **Planora** (Python): Has rate-limit detection for Claude with exponential backoff. No partial failure handling — any failure aborts the entire pipeline. No git recovery.
-- **Articles** (Bash): Detects rate limits via grep, sleeps for a hardcoded duration, retries once. No partial failure — pipeline aborts on any error.
+- **Planora** (Python): Has rate-limit detection for Claude with exponential backoff. No partial failure handling: any failure aborts the entire pipeline. No git recovery.
+- **Articles** (Bash): Detects rate limits via grep, sleeps for a hardcoded duration, retries once. No partial failure handling: the pipeline aborts on any error.
 - **Finvault** (Bash): Similar to Articles. Detects rate limits, hardcoded sleep. Added git stash recovery after a production incident where a dirty tree caused a retry to fail.
-- **Raven** (Bash): Most sophisticated — has rate-limit detection with timezone-aware reset time parsing, exponential backoff schedule, git auto-commit recovery, and loop-based retry with configurable max attempts. But the implementation is monolithic Bash with global variables.
+- **Raven** (Bash): Most sophisticated. It has rate-limit detection with timezone-aware reset time parsing, exponential backoff schedule, git auto-commit recovery, and loop-based retry with configurable max attempts. But the implementation is monolithic Bash with global variables.
 
 Every source system has independently solved rate-limit recovery, but with different detection patterns, different backoff strategies, and inconsistent partial failure handling. orchcore needs a unified, configurable approach.
 
 ### Business Context
 
-- AI provider rate limits are a normal operating condition, not an exceptional one — orchcore must handle them gracefully
+- AI provider rate limits are a normal operating condition, not an exceptional one: orchcore must handle them gracefully
 - Pipeline runs can take 30-60 minutes; aborting entirely because one agent hits a rate limit wastes significant time and cost
 - Git dirty tree issues during retry are a real production problem (Finvault incident)
 - Different phases have different failure tolerance: audit phases must be strict, review phases can be lenient
@@ -70,7 +70,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 ### Option 1: Configurable RetryPolicy with pluggable detection, backoff, and git recovery (CHOSEN)
 
-**Overview:** Implement three independent, composable modules — RateLimitDetector (regex-based detection), BackoffStrategy (exponential schedule with jitter), and GitRecovery (dirty tree management) — unified by a RetryPolicy model that configures their behavior per phase.
+**Overview:** Implement three independent, composable modules (RateLimitDetector for regex-based detection, BackoffStrategy for an exponential schedule with jitter, and GitRecovery for dirty tree management), unified by a RetryPolicy model that configures their behavior per phase.
 
 **Components:**
 
@@ -86,7 +86,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 **Pros:**
 - Each module is independent: use rate-limit detection without git recovery, or backoff without retry policy
-- RetryPolicy is a Pydantic model — type-safe, serializable, configurable via TOML
+- RetryPolicy is a Pydantic model: type-safe, serializable, configurable via TOML
 - Three partial failure modes cover all observed use cases across four source systems
 - Timezone-aware reset parsing handles the hardest edge case (Claude's absolute times)
 - Exponential backoff with jitter prevents thundering herd when multiple agents hit limits simultaneously
@@ -94,7 +94,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 - Opt-in git recovery can prevent cascading failures during retry without silently mutating a consumer repository
 
 **Cons:**
-- Rate-limit regex patterns are fragile — agent CLI output format changes break detection
+- Rate-limit regex patterns are fragile: agent CLI output format changes break detection
 - Timezone parsing introduces dependency on Python's `zoneinfo` module (stdlib since 3.9, but needs tzdata on some platforms)
 - Three partial failure modes add configuration complexity
 - Git auto-commit during recovery might create unwanted commits (mitigated by default-off policy, explicit cwd, and hook bypass being separately opt-in)
@@ -123,9 +123,9 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 **Cons:**
 - Fixed delay wastes time (too long for transient errors) or is too short (for rate limits requiring hours-long waits)
-- No partial failure handling — all-or-nothing per phase
+- No partial failure handling: all-or-nothing per phase
 - Retrying on a dirty git tree causes the same failure repeatedly
-- No awareness of provider reset times — blind retry may hit the same rate limit
+- No awareness of provider reset times: blind retry may hit the same rate limit
 - No distinction between retryable errors (rate limit) and non-retryable errors (invalid prompt, binary not found)
 
 **Why not chosen:**
@@ -144,9 +144,9 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 **Cons:**
 - Circuit breaker is designed for high-frequency requests (web services), not low-frequency pipeline phases
-- A pipeline runs 3-5 agents per phase, not 1000 requests per second — the statistical assumptions of circuit breakers don't apply
+- A pipeline runs 3-5 agents per phase, not 1000 requests per second: the statistical assumptions of circuit breakers don't apply
 - Circuit breaker state (open/closed/half-open) adds complexity without proportionate benefit
-- Rate limits have known reset times — circuit breaker ignores this information
+- Rate limits have known reset times: circuit breaker ignores this information
 - Does not handle partial failure semantics (circuit breaker is per-agent, not per-phase)
 
 **Why not chosen:**
@@ -154,7 +154,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 ---
 
-### Option 4: No retry — fail fast, let consuming project retry
+### Option 4: No retry; fail fast and let the consuming project retry
 
 **Overview:** orchcore reports failures via AgentResult and UICallback but never retries. Consuming projects implement their own retry logic.
 
@@ -164,7 +164,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 - Each consuming project has full control over retry behavior
 
 **Cons:**
-- Duplicates retry logic across all consuming projects — exactly the problem orchcore is designed to solve
+- Duplicates retry logic across all consuming projects: exactly the problem orchcore is designed to solve
 - Every consuming project must independently solve timezone-aware reset time parsing
 - Every consuming project must independently implement git dirty tree recovery
 - Contradicts ADR-001's goal of eliminating duplication
@@ -201,7 +201,7 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 ### Positive
 
-- Rate-limit recovery is automatic — consuming projects don't need to implement it
+- Rate-limit recovery is automatic: consuming projects don't need to implement it
 - Timezone-aware reset time parsing handles the hardest edge case correctly
 - Exponential backoff with jitter prevents thundering herd effects
 - Three partial failure modes cover strict (audit), lenient (review), and consensus (voting) phase types
@@ -240,9 +240,9 @@ Every source system has independently solved rate-limit recovery, but with diffe
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — recovery is a primary motivation for extraction
-- **ADR-002:** [Async-first architecture](./002-async-first-architecture-with-asyncio.md) — backoff waits use asyncio.sleep
-- **ADR-004:** [Composable stream pipeline](./004-composable-stream-processing-pipeline.md) — RATE_LIMIT StreamEventType triggers recovery
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md): recovery is a primary motivation for extraction
+- **ADR-002:** [Async-first architecture](./002-async-first-architecture-with-asyncio.md): backoff waits use asyncio.sleep
+- **ADR-004:** [Composable stream pipeline](./004-composable-stream-processing-pipeline.md): RATE_LIMIT StreamEventType triggers recovery
 
 ## References
 

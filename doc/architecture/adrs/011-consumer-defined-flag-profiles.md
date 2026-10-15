@@ -26,7 +26,7 @@ superseded_by: []
 
 ## Status
 
-ACCEPTED — shipped in orchcore 2.0.0. Amends ADR-007 and ADR-009.
+ACCEPTED, shipped in orchcore 2.0.0. Amends ADR-007 and ADR-009.
 
 ## Context and Problem Statement
 
@@ -55,22 +55,22 @@ This contradicts orchcore's own stated principles:
   (ADR-007). Plan/fix/audit/review *is* workflow policy.
 - ADR-009 asserted "agent modes are an intrinsic property of the agent."
   This premise was wrong: what is intrinsic to a CLI is which flags *exist*
-  (`--think`, `--sandbox`). *When* to use them — "this phase is planning
-  work" — is workflow policy owned by the consumer. **This ADR corrects that
+  (`--think`, `--sandbox`). *When* to use them ("this phase is planning
+  work") is workflow policy owned by the consumer. **This ADR corrects that
   premise.**
 
 A secondary incoherence: because `ToolSet` *replaced* mode flags instead of
 composing with them, a phase that set `tools` silently dropped behavioral
-flags like `--think` — access control and behavior selection were entangled
+flags like `--think`, so access control and behavior selection were entangled
 in one either/or mechanism.
 
 ### Design rule
 
 The codebase already demonstrates the correct criterion in both directions:
 
-- `StreamFormat` (claude/codex/…) is rightly a closed enum — orchcore ships
+- `StreamFormat` (claude/codex/…) is rightly a closed enum: orchcore ships
   a parser implementation per value.
-- `ToolSet.permission` values are rightly infra vocabulary — the runner
+- `ToolSet.permission` values are rightly infra vocabulary: the runner
   implements a per-CLI translation for each value.
 
 **A closed enum is justified only when the library implements distinct
@@ -84,7 +84,7 @@ must be user-defined.** `AgentMode` failed this test.
 | Layering: workflow vocabulary belongs to the domain layer | Critical | orchcore is infrastructure; consumers (Planora, Articles, Finvault, Raven) define what kinds of work exist |
 | Extensibility without core edits | Critical | New consumer vocabulary (`research`, `draft`, `art`) must not require an orchcore release; Python enums cannot be extended by consumers |
 | No silent domain defaults | High | Infrastructure defaulting to `PLAN` embeds a domain assumption and hides misconfiguration |
-| Keep the useful mechanism | High | A per-agent translation table from a role name to that CLI's dialect is genuinely valuable — only the closed key set was wrong |
+| Keep the useful mechanism | High | A per-agent translation table from a role name to that CLI's dialect is genuinely valuable; only the closed key set was wrong |
 | Data-format stability | High | Existing `agents.toml` files must keep parsing (keys were already plain TOML strings) |
 | Behavioral flags must compose with ToolSet | Medium | `--think` should not vanish because a phase declares tool access |
 | Typo visibility | Medium | Dropping enum validation must not turn misspelled names into silent no-ops |
@@ -94,11 +94,11 @@ must be user-defined.** `AgentMode` failed this test.
 ### Option 1: Consumer-defined string profile names (CHOSEN)
 
 **Overview:** Delete `AgentMode`. `AgentConfig.flags` becomes
-`dict[str, tuple[str, ...]]` — "flag profiles" — with names validated only
+`dict[str, tuple[str, ...]]` ("flag profiles"), with names validated only
 against a safety pattern (`^[A-Za-z0-9][A-Za-z0-9._-]*$`, so a name cannot be
 mistaken for a flag). Selection is a plain string: `Phase.flag_profile`
 (per-phase) overriding a pipeline-wide default (`run_pipeline(flag_profile=)`).
-`None` means *no profile flags* — there is no implicit default. Selecting a
+`None` means *no profile flags*; there is no implicit default. Selecting a
 profile an agent does not define logs a warning and applies no flags. Profile
 flags compose additively with the ToolSet translation (see below).
 
@@ -108,13 +108,13 @@ unchanged with full type checking on the consumer's side.
 
 **Pros:**
 - Vocabulary moves to the layer that owns it; core never changes for a new workflow role
-- TOML data format is 100% unchanged — only the Python-side key validation loosens
+- TOML data format is 100% unchanged: only the Python-side key validation loosens
 - Per-phase selection is strictly more expressive than 1.x's pipeline-global mode, and consistent with ADR-009's phase-level philosophy
-- Removes the silent `PLAN` default — explicit beats implicit
-- Prior art: Cargo profiles, tox environments, Docker Compose profiles, npm scripts — named bundles with user-defined names over an infra lookup mechanism
+- Removes the silent `PLAN` default: explicit beats implicit
+- Prior art: Cargo profiles, tox environments, Docker Compose profiles, and npm scripts, all named bundles with user-defined names over an infra lookup mechanism
 
 **Cons:**
-- Loses enum exhaustiveness/typo checking in core — mitigated by the name pattern validation, the unknown-profile warning, and consumer-side enums
+- Loses enum exhaustiveness/typo checking in core: mitigated by the name pattern validation, the unknown-profile warning, and consumer-side enums
 - Breaking API change (1.0.0 → 2.0.0)
 
 **Risk Assessment:**
@@ -144,7 +144,7 @@ module, so there is no incremental fix.
 **Overview:** Delete the named-bundle mechanism too; each `Phase` lists extra
 argv per agent name.
 
-**Why not chosen:** This discards the genuinely useful part — a registry-level
+**Why not chosen:** This discards the genuinely useful part: a registry-level
 translation table from one role name to each CLI's dialect (`plan` →
 `--think` for Claude, `--reasoning high` for Codex). Pipelines would duplicate
 CLI details per phase and per project, and the TOML data format would break.
@@ -189,17 +189,17 @@ would silently lose `--think`. In 2.0.0:
   ToolSet-managed domain (per-format `_TOOLSET_MANAGED_FLAGS`: everything
   the translation can emit plus known permission/approval-bypass flags) are
   **dropped with a warning**. Without a ToolSet, profile flags pass through
-  verbatim — full parity with the 1.x mode-flags fallback.
+  verbatim, in full parity with the 1.x mode-flags fallback.
 - Ownership guidance: profiles hold *behavioral* flags (thinking, verbosity,
   effort); tool access, permissions, and turn limits belong in ToolSets.
 - ToolSet resolution itself is unchanged:
   `Phase.agent_tools[agent] > explicit toolset > Phase.tools > none`.
 
 Malformed profile *selections* (empty or flag-like names) are rejected at
-every API boundary — `Phase.flag_profile` (pydantic pattern),
-`run_pipeline` (`PipelineValidationError`), `run_phase`/`run_parallel` and
-`AgentRunner.run` (`ValueError`) — while selecting a *well-formed but
-undefined* profile stays a per-agent warning, because sparse registries
+every API boundary: `Phase.flag_profile` (pydantic pattern),
+`run_pipeline` (`PipelineValidationError`), and `run_phase`/`run_parallel` and
+`AgentRunner.run` (`ValueError`). Selecting a *well-formed but
+undefined* profile, by contrast, stays a per-agent warning, because sparse registries
 (a profile defined for some agents only) are legitimate, matching 1.x's
 `flags.get(mode, ())` semantics but visibly.
 
@@ -236,10 +236,10 @@ undefined* profile stays a per-agent warning, because sparse registries
 ### When to Revisit This Decision
 
 - If orchcore ever implements real per-role behavior (not data lookup), that
-  specific mechanism may justify a closed enum — following the design rule
+  specific mechanism may justify a closed enum, following the design rule
   above, as `StreamFormat` and `ToolSet.permission` already do.
 - If several consumers converge on a shared vocabulary, publish it as
-  documentation (conventional names) or a separate tiny conventions package —
+  documentation (conventional names) or a separate tiny conventions package,
   not as a core type.
 - If duplicate-flag conflicts between profiles and ToolSet translations occur
   in practice, consider structured deduplication in `_build_command`.
@@ -296,15 +296,15 @@ undefined* profile stays a per-agent warning, because sparse registries
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — this ADR finishes the extraction: the modes were domain residue
-- **ADR-007:** [Registry pattern for agent management](./007-registry-pattern-for-agent-management.md) — amended: registry data remains "what the agent supports"; profile *names* are consumer vocabulary
-- **ADR-009:** [Tool assignment as phase-level concern](./009-tool-assignment-as-phase-level-concern.md) — amended: corrects the "modes are intrinsic" premise; ToolSet no longer replaces profile flags but composes after them
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md). This ADR finishes the extraction: the modes were domain residue
+- **ADR-007:** [Registry pattern for agent management](./007-registry-pattern-for-agent-management.md), amended: registry data remains "what the agent supports"; profile *names* are consumer vocabulary
+- **ADR-009:** [Tool assignment as phase-level concern](./009-tool-assignment-as-phase-level-concern.md), amended: corrects the "modes are intrinsic" premise; ToolSet no longer replaces profile flags but composes after them
 
 ## References
 
-- [Cargo custom profiles](https://doc.rust-lang.org/cargo/reference/profiles.html#custom-profiles) — user-named config bundles over an infra mechanism
-- [tox environments](https://tox.wiki/) / [Docker Compose profiles](https://docs.docker.com/compose/profiles/) — same pattern
-- Python `enum` documentation — enums cannot be extended outside the defining module
+- [Cargo custom profiles](https://doc.rust-lang.org/cargo/reference/profiles.html#custom-profiles): user-named config bundles over an infra mechanism
+- [tox environments](https://tox.wiki/) / [Docker Compose profiles](https://docs.docker.com/compose/profiles/): same pattern
+- Python `enum` documentation: enums cannot be extended outside the defining module
 
 ## Document History
 

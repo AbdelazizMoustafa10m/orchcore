@@ -1,10 +1,10 @@
 # Agent Registry
 
-This guide covers how to configure agents via TOML, register them at runtime, and add support for new agent CLIs without writing any code.
+This guide describes how to define agents in TOML or Python, look them up at runtime, assign tools per phase, and add support for a new agent CLI.
 
 ## Overview
 
-The `AgentRegistry` stores `AgentConfig` definitions and provides runtime lookup by name. Agents are defined as data — TOML files or Python dicts — not hardcoded classes. Adding a new agent CLI to orchcore requires only a TOML entry.
+`AgentRegistry` stores `AgentConfig` definitions and looks them up by name. Agents are defined as data (TOML entries or `AgentConfig` objects), not as classes. A new agent CLI that uses one of the supported stream formats needs only a TOML entry.
 
 ## Agent Configuration (TOML)
 
@@ -43,7 +43,7 @@ jq_expression = ".content[0].text"
 |-------|------|----------|-------------|
 | `binary` | `str` | Yes | Path or name of the agent CLI executable |
 | `model` | `str` | Yes | Model identifier passed to the agent |
-| `subcommand` | `str` | Yes | Agent CLI argument used before the prompt (for example, `"-p"` for Claude or `"exec"` for Codex). An empty string is omitted from the command — it never becomes a literal `''` argument. |
+| `subcommand` | `str` | Yes | Agent CLI argument used before the prompt (for example, `"-p"` for Claude or `"exec"` for Codex). An empty string is left out of the command instead of becoming a literal `''` argument. |
 | `stream_format` | `str` | Yes | JSONL format: `claude`, `codex`, `opencode`, `antigravity`, `copilot` |
 | `prompt_via` | `"argv" \| "stdin"` | No | How the prompt reaches the CLI (default: `argv`). `stdin` keeps the prompt out of argv and pipes it to the child's stdin. |
 | `stdin_sentinel` | `str \| None` | No | Argv placeholder appended instead of the prompt under `prompt_via = "stdin"` (for example, `"-"` for `codex exec -`). |
@@ -58,40 +58,42 @@ jq_expression = ".content[0].text"
 | `incompatible_versions` | `list[table]` | No | Known-bad ranges, each `{ spec = "...", reason = "..." }` |
 | `flags.<profile>` | `list[str]` | No | Named flag profile: a consumer-defined name mapped to this agent's CLI flags (see [Flag Profiles](#flag-profiles)) |
 | `env_vars` | `dict` | No | Environment variables to set for the subprocess |
-| `output_extraction.strategy` | `str` | Yes | How to extract output: `jq_filter`, `direct_file`, `stdout_capture` |
-| `output_extraction.jq_expression` | `str` | No | jq expression for `jq_filter` strategy |
+| `output_extraction.strategy` | `str` | Yes | How to extract output: `jq_filter`, `direct_file`, `stdout_capture` (see [Output Extraction Strategies](#output-extraction-strategies)) |
+| `output_extraction.jq_expression` | `str` | No | Equivalent jq expression, kept for reference; orchcore does not evaluate it |
+| `output_extraction.strip_preamble` | `bool` | No | With `jq_filter`, remove the text before the first Markdown heading (default: `false`) |
+| `output_extraction.stderr_as_stream` | `bool` | No | The agent writes its JSONL stream to stderr; orchcore parses stderr and collects stdout separately (default: `false`) |
 
 ### Flag Profiles
 
-A flag profile is a named bundle of CLI flags on an agent. The *names* are
-defined entirely by the consuming project — they are workflow vocabulary
-(`plan`/`fix` in a planning tool, `research`/`draft`/`art` in a publishing
-pipeline, `audit` in a compliance tool), and orchcore attaches no meaning to
-them beyond looking them up ([ADR-011](../architecture/adrs/011-consumer-defined-flag-profiles.md)).
-The profile mapping is the translation table from your vocabulary to each
-CLI's dialect: the same profile name can map to `["--think"]` for Claude and
-`["--reasoning", "high"]` for Codex.
+A **flag profile** is a named set of CLI flags on an agent. The consuming project
+chooses the names as part of its workflow vocabulary (e.g., `plan` and `fix` in a
+planning tool, `research`, `draft`, and `art` in a publishing pipeline, or `audit`
+in a compliance tool). orchcore only looks the names up and attaches no other
+meaning to them ([ADR-011](../architecture/adrs/011-consumer-defined-flag-profiles.md)).
+Each agent maps a profile name to its own CLI flags, so the same profile can map
+to `["--think"]` for Claude and `["--reasoning", "high"]` for Codex.
 
 A profile is selected per phase (`Phase.flag_profile`) or as a pipeline-wide
-default (`run_pipeline(flag_profile=...)`); the phase value wins. With no
-selection, **no** profile flags are applied — there is no implicit default.
-Selecting a profile an agent does not define logs a warning and applies no
-flags for that agent.
+default (`run_pipeline(flag_profile=...)`). If both are set, the phase value
+wins. If neither is set, no profile flags are applied; there is no implicit
+default. If an agent does not define the selected profile, orchcore logs a
+warning and applies no profile flags for that agent.
 
-Keep behavioral flags (thinking, verbosity, effort) in profiles; tool access
-and permissions belong in a [`ToolSet`](#toolset--phase-level-tool-configuration),
-which composes *with* profiles rather than replacing them. When a ToolSet is
-in effect, profile flags in the ToolSet-managed domain — tool allowlists,
-sandbox/permission/approval flags (including bypasses like `--yolo` or
-`--dangerously-skip-permissions`), and stream-output format — are **dropped
-with a warning**, because several CLIs hard-fail on duplicated singleton
-flags and a bypass flag cannot be neutralized by flags appended after it.
-Without a ToolSet, profile flags pass through verbatim. Malformed profile
-names (empty or flag-like, e.g. `"--think"`) are rejected at the API
-boundary rather than warned about at runtime.
+Keep behavioral flags (thinking, verbosity, effort) in profiles. Tool access
+and permissions belong in a [`ToolSet`](#phase-level-tool-configuration-toolset),
+which is applied in addition to the profile, not instead of it. When a ToolSet
+is in effect, profile flags that the ToolSet manages are dropped with a
+warning. These are tool allowlists, sandbox, permission, and approval flags
+(including bypasses such as `--yolo` or `--dangerously-skip-permissions`), and
+the stream-output format. They are dropped because several CLIs fail on a
+duplicated single-value flag, and flags appended later cannot undo a bypass
+flag. Without a ToolSet, profile flags are passed through unchanged. Malformed
+profile names (empty or flag-like, e.g., `"--think"`) raise an error as soon as
+they are passed to `Phase`, `AgentConfig.flags`, or a run method, instead of
+logging a warning later.
 
-Projects that want compile-time safety over their vocabulary can define their
-own enum — `StrEnum` members are strings and pass straight through:
+For static checking of profile names, a project can define its own enum.
+`StrEnum` members are strings, so they can be passed directly:
 
 ```python
 from enum import StrEnum
@@ -107,15 +109,17 @@ phase = Phase(name="planning", agents=("claude",), flag_profile=Mode.PLAN)
 
 | Strategy | Description |
 |----------|-------------|
-| `jq_filter` | Extract text from JSONL using the `jq_expression`. Parsed natively — no `jq` binary required. |
-| `direct_file` | Agent writes output to a file; orchcore reads it. |
-| `stdout_capture` | Capture the full stdout as output. |
+| `jq_filter` | Writes the text of the agent's `text` events, as extracted by the stream parser, to the output file. With `strip_preamble = true`, text before the first Markdown heading is removed. |
+| `direct_file` | Appends `-o <output_path>` to the command (the Codex output flag), and the agent writes the output file itself. |
+| `stdout_capture` | Writes the text of the agent's `text` events. With `stderr_as_stream = true`, writes the raw stdout instead. |
+
+The stream parser extracts text natively, so no `jq` binary is needed. `jq_expression` only documents the equivalent jq expression.
 
 ### Environment Policy
 
-Agent subprocesses default to `env_policy = "filtered"`. This keeps normal process basics like `PATH` and `HOME`, but strips common credential and agent configuration families such as `ANTHROPIC_*`, `OPENAI_*`, `GITHUB_*`, `AWS_*`, proxy variables, and telemetry variables. Values in `env_vars` are always applied last.
+Agent subprocesses default to `env_policy = "filtered"`. This keeps basic process variables such as `PATH` and `HOME`, but removes common credential and agent configuration families such as `ANTHROPIC_*`, `OPENAI_*`, `GITHUB_*`, `AWS_*`, proxy variables, and telemetry (`OTEL_*`) variables. Values in `env_vars` are always applied last.
 
-Use one of these migration paths when an agent genuinely needs an ambient variable:
+When an agent needs a variable from the parent environment, use one of the following:
 
 ```toml
 # Keep the old full-inheritance behavior for this agent.
@@ -129,11 +133,11 @@ env_passlist = ["ANTHROPIC_API_KEY"]
 ANTHROPIC_API_KEY = "..."
 ```
 
-`env_policy = "clean"` starts from a minimal platform environment. It is useful for reproducibility checks, but it is not a full hermetic home-directory sandbox.
+`env_policy = "clean"` starts from a minimal platform environment. It helps with reproducibility checks, but it keeps `HOME`, so CLIs still read their configuration from the home directory.
 
 ### Version Compatibility
 
-Agent CLIs release daily, and a stream-format change in a new CLI version otherwise surfaces only as inscrutable parse warnings. Version expectations are registry data:
+Agent CLIs release often, and without a version check a stream-format change in a new release shows up only as parse warnings. Version expectations are declared as registry data:
 
 ```toml
 [agents.claude]
@@ -146,31 +150,31 @@ spec = "<=2.0.0"
 reason = "stream-json v1 format; https://github.com/anthropics/claude-code/issues/NNN"
 ```
 
-Specifier grammar: comma-separated AND of `==`, `!=`, `>=`, `<=`, `>`, `<` clauses; `==`/`!=` accept a trailing `.*` wildcard (`"==2.1.*"`); list entries combine as OR. Known-incompatible ranges win over compatible ones.
+A specifier is a comma-separated list of `==`, `!=`, `>=`, `<=`, `>`, and `<` clauses that must all match. `==` and `!=` accept a trailing `.*` wildcard (`"==2.1.*"`). A list matches if any of its entries matches. A version that matches a known-incompatible range is treated as incompatible even if it also matches a compatible one.
 
-How the check behaves at runtime:
+At runtime, the check behaves as follows:
 
-- It runs **once per binary path per process** (cached, including failures) and is **advisory**: it never fails or delays the run beyond a hard 10-second timeout.
-- The version subprocess crosses the same explicit boundary as agent runs: filtered environment per the agent's `env_policy`, the run's explicit working directory, no stdin.
-- Logging is calibrated: known-compatible versions log at DEBUG, known-incompatible at WARNING (with the recorded reason), versions outside declared ranges at INFO, and undeclared setups at DEBUG.
-- The detected version lands on `AgentResult.agent_version` (`None` when detection is disabled or fails).
+- It runs once per binary path per process, and the result is cached, including failures. The check is advisory: it never fails the run, and a hard 10-second timeout bounds the delay.
+- The version subprocess runs under the same rules as the agent run: the environment filtered by the agent's `env_policy`, the run's working directory, and no stdin.
+- Known-compatible versions log at DEBUG, known-incompatible versions at WARNING (with the recorded reason), versions outside the declared ranges at INFO, and agents without declared ranges at DEBUG.
+- The detected version is stored on `AgentResult.agent_version` (`None` when detection is disabled or fails).
 
-Treat the ranges as maintained data: every `incompatible_versions` entry should carry a `reason` linking to the upstream issue or changelog entry that motivated it.
+Each `incompatible_versions` entry should carry a `reason` that links to the upstream issue or changelog entry behind it, so the ranges can be reviewed when the CLI changes.
 
 ### Prompt Transport (`prompt_via`)
 
-By default the prompt travels as a command-line argument (`prompt_via = "argv"`). For very large prompts this risks `ARG_MAX` (POSIX) / 32K `CreateProcess` (Windows) limits, and the prompt content is visible in local process listings. Setting `prompt_via = "stdin"` omits the prompt from argv, opens a stdin pipe, and writes the encoded prompt concurrently with stream consumption (avoiding pipe-buffer deadlocks), then closes stdin.
+By default, the prompt is passed as a command-line argument (`prompt_via = "argv"`). A very large prompt can exceed `ARG_MAX` (POSIX) or the 32K-character `CreateProcess` limit (Windows), and argv is visible in local process listings. With `prompt_via = "stdin"`, the prompt is left out of argv. orchcore opens a stdin pipe, writes the encoded prompt while it reads the output stream (so a full pipe buffer cannot deadlock the two), and then closes stdin.
 
 Per-CLI stdin support:
 
 | CLI | Configuration | Notes |
 |-----|---------------|-------|
-| Claude Code | `subcommand = "-p"`, `prompt_via = "stdin"` | `-p` accepts the prompt from piped stdin; capped at 10 MB as of v2.1.128 — reference files in the prompt for larger contexts. |
+| Claude Code | `subcommand = "-p"`, `prompt_via = "stdin"` | `-p` accepts the prompt from piped stdin; capped at 10 MB as of v2.1.128; for larger contexts, reference files from the prompt. |
 | Codex CLI | `subcommand = "exec"`, `prompt_via = "stdin"`, `stdin_sentinel = "-"` | `codex exec -` reads the full prompt from stdin; the `-` placeholder must be the prompt argument. |
 | Antigravity CLI | `subcommand = "-p"`, keep `prompt_via = "argv"` | `-p` takes the prompt as its value and does not read stdin (`-p -` is sent as a literal `-`). |
 | Others | keep `prompt_via = "argv"` | Use argv until stdin support is verified for the specific CLI. |
 
-orchcore drives non-interactive CLI modes only: CLIs that expect stdin to stay open for interaction are out of scope — stdin is closed after the prompt is written.
+orchcore drives non-interactive CLI modes only. stdin is closed after the prompt is written, so CLIs that expect stdin to stay open for interaction are not supported.
 
 ```toml
 [agents.codex]
@@ -259,17 +263,17 @@ print(claude.binary)        # "claude"
 print(claude.stream_format) # StreamFormat.CLAUDE
 ```
 
-Loading is **atomic**: every entry is parsed and validated before any is
-registered. With the default `on_error="raise"`, a file containing invalid
-entries raises a single `ValueError` naming *all* offenders and leaves the
-registry untouched. Pass `on_error="skip"` to register the valid entries and
-log a warning per invalid one (the pre-1.0 lenience for non-table entries).
+Loading is atomic: every entry is parsed and validated before any is
+registered. With the default `on_error="raise"`, a file with invalid entries
+raises one `ValueError` that names all of them, and the registry is left
+unchanged. Pass `on_error="skip"` to register the valid entries and log a
+warning for each invalid one (the pre-1.0 behavior for non-table entries).
 
-TOML values are used **literally** — no `${VAR}` environment-variable
-interpolation is performed; a value like `"${ANTHROPIC_API_KEY}"` would reach
-the subprocess as that exact string. For ambient credentials use
-`env_policy`/`env_passlist` (see [Environment Policy](#environment-policy)),
-or resolve values in your own configuration layer before registering.
+TOML values are used literally. orchcore does not expand `${VAR}` references,
+so a value like `"${ANTHROPIC_API_KEY}"` reaches the subprocess as that exact
+string. To pass credentials from the parent environment, use `env_policy` or
+`env_passlist` (see [Environment Policy](#environment-policy)), or resolve the
+values in your own configuration layer before registering.
 
 ### Programmatic Registration
 
@@ -304,9 +308,11 @@ missing = registry.validate(["claude", "codex", "unknown"])
 # Returns ["unknown"] — agents not registered or not on PATH
 ```
 
-## ToolSet — Phase-Level Tool Configuration
+<a id="toolset--phase-level-tool-configuration"></a>
 
-Tools available to an agent are defined at the phase level, not the agent level. This is a deliberate design decision ([ADR-009](../architecture/adrs/009-tool-assignment-as-phase-level-concern.md)).
+## Phase-Level Tool Configuration (ToolSet)
+
+Tools are assigned per phase, not per agent ([ADR-009](../architecture/adrs/009-tool-assignment-as-phase-level-concern.md)), so the same agent can be read-only in a planning phase and write-enabled in an execution phase.
 
 ```python
 from orchcore.registry import ToolSet
@@ -332,20 +338,20 @@ execution_tools = ToolSet(
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `internal` | `list[str]` | `[]` | Agent-native tools (e.g., Read, Write, Edit, Bash) |
-| `mcp` | `list[str]` | `[]` | MCP server tools (e.g., Exa, Tavily) |
+| `internal` | `tuple[str, ...]` | `()` | Agent-native tools (e.g., Read, Write, Edit, Bash); lists are accepted |
+| `mcp` | `tuple[str, ...]` | `()` | MCP server tools (e.g., Exa, Tavily); lists are accepted |
 | `permission` | `str` | `"read-only"` | Write access level: `read-only`, `workspace-write`, `full-access` |
 | `max_turns` | `int` | `25` | Maximum conversation turns for the agent |
 
 ### Tool Resolution Order
 
-When running an agent within a phase, the effective toolset is resolved via:
+For each agent in a phase, the effective ToolSet is the first one found in this order (from highest to lowest priority):
 
 ```
 Phase.agent_tools[agent]  >  explicit toolset arg  >  Phase.tools  >  none
 ```
 
-This allows fine-grained control: the planning phase can be read-only while the execution phase gets write access, and within a phase, different agents can have different tool sets.
+With `Phase.agent_tools`, agents in the same phase can have different ToolSets.
 
 Flag profiles are independent of this resolution: a selected profile's flags
 are always applied, and the ToolSet translation (when one resolves) is
@@ -353,17 +359,17 @@ appended after them.
 
 ## Adding a New Agent CLI
 
-To add support for a completely new agent CLI:
+To add support for a new agent CLI:
 
-1. **Determine the stream format** — if it outputs JSONL compatible with one of the 5 supported formats, use that format.
-2. **Add a TOML entry** — define the agent's binary, model, flags, and output extraction strategy.
-3. **Test** — run the agent through a simple pipeline to verify stream parsing works.
+1. Check whether its JSONL output matches one of the five supported stream formats. If it does, use that format.
+2. Add a TOML entry with the agent's binary, model, subcommand, stream format, flag profiles, and output extraction strategy.
+3. Run the agent through a one-phase pipeline and check that its tool calls, text, and result appear as `StreamEvent`s.
 
-If the agent's JSONL format is incompatible with all 5 supported formats, a new `StreamFormat` and parser must be added to `orchcore.stream` — but this is rare since most AI agent CLIs follow similar patterns.
+If the output matches none of the five formats, orchcore needs a new `StreamFormat` value and a parser module in `orchcore/stream/formats/`, which is a code change.
 
 ## Related
 
-- [Configuration Reference](../reference/configuration.md) — per-agent overrides in settings
-- [Stream Events Reference](../reference/stream-events.md) — `StreamFormat` enum
+- [Configuration Reference](../reference/configuration.md): per-agent overrides in settings
+- [Stream Events Reference](../reference/stream-events.md): the `StreamFormat` enum
 - [ADR-007: Registry pattern for agent management](../architecture/adrs/007-registry-pattern-for-agent-management.md)
 - [ADR-009: Tool assignment as phase-level concern](../architecture/adrs/009-tool-assignment-as-phase-level-concern.md)

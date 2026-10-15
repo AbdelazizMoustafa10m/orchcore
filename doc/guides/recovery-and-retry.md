@@ -1,26 +1,26 @@
 # Recovery & Retry
 
-orchcore handles the messy realities of long-running AI agent processes: rate limits, stalls, git dirty trees, and partial failures. This guide covers the recovery and retry system.
+This guide describes how orchcore handles rate limits, stalls, dirty git trees, and partial failures in multi-agent phases.
 
 ## Typed Failure Categories
 
-Failures travel as data. Every failed `AgentResult` carries an
-`error_category` (an `AgentErrorCategory` value such as `rate_limit`,
-`nonzero_exit`, `stream_error`, `timeout`, or `cancelled`) populated where the
-failure is first observed — see the
+Every failed `AgentResult` carries an `error_category`, an
+`AgentErrorCategory` value such as `rate_limit`, `nonzero_exit`,
+`stream_error`, `timeout`, or `cancelled`. The category is set where the
+failure is first observed (see the
 [stream-events reference](../reference/stream-events.md#agenterrorcategory)
-for the full population table. The engine's retry decision keys on this
-category alone: a result with `error_category == AgentErrorCategory.RATE_LIMIT`
+for where each category comes from). The engine decides whether to retry from
+this category alone: a result with `error_category == AgentErrorCategory.RATE_LIMIT`
 is retried under the phase's `RetryPolicy`, using the
-`rate_limit_reset_seconds` the runner already parsed; everything else is
-returned as-is. No error-string matching happens at the engine level, so
-stdout noise that merely *looks* like a rate limit no longer triggers retries.
+`rate_limit_reset_seconds` the runner already parsed. Every other failure is
+returned without a retry. The engine does not match error strings, so stdout
+text that only looks like a rate limit does not trigger a retry.
 
 ## Rate-Limit Detection
 
-The `RateLimitDetector` uses regex patterns to identify rate-limit messages in agent output across all supported CLIs. It acts as the runner's *fallback classifier*: when a CLI exits non-zero without emitting a typed `rate_limit` stream event, a matching stderr tail upgrades the result's category from `nonzero_exit` to `rate_limit`.
+`RateLimitDetector` matches agent output against per-CLI regex patterns for rate-limit messages. The runner uses it as a fallback: when a CLI exits non-zero without emitting a typed `rate_limit` stream event, a match in the stderr tail changes the result's category from `nonzero_exit` to `rate_limit`.
 
-**Detected patterns include:**
+Examples of detected messages:
 
 | Agent | Example Message |
 |-------|----------------|
@@ -40,16 +40,17 @@ if detector.is_rate_limited(output_text):
 
 ## Reset Time Parsing
 
-The `ResetTimeParser` extracts wait times from rate-limit messages, supporting multiple formats:
+`ResetTimeParser.parse()` returns the number of seconds to wait, read from a rate-limit message, or `None` if the message contains no reset time:
 
 | Format | Example | Result |
 |--------|---------|--------|
-| Absolute time with timezone | `"resets 7pm Europe/Berlin"` | timezone-aware datetime |
-| Relative duration | `"try again in 5 minutes"` | 300 seconds |
-| Seconds-based | `"retry after 120 seconds"` | 120 seconds |
-| Fallback from 429 patterns | `"429 Too Many Requests"` | Default backoff |
+| Go-style duration | `"resets in 1h30m"` | 5400 |
+| Relative duration | `"try again in 5 minutes"` | 300 |
+| Seconds | `"retry after 120 seconds"` | 120 |
+| Absolute time with time zone | `"resets 7pm Europe/Berlin"` | Seconds until the next 7 pm in Berlin |
+| No reset time | `"429 Too Many Requests"` | `None` (the engine uses the backoff schedule) |
 
-The parser is timezone-aware — it correctly handles messages like "resets at 3:00 AM PST" regardless of the local timezone.
+For an absolute time, the time zone must be an IANA name such as `Europe/Berlin` or `America/Los_Angeles`. A time without a zone is read as UTC. An unknown name, including abbreviations such as `PST`, logs a warning and is also read as UTC. If the time has already passed today, the parser uses the same time on the next day.
 
 ## Retry Policy
 
@@ -71,10 +72,10 @@ policy = RetryPolicy(
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `max_retries` | `int` | `3` | Maximum retry attempts |
-| `backoff_schedule` | `list[int]` | `[120, 300, 900, 1800]` | Wait times in seconds for each retry |
-| `max_wait` | `int` | `21600` | Maximum total wait time (6 hours) |
-| `failure_mode` | `FailureMode` | `FAIL_FAST` | How to handle failures in multi-agent phases |
+| `max_retries` | `int` | `3` | Maximum rate-limit retries per agent |
+| `backoff_schedule` | `tuple[int, ...]` | `(120, 300, 900, 1800)` | Wait times in seconds for each retry; the last entry repeats for later retries. Lists are accepted. |
+| `max_wait` | `int` | `21600` | Upper bound for a single wait, in seconds (6 hours) |
+| `failure_mode` | `FailureMode` | `FAIL_FAST` | How agent failures decide the phase status; overrides `Phase.failure_mode` |
 | `min_count` | `int` | `1` | Minimum successful agents for `REQUIRE_MINIMUM` mode |
 | `git_recovery` | `"off" \| "auto_commit" \| "stash"` | `"off"` | Optional dirty-tree recovery before rate-limit retries |
 | `git_recovery_cwd` | `Path \| None` | `None` | Directory where git commands run; defaults to the agent cwd when available |
@@ -82,7 +83,7 @@ policy = RetryPolicy(
 
 ### Backoff Schedule
 
-The default backoff schedule uses exponential steps:
+With the default schedule and `max_retries=3`, the waits are:
 
 | Retry | Wait | Cumulative |
 |-------|------|-----------|
@@ -90,15 +91,17 @@ The default backoff schedule uses exponential steps:
 | 2nd | 5 minutes | 7 min |
 | 3rd | 15 minutes | 22 min |
 
-Random jitter (0-30 seconds) is added to each wait to avoid thundering-herd effects.
+If the rate-limit message yields a positive reset delay, that delay replaces the schedule entry; otherwise the schedule applies. Each wait gets 0-30 seconds of random jitter, so agents that hit the same limit do not all retry at the same moment. The result is then capped at `max_wait`.
 
 ## Failure Modes
 
-For multi-agent parallel phases, the `FailureMode` controls how failures are evaluated:
+`FailureMode` decides a phase's status from its agents' results. In a parallel phase, `FAIL_FAST` also cancels the agents still running after the first failure. A sequential phase always runs every agent and then evaluates the results.
+
+If a phase sets `retry_policy`, the policy's `failure_mode` and `min_count` apply and `Phase.failure_mode` is ignored. In that case, set the mode on the `RetryPolicy`, as the `REQUIRE_MINIMUM` example does.
 
 ### `FAIL_FAST`
 
-Stop the phase on the first agent failure. The phase is marked as failed.
+Any agent failure fails the phase. This is the default.
 
 ```python
 phase = Phase(
@@ -111,7 +114,7 @@ phase = Phase(
 
 ### `CONTINUE`
 
-Run all agents regardless of individual failures. Report results per agent.
+Every agent runs to completion regardless of the others, and the phase status reflects how many succeeded:
 
 - All succeed → `done`
 - Some succeed, some fail → `partial`
@@ -128,7 +131,9 @@ phase = Phase(
 
 ### `REQUIRE_MINIMUM`
 
-Require at least `min_count` agents to succeed. Useful when you want redundancy but don't need every agent to finish.
+At least `min_count` agents must succeed. Use it to run redundant agents when not all of them need to succeed. The phase is `done` if every agent succeeds, `partial` if at least `min_count` succeed, and `failed` otherwise.
+
+One exception: a sequential phase whose agents all succeed is `done` even if it has fewer agents than `min_count`, while a parallel phase reports `failed` in that case.
 
 ```python
 from orchcore.recovery import RetryPolicy, FailureMode
@@ -163,28 +168,28 @@ Available modes:
 | `"auto_commit"` | If the tree is dirty, stage and commit before retrying; hooks run unless `git_recovery_no_verify=True` |
 | `"stash"` | Stash before the retry wait and restore the stash before the next attempt |
 
-Git commands run in `git_recovery_cwd` when set, otherwise the explicit agent working directory. If neither exists, recovery is skipped with a warning and an `on_git_recovery("skipped_no_cwd", ...)` callback.
+Git commands run in `git_recovery_cwd` when it is set, otherwise in the agent's explicit working directory. If neither is set, recovery is skipped with a warning and an `on_git_recovery("skipped_no_cwd", ...)` callback.
 
 ## Stall and Runtime Enforcement
 
-`stall_timeout` and `deep_tool_timeout` detect silence and emit `STALL` events. Enforcement is separate:
+`stall_timeout` and `deep_tool_timeout` detect silence and emit `STALL` events, but they do not stop the agent. Two separate settings enforce limits:
 
 | AgentConfig field | Default | Behavior |
 |-------------------|---------|----------|
 | `kill_on_stall` | `False` | When true, a detected stall terminates the process tree and returns an `AgentResult.error` like `stalled for 300s (kill_on_stall)` |
 | `max_runtime` | `None` | When set, caps the stream-consume phase and returns an error like `max_runtime exceeded after 1800s` |
 
-Timeout and stall kills may leave partial output artifacts; `output_empty` reports whether anything useful was written.
+A timeout or stall kill can leave partial output files. `AgentResult.output_empty` reports whether the output file is empty.
 
 ## Per-Phase Retry Configuration
 
-Retry policies can be set per phase:
+Each phase can have its own retry policy:
 
 ```python
 from orchcore.pipeline import Phase
 from orchcore.recovery import RetryPolicy, FailureMode
 
-# Critical phase — retry aggressively
+# Critical phase: more retries with shorter waits
 implementation = Phase(
     name="implementation",
     agents=["claude"],
@@ -194,30 +199,29 @@ implementation = Phase(
     ),
 )
 
-# Review phase — fail fast, no retries
+# Review phase: no retries, and one agent's failure does not stop the other
 review = Phase(
     name="review",
     agents=["claude", "codex"],
     parallel=True,
-    failure_mode=FailureMode.CONTINUE,
-    retry_policy=RetryPolicy(max_retries=0),
+    retry_policy=RetryPolicy(max_retries=0, failure_mode=FailureMode.CONTINUE),
 )
 ```
 
 ## UICallback Integration
 
-The recovery system communicates through the `UICallback` protocol:
+The engine reports recovery steps through the `UICallback` protocol:
 
 | Event | When |
 |-------|------|
-| `on_rate_limit(agent, message)` | Rate limit detected |
-| `on_rate_limit_wait(agent, seconds)` | Waiting for cooldown |
+| `on_rate_limit(agent, message)` | Rate limit detected and a retry follows |
+| `on_rate_limit_wait(agent, seconds)` | Waiting for the rate limit to reset |
 | `on_retry(agent, attempt, max)` | Retry attempt starting |
 | `on_stall_detected(agent, duration)` | Agent idle beyond timeout |
-| `on_git_recovery(action, detail)` | Git stash/commit before retry |
+| `on_git_recovery(action, detail)` | Git commit, stash, or stash restore around a retry |
 
 ## Related
 
-- [Configuration Reference](../reference/configuration.md) — `max_retries`, `max_wait`, `stall_timeout` settings
+- [Configuration Reference](../reference/configuration.md): the `max_retries`, `max_wait`, and `stall_timeout` settings
 - [ADR-008: Partial failure semantics with retry](../architecture/adrs/008-partial-failure-semantics-with-retry.md)
-- [Stream Pipeline](../architecture/stream-pipeline.md) — stall detection stage
+- [Stream Pipeline](../architecture/stream-pipeline.md): the stall detection stage

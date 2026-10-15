@@ -14,39 +14,39 @@
 
 ## What is orchcore?
 
-orchcore is an async-first Python 3.12+ library that provides unified infrastructure for launching, monitoring, and managing multiple AI coding agent CLIs (Claude, Codex, Antigravity, Copilot, OpenCode) as subprocesses through phase-based pipelines. It was extracted from four production orchestration systems — Planora, Articles, Finvault, and Raven — eliminating 60-70% of duplicated infrastructure so consuming projects only implement domain-specific logic.
+orchcore is an async-first Python library for launching, monitoring, and managing AI coding agent CLIs (Claude Code, Codex, Antigravity, Copilot, OpenCode) as subprocesses in phase-based pipelines. It was extracted from four production orchestration systems (Planora, Articles, Finvault, and Raven), where an estimated 60-70% of the orchestration code was the same infrastructure. Consuming projects keep only their domain-specific logic: pipeline definitions, prompts, output interpretation, and presentation.
 
 <p align="center">
-  <img src="assets/orchcore-architecture.png" alt="orchcore Architecture" width="700">
+  <img src="assets/orchcore-architecture.png" alt="orchcore architecture. The domain workflow layer, which changes per project, holds pipeline definitions, prompt templates, output interpretation, presentation (TUI or CLI), and agent and tool selection. It builds on the reusable orchestration core: agent registry, stream pipeline, phase engine, config and settings, prompt engine, recovery, display and UI, and signal handling." width="700">
 </p>
 
 ## Features
 
-- **Multi-agent subprocess orchestration** — async launch, stream capture, concurrency control
-- **Unified stream processing** — 4-stage pipeline normalizes 5 JSONL formats into a single `StreamEvent` model
-- **Phase pipelines** — sequential/parallel execution with dependency checks and resume
-- **Rate-limit recovery** — automatic detection, timezone-aware reset parsing, exponential backoff
-- **Layered configuration** — TOML files, env vars, CLI overrides, named profiles
-- **Protocol-based UI** — `UICallback` decouples engine from display (Rich, Textual, headless)
-- **Registry-as-data** — new agent support via TOML config alone, zero code changes
-- **Graceful shutdown** — SIGINT/SIGTERM with subprocess cleanup and state preservation
-- **Safe subprocess boundaries** — filtered agent environments by default, explicit cwd support, and opt-in git recovery
+- Launches agent CLIs as async subprocesses, captures their output streams, and limits how many run at once.
+- Normalizes five JSONL output formats into one `StreamEvent` model through a four-stage stream pipeline (filter, parse, monitor, stall detection).
+- Runs phases in dependency order, with each phase's agents running sequentially or in parallel, and supports resume, skip, and single-phase options.
+- Detects rate limits, parses reset times (including named time zones), and retries after a backoff wait.
+- Layers settings from TOML files, `.env` and environment variables, constructor arguments, and named profiles.
+- Separates the engine from presentation through the `UICallback` protocol, so the consuming project chooses Rich, Textual, or headless output.
+- Defines agents as data: a new agent CLI that uses a supported stream format needs only a TOML entry.
+- On SIGINT or SIGTERM, terminates agent process trees and force-kills them after a 30-second grace period. With a workspace attached, completed phases are saved for resume.
+- Starts agent subprocesses with a filtered environment by default and in an explicit working directory when one is given (`cwd`). Git recovery runs only when a phase opts in.
 
 ## Installation
+
+orchcore requires Python 3.12 or later.
 
 ```bash
 uv pip install orchcore
 ```
 
-From source:
+To install from source with the development dependencies:
 
 ```bash
 git clone https://github.com/AbdelazizMoustafa10m/orchcore.git
 cd orchcore
 uv pip install -e ".[dev]"
 ```
-
-**Requirements:** Python 3.12+
 
 ## Quick Start
 
@@ -121,17 +121,17 @@ if __name__ == "__main__":
 ```
 <!-- example:quickstart.py:end -->
 
-By default, agent subprocesses receive a filtered environment: common API keys and provider-specific variables are not inherited unless you set `env_policy = "inherit"`, pass `env_passlist`, or provide explicit `env_vars` in your agent config.
+By default, agent subprocesses receive a filtered environment, so common API keys and provider-specific variables are not inherited. To pass them through, set `env_policy = "inherit"`, list the names in `env_passlist`, or set explicit `env_vars` in the agent config.
 
 ## Modules
 
 | Module | Purpose |
 |--------|---------|
 | `stream/` | 4-stage pipeline (Filter → Parse → Monitor → Stall Detect) for 5 agent formats |
-| `pipeline/` | Phase orchestration — sequential/parallel multi-agent execution in topological dependency order |
+| `pipeline/` | Phase orchestration: sequential or parallel multi-agent execution in topological dependency order |
 | `runner/` | Async subprocess management with stdout/stderr streaming and optional stdin prompt transport (`prompt_via = "stdin"`) |
 | `registry/` | Agent configurations as data (TOML/dict) with runtime lookup |
-| `config/` | Layered configuration: TOML → env vars → CLI overrides → profiles |
+| `config/` | Layered settings from TOML files, profiles, `.env`, environment variables, and constructor arguments |
 | `recovery/` | Rate-limit detection, exponential backoff, git dirty-tree recovery |
 | `workspace/` | Artifact lifecycle management |
 | `prompt/` | Jinja2 template rendering with frontmatter stripping |
@@ -142,7 +142,7 @@ By default, agent subprocesses receive a filtered environment: common API keys a
 
 ## Documentation
 
-Full documentation is available at **[abdelazizmoustafa10m.github.io/orchcore](https://abdelazizmoustafa10m.github.io/orchcore/)**.
+The full documentation is published on the [orchcore documentation site](https://abdelazizmoustafa10m.github.io/orchcore/). The pages below are also readable on GitHub.
 
 | Document | Description |
 |----------|-------------|
@@ -152,7 +152,7 @@ Full documentation is available at **[abdelazizmoustafa10m.github.io/orchcore](h
 | [Stream Events Reference](doc/reference/stream-events.md) | StreamEvent fields, types, agent states |
 | [UICallback Reference](doc/reference/ui-callback.md) | Protocol methods and built-in implementations |
 | [Architecture](doc/architecture/overview.md) | Package layout, core abstractions, design decisions |
-| [Stream Pipeline](doc/architecture/stream-pipeline.md) | 4-stage composable pipeline deep-dive |
+| [Stream Pipeline](doc/architecture/stream-pipeline.md) | How the four stream-processing stages work |
 | [Design Document](doc/architecture/design.md) | Problem statement, requirements, proposed design |
 | [Writing a UICallback](doc/guides/writing-a-uicallback.md) | Build custom display layers |
 | [Agent Registry](doc/guides/agent-registry.md) | TOML config, adding new agents, ToolSets |
@@ -161,9 +161,7 @@ Full documentation is available at **[abdelazizmoustafa10m.github.io/orchcore](h
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing instructions, and code standards.
-
-Please also review [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing instructions, and code standards. Contributors follow the [Code of Conduct](CODE_OF_CONDUCT.md), and security issues are reported as described in the [security policy](SECURITY.md).
 
 ## License
 

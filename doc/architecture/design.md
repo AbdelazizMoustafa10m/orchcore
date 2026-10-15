@@ -6,21 +6,21 @@
 
 ## TL;DR
 
-orchcore extracts the common orchestration infrastructure from four production AI agent orchestration systems (Planora, Articles, Finvault, Raven/Ralph) into a standalone, reusable Python package. It provides 12 components — agent registry, subprocess runner, stream processing pipeline, phase engine, rate-limit recovery, workspace management, configuration, prompt templating, logging, UI protocol, signal handling, and observability — unified by a `UICallback` protocol that decouples the engine from presentation. The extraction eliminates 60-70% code duplication across the four systems.
+orchcore extracts the common orchestration infrastructure from four production AI agent orchestration systems (Planora, Articles, Finvault, Raven/Ralph) into a standalone Python package. It provides 12 components: agent registry, subprocess runner, stream processing pipeline, phase engine, rate-limit recovery, workspace management, configuration, prompt templating, logging, UI protocol, signal handling, and observability. The engine reports progress through the `UICallback` protocol, which keeps presentation out of the package. The extraction targets the estimated 60-70% of orchestration code that the four systems duplicate.
 
 ## Problem Statement
 
 ### Current Situation
 
-- Four production orchestration systems exist — Planora (Python), Articles (Bash), Finvault (Bash), and Raven/Ralph (Go) — each independently implementing the same infrastructure: subprocess launching, JSONL stream parsing, rate-limit detection, workspace management, and configuration handling.
+- Four production orchestration systems, Planora (Python), Articles (Bash), Finvault (Bash), and Raven/Ralph (Go), each implement the same infrastructure: subprocess launching, JSONL stream parsing, rate-limit detection, workspace management, and configuration handling.
 - An estimated 60-70% of the orchestration code across these four systems is functionally identical infrastructure.
 - Bug fixes in one system must be manually ported to the other three.
 - Each new agent CLI (Gemini, Copilot) requires N implementations across N systems.
 
 ### Opportunity
 
-- A shared package eliminates duplication — improvements benefit all consumers immediately.
-- Dramatically lowers the barrier to building new AI agent orchestration systems.
+- With a shared package, a fix or improvement reaches every consumer through a version bump.
+- A new orchestration system can start from the shared package instead of reimplementing subprocess management, stream parsing, and recovery.
 - The Python ecosystem lacks a purpose-built library for orchestrating CLI-based AI coding agents (existing tools like LangChain operate at the API level, not the subprocess level).
 
 ## Goals
@@ -35,9 +35,9 @@ orchcore extracts the common orchestration infrastructure from four production A
 
 ## Non-Goals
 
-- orchcore is **not** an AI agent — it does not make API calls or generate code
-- orchcore does **not** include a TUI framework — it provides hooks that a TUI implements
-- orchcore does **not** handle API keys — agent CLIs manage their own credentials, while subprocess environment inheritance remains explicit and configurable
+- orchcore is not an AI agent. It does not make API calls or generate code.
+- orchcore does not include a TUI framework. It provides the `UICallback` hooks that a TUI implements.
+- orchcore does not handle API keys. Agent CLIs manage their own credentials, and which environment variables a subprocess inherits stays explicit and configurable.
 
 ## Success Metrics
 
@@ -161,11 +161,11 @@ class PipelineRunner:
 | LangChain / CrewAI | Operate at the API level, not CLI subprocess level |
 | Shared Bash library | Not feasible for complex async orchestration |
 | Monorepo with shared code | Tight coupling, hard to version independently |
-| Per-system copy-paste | Current state — 60-70% duplication, maintenance burden |
+| Per-system copy-paste | The current state: 60-70% duplication, with every fix ported by hand |
 
 ## Related
 
-- [Architecture Overview](overview.md) — package layout and component diagrams
-- [Architecture Decision Records](adrs/) — all 10 ADRs
+- [Architecture Overview](overview.md): package layout and component diagrams
+- [Architecture Decision Records](../index.md#architecture-decision-records): the list of all 11 ADRs
 - [Configuration Reference](../reference/configuration.md)
 - [Stream Events Reference](../reference/stream-events.md)
