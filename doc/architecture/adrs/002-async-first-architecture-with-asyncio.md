@@ -30,15 +30,15 @@ ACCEPTED
 
 orchcore's primary job is launching, monitoring, and managing multiple AI coding agent CLIs as subprocesses. This involves concurrent operations: launching parallel agents within a phase, reading stdout/stderr streams from running subprocesses, detecting stalls via timeouts, managing rate-limit recovery waits, and handling signals for graceful shutdown.
 
-Each of the four source systems handles concurrency differently. Planora uses Python asyncio for subprocess management. Articles, Finvault, and Raven use Bash background processes with `wait` and `&`. The Bash approach is fragile — error handling across background processes is manual, stream capture requires FIFO files, and there is no structured way to cancel a subset of running processes.
+Each of the four source systems handles concurrency differently. Planora uses Python asyncio for subprocess management. Articles, Finvault, and Raven use Bash background processes with `wait` and `&`. The Bash approach is fragile: error handling across background processes is manual, stream capture requires FIFO files, and there is no structured way to cancel a subset of running processes.
 
 orchcore needs a concurrency model that supports: launching N subprocesses concurrently with a configurable limit, reading streams from each subprocess without blocking others, implementing timeouts (stall detection) without busy-waiting, graceful cancellation of running tasks on signal receipt, and structured error propagation from concurrent operations.
 
 ### Business Context
 
-- All I/O in orchcore is subprocess I/O (launching agents, reading streams) and file I/O (workspace, config) — no network requests or database queries
+- All I/O in orchcore is subprocess I/O (launching agents, reading streams) and file I/O (workspace, config): no network requests or database queries
 - Python 3.12+ provides mature asyncio subprocess/task APIs, `tomllib` in stdlib, and modern typing features
-- Planora already uses asyncio — its patterns directly inform orchcore's design
+- Planora already uses asyncio: its patterns directly inform orchcore's design
 - The consuming projects that are Bash-based will be migrated to Python (or use orchcore via subprocess), so the concurrency model must be Python-native
 
 ## Decision Drivers
@@ -55,7 +55,7 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 
 ## Considered Options
 
-### Option 1: asyncio (stdlib) — async/await throughout (CHOSEN)
+### Option 1: asyncio (stdlib) with async/await throughout (CHOSEN)
 
 **Overview:** Use Python's built-in asyncio library for all concurrent operations. All subprocess launches, stream reads, timeouts, and signal handling use async/await patterns with explicit task orchestration.
 
@@ -67,10 +67,10 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 - `asyncio.wait_for()` and `asyncio.timeout()` provide efficient timeout support
 - `asyncio.Event` and task cancellation enable clean signal handling
 - Single-threaded event loop avoids GIL contention and race conditions
-- Planora already uses asyncio — battle-tested patterns can be directly adopted
+- Planora already uses asyncio, so its production patterns can be adopted directly
 
 **Cons:**
-- All code in the call chain must be async — sync functions cannot easily call async functions
+- All code in the call chain must be async: sync functions cannot easily call async functions
 - Stack traces for async code are harder to read than synchronous code
 - Some consuming projects (if calling orchcore from sync code) need `asyncio.run()` at the boundary
 - Error handling across concurrent tasks requires careful cancellation and result draining
@@ -93,20 +93,20 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 **Overview:** Use Python threads with ThreadPoolExecutor for parallel agent execution. Each agent runs in its own thread with blocking I/O.
 
 **Pros:**
-- Simpler mental model — synchronous code in each thread
+- Simpler mental model: synchronous code in each thread
 - `subprocess.run()` (blocking) works directly in threads
 - No async/await syntax required; easier for developers unfamiliar with asyncio
 
 **Cons:**
 - GIL prevents true CPU parallelism (not relevant for I/O-bound work, but creates contention under load)
 - Thread synchronization (locks, conditions) is error-prone
-- Cancelling a thread is not supported in Python — `thread.cancel()` does not exist
+- Cancelling a thread is not supported in Python: `thread.cancel()` does not exist
 - Thread pool sizing is guesswork; too few threads serialize work, too many waste resources
-- No structured concurrency — orphaned threads can leak
+- No structured concurrency: orphaned threads can leak
 - Stream reading requires one thread per stream (stdout + stderr per agent = 2N threads for N agents)
 
 **Why not chosen:**
-- The inability to cancel running threads is a dealbreaker for signal handling. When SIGINT arrives, orchcore must cancel running agent tasks — threading provides no mechanism for this. asyncio's `task.cancel()` is purpose-built for exactly this scenario.
+- The inability to cancel running threads is a dealbreaker for signal handling. When SIGINT arrives, orchcore must cancel running agent tasks, and threading provides no mechanism for this. asyncio's `task.cancel()` is purpose-built for exactly this scenario.
 
 ---
 
@@ -122,9 +122,9 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 
 **Cons:**
 - Additional dependency (trio is not in stdlib)
-- Smaller ecosystem — fewer third-party libraries support trio natively
+- Smaller ecosystem: fewer third-party libraries support trio natively
 - Consuming projects using asyncio would need compatibility shims (anyio or manual bridging)
-- Planora uses asyncio, not trio — migration cost for the primary consumer
+- Planora uses asyncio, not trio: migration cost for the primary consumer
 - trio's subprocess API is less mature than asyncio's
 
 **Why not chosen:**
@@ -141,10 +141,10 @@ orchcore needs a concurrency model that supports: launching N subprocesses concu
 - Process isolation prevents one agent's crash from affecting others
 
 **Cons:**
-- Massive overhead for I/O-bound work — launching a Python process per agent (agent CLIs are already separate processes)
+- High overhead for I/O-bound work: one Python process per agent (agent CLIs are already separate processes)
 - IPC between processes (pipes, queues) is more complex than in-process communication
 - No shared state without explicit synchronization primitives
-- Would launch a Python process that launches an agent CLI process — unnecessary process nesting
+- Would launch a Python process that launches an agent CLI process: unnecessary process nesting
 - Debugging across process boundaries is harder
 
 **Why not chosen:**
@@ -193,7 +193,7 @@ cancellation and partial-failure semantics.
 
 ### Negative
 
-- All orchcore code must be async — sync helper functions need explicit `async def` wrappers or must avoid I/O
+- All orchcore code must be async: sync helper functions need explicit `async def` wrappers or must avoid I/O
 - Consuming projects calling orchcore from synchronous code must use `asyncio.run()` at the boundary
 - Concurrent task error handling requires careful cancellation and result-draining tests
 - Async stack traces are more complex to read than synchronous ones
@@ -201,7 +201,7 @@ cancellation and partial-failure semantics.
 ### Neutral
 
 - Python >= 3.12 requirement excludes older Python versions (3.10, 3.11) but aligns with orchcore's other requirements (type parameter syntax, tomllib)
-- asyncio is the standard choice for I/O-bound Python applications — not controversial
+- asyncio is the standard choice for I/O-bound Python applications: not controversial
 
 ## Validation and Monitoring
 
@@ -218,8 +218,8 @@ cancellation and partial-failure semantics.
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — asyncio is part of the Python package decision
-- **ADR-004:** [Composable stream processing pipeline](./004-composable-stream-processing-pipeline.md) — stream pipeline uses async stream readers
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md): asyncio is part of the Python package decision
+- **ADR-004:** [Composable stream processing pipeline](./004-composable-stream-processing-pipeline.md): stream pipeline uses async stream readers
 
 ## References
 

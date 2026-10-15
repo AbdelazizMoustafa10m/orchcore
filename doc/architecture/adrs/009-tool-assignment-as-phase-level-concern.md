@@ -27,27 +27,27 @@ superseded_by: []
 
 ## Status
 
-ACCEPTED — amended by [ADR-011](./011-consumer-defined-flag-profiles.md) (2026-07-02): the premise below that "agent modes are an intrinsic property of the agent" was corrected (mode names are consumer workflow vocabulary, now modeled as flag profiles), and the ToolSet-replaces-mode-flags fallback became additive composition (profile flags first, ToolSet translation last). Amended again (2026-10-14): Gemini CLI support was replaced by the Antigravity CLI (`agy`), which translates `workspace-write` to `--mode accept-edits` and `full-access` to `--dangerously-skip-permissions`; references to Gemini below are historical. Historical text is preserved as written.
+ACCEPTED, amended by [ADR-011](./011-consumer-defined-flag-profiles.md) (2026-07-02): the premise below that "agent modes are an intrinsic property of the agent" was corrected (mode names are consumer workflow vocabulary, now modeled as flag profiles), and the ToolSet-replaces-mode-flags fallback became additive composition (profile flags first, ToolSet translation last). Amended again (2026-10-14): Gemini CLI support was replaced by the Antigravity CLI (`agy`), which translates `workspace-write` to `--mode accept-edits` and `full-access` to `--dangerously-skip-permissions`; references to Gemini below are historical. Historical text is preserved as written.
 
 ## Context and Problem Statement
 
-orchcore must control which tools are available to agents at each step of a pipeline. The current design assigns tools via `AgentConfig.flags[AgentMode]`, which maps agent modes (PLAN, FIX, AUDIT, REVIEW) to CLI flags. This is too coarse — in practice, tools vary **per phase** within the same mode, not just per mode. Evidence from all four source systems demonstrates this gap:
+orchcore must control which tools are available to agents at each step of a pipeline. The current design assigns tools via `AgentConfig.flags[AgentMode]`, which maps agent modes (PLAN, FIX, AUDIT, REVIEW) to CLI flags. This is too coarse: in practice, tools vary **per phase** within the same mode, not just per mode. Evidence from all four source systems demonstrates this gap:
 
 - **Articles** (8-phase pipeline): Phase 1 (research) uses `Read + Tavily MCP + Exa MCP` for web research. Phase 2 (draft) uses `Read, Write` for content writing. Phase 5 (art generation) uses `Read, Write, Bash, Edit` for image generation scripts. All three phases run Claude in FIX mode, but each needs fundamentally different tools.
 - **Finvault** (audit pipeline): Audit phases use read-only tools (`Read, Glob, Grep`) to analyze code without modification. Fix phases use full-access tools (`Read, Write, Edit, Bash`) to apply corrections. The agent mode alone cannot express this distinction when the same agent (Claude) is used in both.
 - **Raven** (autonomous development): Implementation phases need `Edit, Write, Read, Bash` for code changes. Review phases need only `Read, Glob, Grep` to inspect results without accidentally modifying them. Security requires that review phases cannot write.
 - **Planora** (planning pipeline): Plan phase needs read-only tools for analysis. Refine phase could need Write access to update plan documents. Audit phases should be strictly read-only regardless of the agent used.
 
-Additionally, MCP (Model Context Protocol) servers are an emerging concern. Agent CLIs increasingly support external tool servers (Tavily for search, Exa for web research, custom internal tools). These MCP tools must be assignable per phase alongside internal tools — a research phase might use Tavily and Exa, while a coding phase should not have access to web search tools.
+Additionally, MCP (Model Context Protocol) servers are an emerging concern. Agent CLIs increasingly support external tool servers (Tavily for search, Exa for web research, custom internal tools). These MCP tools must be assignable per phase alongside internal tools: a research phase might use Tavily and Exa, while a coding phase should not have access to web search tools.
 
 The fundamental problem is: **agent modes are an intrinsic property of the agent, but tool access is an extrinsic, context-dependent constraint set by the pipeline definition.** These are separate concerns that should be modeled separately.
 
 ### Business Context
 
-- MCP server adoption is growing rapidly — tools like Tavily, Exa, and custom internal servers are becoming standard in AI workflows
+- MCP server adoption is growing: tools like Tavily, Exa, and custom internal servers are becoming standard in AI workflows
 - Security-conscious teams require enforceable tool restrictions: read-only phases must not have write tools, regardless of what the agent supports
 - Pipeline definitions should be self-documenting: looking at a phase's TOML configuration should show exactly which tools are available
-- Different consuming projects need different tool configurations for the same agents — Planora might restrict Claude to read-only in audit phases, while Raven gives Claude full access in implementation phases
+- Different consuming projects need different tool configurations for the same agents: Planora might restrict Claude to read-only in audit phases, while Raven gives Claude full access in implementation phases
 
 ## Decision Drivers
 
@@ -153,7 +153,7 @@ This translation lives in the runner, not the registry. The registry defines wha
 
 **Cons:**
 - Each agent requires a translation layer in AgentRunner to map ToolSet to CLI flags
-- More configuration surface area — pipeline TOML files become more detailed
+- More configuration surface area: pipeline TOML files become more detailed
 - ToolSet fields (internal, mcp, permission) have different semantics per agent, which may confuse users
 
 **Risk Assessment:**
@@ -162,7 +162,7 @@ This translation lives in the runner, not the registry. The registry defines wha
 |---|---|---|
 | Technical | Low | ToolSet is a straightforward Pydantic model; translation to CLI flags is a simple conditional per agent |
 | Ecosystem | Medium | MCP tool naming conventions are not yet fully standardized; may need updates as MCP matures |
-| Adoption | Low | ToolSet is optional — existing pipelines work without it, adopting it is incremental |
+| Adoption | Low | ToolSet is optional: existing pipelines work without it, and adoption is incremental |
 
 **Trade-offs:**
 - We gain fine-grained, enforceable, configurable tool access per phase, accepting a per-agent translation layer and increased configuration surface
@@ -174,13 +174,13 @@ This translation lives in the runner, not the registry. The registry defines wha
 **Overview:** Keep the current approach where tools are assigned via `AgentConfig.flags[AgentMode]`. Each agent mode (PLAN, FIX, AUDIT, REVIEW) has a fixed set of CLI flags that include tool restrictions.
 
 **Pros:**
-- Simple — no new models or resolution logic
+- Simple: no new models or resolution logic
 - Already implemented (zero effort)
 - Agent modes are a natural categorization
 
 **Cons:**
-- Too coarse — cannot express "research phase with web tools" vs. "draft phase with write tools" when both use FIX mode
-- No MCP support — MCP tools cannot be assigned per phase
+- Too coarse: cannot express "research phase with web tools" vs. "draft phase with write tools" when both use FIX mode
+- No MCP support: MCP tools cannot be assigned per phase
 - Requires creating artificial agent modes to represent different tool sets (e.g., FIX_RESEARCH, FIX_WRITE, FIX_ART)
 - Mode proliferation would break the clean AgentMode enum
 
@@ -199,8 +199,8 @@ This translation lives in the runner, not the registry. The registry defines wha
 - No per-agent translation needed
 
 **Cons:**
-- Not enforceable — agents may ignore prompt instructions, especially under complex reasoning
-- No MCP tool control — prompt instructions cannot prevent an agent from calling an MCP server tool
+- Not enforceable: agents may ignore prompt instructions, especially under complex reasoning
+- No MCP tool control: prompt instructions cannot prevent an agent from calling an MCP server tool
 - Security-critical restrictions (read-only in audit phases) must be enforceable, not advisory
 - Claude Code's `--allowedTools` flag provides hard enforcement; prompt instructions do not
 
@@ -220,7 +220,7 @@ This translation lives in the runner, not the registry. The registry defines wha
 
 **Cons:**
 - Over-engineering for the current scale (5 agents, ~20 tools)
-- Tools are agent-specific — a "Read" tool in Claude is fundamentally different from file reading in Codex
+- Tools are agent-specific: a "Read" tool in Claude is fundamentally different from file reading in Codex
 - Adds a new component, new models, and new configuration surface for marginal benefit
 - Validation can be done simply by checking tool names against known lists, without a full registry
 
@@ -235,7 +235,7 @@ This translation lives in the runner, not the registry. The registry defines wha
 
 orchcore does **not** manage MCP server installation or lifecycle on agent CLIs. Consuming projects must ensure that any MCP servers referenced in `ToolSet.mcp` are pre-configured on the target agent CLI before pipeline execution. Each agent has its own MCP configuration mechanism:
 
-- **Claude**: Settings or project-level `.mcp.json` — orchcore controls access to already-configured MCP tools via `--allowedTools`.
+- **Claude**: Settings or project-level `.mcp.json`; orchcore controls access to already-configured MCP tools via `--allowedTools`.
 - **Codex**: `~/.codex/config.toml` `[mcp_servers.*]` sections or `codex mcp add` CLI command.
 - **Gemini**: Gemini CLI config file.
 - **OpenCode**: `opencode.json` `mcpServers` / `mcp` sections or `opencode mcp add` CLI command.
@@ -280,7 +280,7 @@ This is a deliberate design boundary: orchcore orchestrates agent invocations an
 
 ### Neutral
 
-- ToolSet is a simple Pydantic model with no complex behavior — it is purely a data container
+- ToolSet is a simple Pydantic model with no complex behavior: it is purely a data container
 - The resolution order (4 levels) is straightforward and follows the same pattern as orchcore's configuration layering (ADR-005)
 - Translation tables for 5 agents are manageable; each is a small conditional mapping
 
@@ -303,8 +303,8 @@ This is a deliberate design boundary: orchcore orchestrates agent invocations an
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — ToolSet is part of the orchestration core's data model
-- **ADR-007:** [Registry pattern for agent management](./007-registry-pattern-for-agent-management.md) — ToolSet complements the registry; registry defines what agents support, ToolSet defines what they are allowed to use per phase
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md): ToolSet is part of the orchestration core's data model
+- **ADR-007:** [Registry pattern for agent management](./007-registry-pattern-for-agent-management.md): ToolSet complements the registry; registry defines what agents support, ToolSet defines what they are allowed to use per phase
 
 ## References
 

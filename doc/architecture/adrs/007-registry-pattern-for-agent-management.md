@@ -29,11 +29,11 @@ superseded_by: []
 
 ## Status
 
-ACCEPTED — amended by [ADR-011](./011-consumer-defined-flag-profiles.md) (2026-07-02): the `AgentMode` enum referenced below was replaced by consumer-defined flag profile names (`AgentConfig.flags: dict[str, ...]`). Historical mentions of `AgentMode`/`flags[mode]` in this record are preserved as written.
+ACCEPTED, amended by [ADR-011](./011-consumer-defined-flag-profiles.md) (2026-07-02): the `AgentMode` enum referenced below was replaced by consumer-defined flag profile names (`AgentConfig.flags: dict[str, ...]`). Historical mentions of `AgentMode`/`flags[mode]` in this record are preserved as written.
 
 ## Context and Problem Statement
 
-orchcore must manage configurations for multiple AI coding agent CLIs — Claude Code, Codex, Gemini, Copilot, OpenCode — and support adding new agents as the ecosystem evolves. Each agent has a distinct binary name, model identifier, subcommand structure, mode-specific CLI flags, JSONL stream format, output extraction strategy, environment variable requirements, and timeout settings.
+orchcore must manage configurations for multiple AI coding agent CLIs (Claude Code, Codex, Gemini, Copilot, OpenCode) and support adding new agents as the ecosystem evolves. Each agent has a distinct binary name, model identifier, subcommand structure, mode-specific CLI flags, JSONL stream format, output extraction strategy, environment variable requirements, and timeout settings.
 
 The fundamental question is: how should orchcore represent and manage these per-agent configurations? The implementation handles three scenarios:
 1. Agents registered programmatically by consuming projects
@@ -109,7 +109,7 @@ jq_expression = ".content[0].text"
 - Complete TOML entries allow per-project customization without code changes
 - New agents can be added via TOML alone when they use a supported stream format
 - Central `get(name)` lookup used by Runner, Pipeline, and Stream
-- `AgentConfig` is a Pydantic model — type-safe with validation (ADR-006)
+- `AgentConfig` is a Pydantic model: type-safe with validation (ADR-006)
 - `list_agents()` exposes configured agents; `available()` reports which registered agent binaries are on `PATH`
 - `validate()` reports unknown or unavailable agent names before a pipeline run
 - `register()` enables programmatic registration for testing and dynamic workflows
@@ -118,7 +118,7 @@ jq_expression = ".content[0].text"
 **Cons:**
 - Consumers must provide at least one registration or TOML file before pipeline execution
 - New stream formats still require a parser implementation (TOML cannot add parsing logic)
-- Registry is a global-ish singleton per orchestration session — must be thread-safe (asyncio single-thread makes this moot)
+- Registry is a global-ish singleton per orchestration session: must be thread-safe (asyncio single-thread makes this moot)
 
 **Risk Assessment:**
 
@@ -143,9 +143,9 @@ jq_expression = ".content[0].text"
 - Can override behavior per agent (not just data)
 
 **Cons:**
-- Adding a new agent requires a new Python class — cannot be done via TOML
+- Adding a new agent requires a new Python class: cannot be done via TOML
 - Class proliferation: N agents = N classes + a factory/registry anyway
-- Conflates configuration (data) with behavior (code) — an agent's binary path and timeout are data, not behavior
+- Conflates configuration (data) with behavior (code): an agent's binary path and timeout are data, not behavior
 - Inheritance hierarchies tend to become rigid and hard to refactor
 - orchcore must release a new version for each new agent class
 
@@ -159,7 +159,7 @@ jq_expression = ".content[0].text"
 **Overview:** Agent configurations are distributed as Python entry points. orchcore discovers installed agent plugins at startup using `importlib.metadata`.
 
 **Pros:**
-- Maximum extensibility — third parties ship agent support as pip packages
+- Maximum extensibility: third parties ship agent support as pip packages
 - Clean separation between orchcore core and agent-specific code
 - Follows Python packaging conventions (entry points)
 
@@ -219,7 +219,7 @@ This separation means:
 
 - Core has no stale hardcoded agent defaults to maintain
 - Adding a new agent that uses a supported stream format requires only a complete TOML entry or programmatic registration
-- Overriding registered configs uses `with_overrides()` — no forking orchcore
+- Overriding registered configs uses `with_overrides()`: no forking orchcore
 - Central `get()` lookup provides single point of agent resolution for all components
 - `AgentConfig` Pydantic model validates configuration at load time
 - `list_agents()`, `available()`, and `validate()` enable tooling and user-facing agent discovery
@@ -233,7 +233,7 @@ This separation means:
 
 ### Neutral
 
-- Registry pattern is a well-understood design pattern — no learning curve
+- Registry pattern is a well-understood design pattern: no learning curve
 - Supported stream parsers cover the major AI coding agent CLIs, but registry data remains consumer-owned
 
 ## Validation and Monitoring
@@ -254,11 +254,11 @@ This separation means:
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — registry is a core component
-- **ADR-004:** [Composable stream pipeline](./004-composable-stream-processing-pipeline.md) — StreamFormat from registry drives parser selection
-- **ADR-005:** [Multi-source layered configuration](./005-multi-source-layered-configuration.md) — settings-level agent overrides can be applied with `with_overrides()`
-- **ADR-006:** [Pydantic for all data models](./006-pydantic-for-all-data-models.md) — AgentConfig is a Pydantic model
-- **ADR-009:** [Tool assignment as phase-level concern](./009-tool-assignment-as-phase-level-concern.md) — ToolSet complements registry by defining per-phase tool access
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md): registry is a core component
+- **ADR-004:** [Composable stream pipeline](./004-composable-stream-processing-pipeline.md): StreamFormat from registry drives parser selection
+- **ADR-005:** [Multi-source layered configuration](./005-multi-source-layered-configuration.md): settings-level agent overrides can be applied with `with_overrides()`
+- **ADR-006:** [Pydantic for all data models](./006-pydantic-for-all-data-models.md): AgentConfig is a Pydantic model
+- **ADR-009:** [Tool assignment as phase-level concern](./009-tool-assignment-as-phase-level-concern.md): ToolSet complements registry by defining per-phase tool access
 
 ## References
 

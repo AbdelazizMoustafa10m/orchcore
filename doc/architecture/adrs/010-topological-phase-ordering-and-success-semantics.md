@@ -30,8 +30,8 @@ ACCEPTED
 The documentation has always promised that `PipelineRunner` executes phases in
 "dependency (DAG) order". The implementation, however, iterated the given list
 order and silently *skipped* any phase whose `depends_on` had not completed
-yet: `[b(depends_on=a), a]` skipped `b`, ran `a`, and — because the success
-predicate counted `SKIPPED` as success — reported `success=True` for required
+yet: `[b(depends_on=a), a]` skipped `b`, ran `a`, and (because the success
+predicate counted `SKIPPED` as success) reported `success=True` for required
 work that never ran (Codex finding F10).
 
 There was also an asymmetry: an *optional* phase that failed flipped
@@ -48,7 +48,7 @@ not.
    phase runs first. Two corollaries consumers can rely on:
    - a declaration order that is already topologically valid is preserved
      verbatim;
-   - the output is deterministic — the lexicographically smallest valid order
+   - the output is deterministic: the lexicographically smallest valid order
      with respect to declaration indices.
 
    (A small Kahn implementation was chosen over `graphlib.TopologicalSorter`
@@ -61,7 +61,7 @@ not.
    not met" can only mean the dependency itself failed or was skipped. A
    **required** phase with unmet dependencies is recorded as `SKIPPED` with
    the existing reason, **fails the pipeline** (`success=False`), and stops
-   further execution — matching the required-phase failure rule. Optional
+   further execution, matching the required-phase failure rule. Optional
    phases keep skipping freely.
 
    | Phase kind | Outcome | Pipeline effect |
@@ -94,7 +94,7 @@ not.
   for ill-ordered lists, and `success` flips to `False` for pipelines that
   previously "succeeded" with dependency-skipped required phases.
 - `only_phase` targeting a phase with dependencies now fails the pipeline
-  unless those dependencies are satisfied from resume state — previously it
+  unless those dependencies are satisfied from resume state; previously it
   reported success without running anything.
 
 ### Neutral
@@ -104,15 +104,15 @@ not.
 
 ## Validation
 
-- `tests/test_pipeline/test_pipeline.py` — reordering, F10 regression
+- `tests/test_pipeline/test_pipeline.py`: reordering, F10 regression
   (`test_required_phase_dep_skip_fails_pipeline`), optional dep-skip,
   resume-satisfies-dependencies.
-- `tests/test_pipeline/test_pipeline_ordering_hypothesis.py` — property
+- `tests/test_pipeline/test_pipeline_ordering_hypothesis.py`: property
   tests: random DAGs produce a valid, declaration-stable order.
 
 ## Related Decisions
 
-- ADR-008 — failure modes and retry semantics at the phase level.
+- ADR-008: failure modes and retry semantics at the phase level.
 
 ## Document History
 

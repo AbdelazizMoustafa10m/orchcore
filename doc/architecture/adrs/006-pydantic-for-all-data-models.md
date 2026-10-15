@@ -35,14 +35,14 @@ orchcore has approximately 20 data structures that cross component boundaries: A
 In multi-agent orchestration, data integrity at component boundaries is critical. A misconfigured AgentConfig (wrong type for stall_timeout, missing binary path) causes a subprocess launch failure that manifests far from the misconfiguration. A malformed StreamEvent (wrong enum value, missing timestamp) causes the AgentMonitor state machine to enter an undefined state. A PhaseResult with an invalid status causes the PipelineRunner to make incorrect dependency decisions.
 
 In the four source systems:
-- **Planora** (Python): Uses Pydantic v2 for some models, but not consistently — some data flows use raw dicts
-- **Articles/Finvault/Raven** (Bash): No type safety — all data is untyped strings passed between functions
+- **Planora** (Python): Uses Pydantic v2 for some models, but not consistently; some data flows use raw dicts
+- **Articles/Finvault/Raven** (Bash): No type safety; all data is untyped strings passed between functions
 
 The lack of consistent type safety across the source systems has been a recurring source of bugs: wrong field names in dicts, missing fields silently defaulting to None, numeric strings not converted to integers, and invalid enum values passing through unchecked.
 
 ### Business Context
 
-- orchcore is critical infrastructure — bugs propagate to all consuming projects
+- orchcore is critical infrastructure: bugs propagate to all consuming projects
 - Multi-agent orchestration has subtle failure modes that are hard to debug without type safety
 - The Python ecosystem has converged on Pydantic v2 as the standard for data validation
 - mypy strict mode provides compile-time checking that catches type errors before runtime
@@ -85,7 +85,7 @@ The lack of consistent type safety across the source systems has been a recurrin
 | Risk Type | Level | Detail |
 |---|---|---|
 | Technical | Low | Pydantic v2 is stable and battle-tested |
-| Schedule | Low | Planora already uses Pydantic — patterns are established |
+| Schedule | Low | Planora already uses Pydantic, so the patterns are established |
 | Ecosystem | Low | Pydantic is the most widely used Python data library; not at risk of abandonment |
 
 **Trade-offs:**
@@ -186,7 +186,7 @@ The lack of consistent type safety across the source systems has been a recurrin
 
 - If Pydantic v3 introduces breaking changes that require significant migration effort
 - If a new Python stdlib mechanism provides runtime validation without external dependencies
-- If construction overhead becomes measurable (> 1ms per model in profiling) — extremely unlikely given orchcore's throughput
+- If construction overhead becomes measurable (> 1ms per model in profiling), which is extremely unlikely given orchcore's throughput
 - If mypy strict mode causes excessive friction for contributors (no sign of this with a single-developer project)
 
 ## Consequences
@@ -204,12 +204,12 @@ The lack of consistent type safety across the source systems has been a recurrin
 ### Negative
 
 - Pydantic v2 is a required dependency (mitigated: most Python projects already use Pydantic)
-- mypy strict mode requires explicit type annotations everywhere (mitigated: this is a feature, not a bug — it forces clear API design)
+- mypy strict mode requires explicit type annotations everywhere (mitigated: the annotations force clear API design)
 - Minor construction overhead (mitigated: ~1-5 microseconds per instance, negligible vs. subprocess execution time)
 
 ### Neutral
 
-- Pydantic is the de facto standard for Python data models — using it aligns with community expectations
+- Pydantic is the de facto standard for Python data models: using it aligns with community expectations
 - mypy strict mode is increasingly common in production Python packages
 
 ## Validation and Monitoring
@@ -227,9 +227,9 @@ The lack of consistent type safety across the source systems has been a recurrin
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — type safety is a key motivation for the Python package
-- **ADR-003:** [Protocol-based UI decoupling](./003-protocol-based-ui-decoupling.md) — UICallback parameters are Pydantic models
-- **ADR-005:** [Multi-source layered configuration](./005-multi-source-layered-configuration.md) — uses pydantic-settings (Pydantic ecosystem)
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md): type safety is a key motivation for the Python package
+- **ADR-003:** [Protocol-based UI decoupling](./003-protocol-based-ui-decoupling.md): UICallback parameters are Pydantic models
+- **ADR-005:** [Multi-source layered configuration](./005-multi-source-layered-configuration.md): uses pydantic-settings (Pydantic ecosystem)
 
 ## References
 
@@ -240,14 +240,14 @@ The lack of consistent type safety across the source systems has been a recurrin
 
 ## Errata
 
-- **2026-06-10 (WP-31):** Pydantic's `frozen=True` blocks attribute *assignment* only — nested
+- **2026-06-10 (WP-31):** Pydantic's `frozen=True` blocks attribute *assignment* only, so nested
   containers remained freely mutable (`agent.flags[mode].append(...)` succeeded, and
   `with_overrides()` shares unpatched configs by reference, so nested mutation was visible
   across registries). Load-bearing sequence fields on cross-boundary models are therefore
   tuples: `Phase.agents`, `Phase.depends_on`, `AgentConfig.flags` values,
   `ToolSet.internal`/`ToolSet.mcp`, and `RetryPolicy.backoff_schedule`. Pydantic coerces list
   inputs, so TOML/JSON loading is unaffected; tuples serialize as arrays. Dict fields
-  (`env_vars`, `agent_tools`, the outer `flags` mapping) remain shallow-mutable — this boundary
+  (`env_vars`, `agent_tools`, the outer `flags` mapping) remain shallow-mutable; this boundary
   is pinned as documented behavior by `tests/test_models_roundtrip.py`.
 
 ## Document History

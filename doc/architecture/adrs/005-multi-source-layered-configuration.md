@@ -30,7 +30,7 @@ ACCEPTED
 
 ## Context and Problem Statement
 
-orchcore needs a configuration system that satisfies multiple competing requirements. It must provide sensible zero-config defaults so that consuming projects work out of the box. It must support multiple configuration sources (TOML files, environment variables, CLI flags, .env files) with a clear priority chain. It must support named profiles (e.g., "fast" vs. "deep") that adjust multiple settings simultaneously. It must support per-agent overrides (e.g., a longer timeout for Claude than Codex). And it must be extensible — consuming projects need to add domain-specific fields without forking the configuration system.
+orchcore needs a configuration system that satisfies multiple competing requirements. It must provide sensible zero-config defaults so that consuming projects work out of the box. It must support multiple configuration sources (TOML files, environment variables, CLI flags, .env files) with a clear priority chain. It must support named profiles (e.g., "fast" vs. "deep") that adjust multiple settings simultaneously. It must support per-agent overrides (e.g., a longer timeout for Claude than Codex). And it must be extensible: consuming projects need to add domain-specific fields without forking the configuration system.
 
 In the four source systems:
 - **Planora** (Python): Uses pydantic-settings with env vars and a custom TOML loader. Domain fields (churn_threshold, min_reviewers) are mixed with infrastructure fields (concurrency, timeout).
@@ -77,7 +77,7 @@ The common pattern is clear: base defaults + env var overrides + optional file c
 
 **Pros:**
 - pydantic-settings provides multi-source resolution with configurable priority out of the box
-- Native TOML support (since pydantic-settings 2.7) — no custom loader needed
+- Native TOML support (since pydantic-settings 2.7): no custom loader needed
 - Type validation via Pydantic: invalid values produce clear error messages
 - Subclass extensibility: `class PlanoraSettings(orchcore.BaseSettings)` inherits all base fields and adds domain fields
 - Named profiles via TOML sections: `[profiles.fast]` merged programmatically
@@ -112,13 +112,13 @@ The common pattern is clear: base defaults + env var overrides + optional file c
 **Pros:**
 - No additional dependencies beyond stdlib
 - Full control over priority chain, merging, and validation logic
-- Simpler mental model — no framework abstractions to learn
+- Simpler mental model: no framework abstractions to learn
 
 **Cons:**
 - Significant implementation effort for multi-source resolution, type coercion, and validation
 - No automatic env var binding (must manually map `ORCHCORE_X` to settings fields)
 - No `.env` file support without additional code
-- No automatic type validation — must implement manually or use raw pydantic
+- No automatic type validation: must implement manually or use raw pydantic
 - Subclass extensibility requires custom metaclass or registry pattern
 - Bug-prone: custom config systems are a common source of subtle bugs
 
@@ -138,9 +138,9 @@ The common pattern is clear: base defaults + env var overrides + optional file c
 - Merging logic built-in
 
 **Cons:**
-- Does not integrate with Pydantic's type system — configuration values are dynamically typed
+- Does not integrate with Pydantic's type system: configuration values are dynamically typed
 - Large dependency surface (supports many backends we don't need)
-- No subclass extensibility pattern — consuming projects would need a different extension mechanism
+- No subclass extensibility pattern: consuming projects would need a different extension mechanism
 - Learning curve for dynaconf-specific patterns (settings objects, environments, loaders)
 - Redundant: pydantic-settings already covers orchcore's requirements with better type integration
 
@@ -205,7 +205,7 @@ The common pattern is clear: base defaults + env var overrides + optional file c
 
 ### Positive
 
-- Zero-config defaults work immediately — no configuration file required
+- Zero-config defaults work immediately: no configuration file required
 - Type-safe validation catches errors at startup with clear messages
 - Seven-level priority chain covers all deployment scenarios (local dev, CI, enterprise)
 - Subclass extensibility lets consuming projects add domain fields without forking
@@ -241,9 +241,9 @@ The common pattern is clear: base defaults + env var overrides + optional file c
 
 ## Related Decisions
 
-- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md) — configuration is a core component
-- **ADR-006:** [Use Pydantic for all data models](./006-pydantic-for-all-data-models.md) — settings use Pydantic validation
-- **ADR-007:** [Use registry pattern for agents](./007-registry-pattern-for-agent-management.md) — per-agent overrides come from config
+- **ADR-001:** [Extract reusable orchestration core](./001-extract-reusable-orchestration-core.md): configuration is a core component
+- **ADR-006:** [Use Pydantic for all data models](./006-pydantic-for-all-data-models.md): settings use Pydantic validation
+- **ADR-007:** [Use registry pattern for agents](./007-registry-pattern-for-agent-management.md): per-agent overrides come from config
 
 ## References
 
