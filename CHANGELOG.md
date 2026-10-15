@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.0.1](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v3.0.0...v3.0.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* **stream:** keep the agent event stream alive across stall-check timeouts ([#35](https://github.com/AbdelazizMoustafa10m/orchcore/issues/35)) ([9c54444](https://github.com/AbdelazizMoustafa10m/orchcore/commit/9c54444038b2d2a55167bb90d6b9e13b34647962))
+
+
+### CI/CD
+
+* publish metadata 2.5 artifacts and allow republishing a tag ([0fc2b96](https://github.com/AbdelazizMoustafa10m/orchcore/commit/0fc2b968182d9b6b11bbe9e96e9ac0081dca15da))
+
 ## [3.0.0](https://github.com/AbdelazizMoustafa10m/orchcore/compare/v2.0.1...v3.0.0) (2026-10-14)
 
 
